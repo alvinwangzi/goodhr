@@ -1,0 +1,1039 @@
+/** 本文件负责新版后台身份、悬浮布局、分类菜单、顶部状态和全局消息。 */
+"use client";
+
+import AdminPanelSettingsRoundedIcon from "@mui/icons-material/AdminPanelSettingsRounded";
+import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
+import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
+import CreditCardRoundedIcon from "@mui/icons-material/CreditCardRounded";
+import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import EmailRoundedIcon from "@mui/icons-material/EmailRounded";
+import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
+import HelpRoundedIcon from "@mui/icons-material/HelpRounded";
+import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
+import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
+import PaletteRoundedIcon from "@mui/icons-material/PaletteRounded";
+import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
+import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
+import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
+import SensorsRoundedIcon from "@mui/icons-material/SensorsRounded";
+import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
+import {
+  Alert,
+  AppBar,
+  Box,
+  Button,
+  CircularProgress,
+  Drawer,
+  IconButton,
+  Paper,
+  Snackbar,
+  Stack,
+  Toolbar,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import BrandMark from "@/components/BrandMark";
+import { useMembershipTheme } from "@/app/providers";
+import { resolveMembershipTheme } from "@/app/theme";
+import { TOKEN_KEY } from "@/lib/api";
+import {
+  APIRequestError,
+  bindDetectedLocalAgent,
+  captureLocalAgentPortFromURL,
+  cloudRequest,
+  detectLocalAgent,
+  formatDate,
+  localRequest,
+  openLocalPage,
+} from "@/lib/admin-api";
+import { requiredRuntimeComponents } from "@/lib/admin-runtime";
+import {
+  EMPTY_SUBSCRIPTION,
+  normalizeSubscription,
+  type SubscriptionStatus,
+} from "@/lib/subscription";
+import { reportUserFlow } from "@/lib/user-flow";
+import AdminDialog from "./AdminDialog";
+import AdminSystemDialogs from "./AdminSystemDialogs";
+import ChoiceCards from "./ChoiceCards";
+import ClickableImagePreview from "./ClickableImagePreview";
+import RequiredRuntimeInstaller from "./RequiredRuntimeInstaller";
+
+type AdminContextValue = {
+  user: any;
+  subscription: SubscriptionStatus;
+  appConfig: any;
+  onboardingConfig: any;
+  agentBase: string;
+  refreshAgent: () => Promise<void>;
+  refreshSession: () => Promise<void>;
+  notify: (
+    message: string,
+    severity?: "success" | "error" | "warning" | "info",
+  ) => void;
+  confirm: (title: string, message: string) => Promise<boolean>;
+};
+
+type MenuItem = readonly [string, string, typeof DashboardRoundedIcon];
+type MenuGroup = {
+  label: string;
+  items: readonly MenuItem[];
+  superOnly?: boolean;
+};
+
+const AdminContext = createContext<AdminContextValue | null>(null);
+const drawerWidth = 248;
+const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
+const LOCAL_AGENT_PERMISSION_IMAGE_SRC =
+  "/assets/help/local-agent-device-app-permission.png";
+const topStatusButtonSx = {
+  minHeight: 38,
+  height: 38,
+  px: 1.6,
+  borderRadius: "999px",
+  flexShrink: 0,
+  whiteSpace: "nowrap",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const menuGroups: MenuGroup[] = [
+  { label: "工作台", items: [["/admin", "控制台", DashboardRoundedIcon]] },
+  {
+    label: "招聘管理",
+    items: [
+      ["/admin/positions", "岗位管理", WorkRoundedIcon],
+      ["/admin/resumes", "简历库", ArticleRoundedIcon],
+    ],
+  },
+  {
+    label: "团队与账户",
+    items: [
+      ["/admin/team", "团队管理", GroupRoundedIcon],
+      ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
+      ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
+      ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
+    ],
+  },
+  {
+    label: "本地与帮助",
+    items: [
+      ["/admin/agent-download", "组件信息", DownloadRoundedIcon],
+      ["/admin/help", "常见问题", HelpRoundedIcon],
+    ],
+  },
+  {
+    label: "系统管理",
+    superOnly: true,
+    items: [
+      ["/admin/users", "用户管理", PersonRoundedIcon],
+      ["/admin/mail", "邮件群发", EmailRoundedIcon],
+      ["/admin/activation-codes", "激活码管理", AdminPanelSettingsRoundedIcon],
+      ["/admin/payment-records", "支付记录", PaidRoundedIcon],
+      ["/admin/system-config", "系统配置", SettingsRoundedIcon],
+    ],
+  },
+];
+
+/** useAdmin 返回后台全局状态和统一交互方法。 */
+export function useAdmin() {
+  const value = useContext(AdminContext);
+  if (!value) throw new Error("后台上下文尚未初始化");
+  return value;
+}
+
+/** AdminBanners 展示后台全局常驻广告位，最多显示三条。 */
+function AdminBanners({ appConfig }: { appConfig: any }) {
+  const source = Array.isArray(appConfig?.admin_banners)
+    ? appConfig.admin_banners
+    : [appConfig?.admin_banner];
+  const banners = source
+    .filter(
+      (item: any) => item?.enabled !== false && String(item?.text || "").trim(),
+    )
+    .slice(0, 3);
+  if (!banners.length) return null;
+  return (
+    <Box
+      sx={{
+        mb: 1.5,
+        mx: { xs: 1, md: 0 },
+        display: "grid",
+        gridTemplateColumns: {
+          xs: "1fr",
+          md: `repeat(${banners.length}, minmax(0, 1fr))`,
+        },
+        gap: 1,
+      }}
+    >
+      {banners.map((banner: any, index: number) => (
+        <Box
+          key={`${banner.text}-${index}`}
+          onClick={() => openExternalURL(banner.url)}
+          sx={{
+            minHeight: 46,
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            px: { xs: 1.5, md: 2 },
+            py: 1.15,
+            borderRadius: "8px",
+            bgcolor: banner.background_color || "#fff7df",
+            color: banner.text_color || "#6b4a00",
+            fontSize: 13,
+            fontWeight: 720,
+            lineHeight: 1.7,
+            cursor: banner.url ? "pointer" : "default",
+            border: "1px solid rgba(107, 74, 0, .12)",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {banner.text}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+/** openExternalURL 新开页面打开配置里的外部链接。 */
+function openExternalURL(url?: string) {
+  const value = String(url || "").trim();
+  if (value) window.open(value, "_blank", "noopener,noreferrer");
+}
+
+/** formatAIBalance 格式化顶部栏 AI 余额。 */
+function formatAIBalance(wallet: any) {
+  return `￥${String(wallet?.balance || "0.00")}`;
+}
+
+/** AdminApp 输出后台悬浮三卡布局并完成用户身份校验。 */
+export default function AdminApp({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { membershipTheme, setMembershipTheme } = useMembershipTheme();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [subscription, setSubscription] =
+    useState<SubscriptionStatus>(EMPTY_SUBSCRIPTION);
+  const [aiWallet, setAIWallet] = useState<any>({});
+  const [appConfig, setAppConfig] = useState<any>({});
+  const [onboardingConfig, setOnboardingConfig] = useState<any>({});
+  const [agentBase, setAgentBase] = useState("");
+  const [agentVersion, setAgentVersion] = useState("");
+  const [agentDetected, setAgentDetected] = useState(false);
+  const [deviceBindingError, setDeviceBindingError] = useState("");
+  const agentBaseRef = useRef("");
+  const initialPath = useRef(pathname);
+  const agentChecking = useRef(false);
+  const [notice, setNotice] = useState({
+    open: false,
+    message: "",
+    severity: "info" as "success" | "error" | "warning" | "info",
+  });
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    resolve?: (value: boolean) => void;
+  }>({ open: false, title: "", message: "" });
+  const [trialWelcomeOpen, setTrialWelcomeOpen] = useState(false);
+  const [teamInvitations, setTeamInvitations] = useState<any[]>([]);
+  const [teamInvitationLoading, setTeamInvitationLoading] = useState(false);
+  const [localAgentInstallNoticeClosed, setLocalAgentInstallNoticeClosed] =
+    useState(false);
+  const localAgentInstallNoticeOpen = Boolean(
+    user &&
+    !loading &&
+    teamInvitations.length === 0 &&
+    !trialWelcomeOpen &&
+    !deviceBindingError &&
+    agentDetected &&
+    !agentBase &&
+    !localAgentInstallNoticeClosed,
+  );
+
+  /** refreshAgent 重新探测本地程序。 */
+  const refreshAgent = useCallback(async () => {
+    if (agentChecking.current) return;
+    agentChecking.current = true;
+    try {
+      const nextBase = await detectLocalAgent(agentBaseRef.current);
+      if (!nextBase) {
+        agentBaseRef.current = "";
+        setAgentBase("");
+        setAgentVersion("");
+        return;
+      }
+      agentBaseRef.current = nextBase;
+      setAgentBase(nextBase);
+      setAgentVersion("");
+      try {
+        await bindDetectedLocalAgent(nextBase);
+        setDeviceBindingError("");
+      } catch (error) {
+        if (
+          error instanceof APIRequestError &&
+          error.code === "DEVICE_ALREADY_BOUND"
+        ) {
+          agentBaseRef.current = "";
+          setAgentBase("");
+          setAgentVersion("");
+          setDeviceBindingError(error.message);
+          return;
+        }
+        throw error;
+      }
+      void reportUserFlow({ step: "agent_detected", source: "frontend_agent_probe" });
+      const [runtimeResult, healthResult] = await Promise.allSettled([
+        localRequest(nextBase, "/api/v1/runtime/status"),
+        localRequest(nextBase, "/health"),
+      ]);
+      if (healthResult.status === "fulfilled") {
+        const health = healthResult.value;
+        setAgentVersion(
+          String(
+            health?.version || health?.agent_version || "",
+          ),
+        );
+      }
+      if (runtimeResult.status === "fulfilled") {
+        const runtime = runtimeResult.value;
+        const missing = requiredRuntimeComponents(runtime).filter((item) => !item.installed);
+        void reportUserFlow(missing.length ? {
+          step: "runtime_ready", status: "blocked", reason_code: "runtime_missing",
+          message: `缺少运行组件：${missing.map((item) => item.name).join("、")}`,
+          source: "frontend_agent_probe",
+        } : { step: "runtime_ready", source: "frontend_agent_probe" });
+      } else {
+        void reportUserFlow({ step: "runtime_ready", status: "blocked", reason_code: "runtime_status_unavailable", message: "运行组件状态读取失败", source: "frontend_agent_probe" });
+      }
+    } finally {
+      setAgentDetected(true);
+      agentChecking.current = false;
+    }
+  }, []);
+
+  /** notify 显示统一右上角轻提示。 */
+  const notify = useCallback(
+    (
+      message: string,
+      severity: "success" | "error" | "warning" | "info" = "info",
+    ) => {
+      setNotice({ open: true, message, severity });
+    },
+    [],
+  );
+
+  /** openBingBrowser 通过本地程序打开浏览器并导航到必应。 */
+  const openBingBrowser = useCallback(async () => {
+    let baseURL = agentBaseRef.current || agentBase;
+    if (!baseURL) {
+      baseURL = await detectLocalAgent(agentBaseRef.current);
+    }
+    if (!baseURL) {
+      notify("我没叫醒本地程序，你先确认它开着，再点我一次。", "warning");
+      return;
+    }
+
+    const browserPayload = {
+      persistent: true,
+      user_data_dir: "default",
+      headless: false,
+      humanize: true,
+    };
+
+    try {
+      agentBaseRef.current = baseURL;
+      setAgentBase(baseURL);
+      await openLocalPage(baseURL, {
+        ...browserPayload,
+        url: "https://www.bing.com",
+      });
+      notify("浏览器已打开，我已经把它带到必应了。", "success");
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "浏览器没打开成功，我再小声努力一次也行。",
+        "error",
+      );
+    }
+  }, [agentBase, notify]);
+
+  /** confirm 显示需要用户确认的中间弹框。 */
+  const confirm = useCallback(
+    (title: string, message: string) =>
+      new Promise<boolean>((resolve) =>
+        setConfirmState({ open: true, title, message, resolve }),
+      ),
+    [],
+  );
+
+  /** closeConfirm 关闭确认弹框并返回选择结果。 */
+  function closeConfirm(value: boolean) {
+    confirmState.resolve?.(value);
+    setConfirmState({ open: false, title: "", message: "" });
+  }
+
+  /** ackTrialWelcome 确认新用户试用会员到账提醒。 */
+  async function ackTrialWelcome() {
+    const welcomeKey = `goodhr_trial_welcome_${user?.email || ""}`;
+    localStorage.setItem(welcomeKey, "1");
+    setTrialWelcomeOpen(false);
+    try {
+      await cloudRequest("/api/auth/trial-welcome/ack", { method: "POST" });
+    } catch {
+      notify("体验提醒已关闭，确认状态稍后会再同步。", "info");
+    }
+  }
+
+  /** acceptTeamInvitation 接受当前团队邀请并刷新账号所属团队。 */
+  async function acceptTeamInvitation() {
+    const invitation = teamInvitations[0];
+    if (!invitation || teamInvitationLoading) return;
+    setTeamInvitationLoading(true);
+    try {
+      await cloudRequest(
+        `/api/tenants/invitations/${encodeURIComponent(invitation.id)}/accept`,
+        { method: "POST" },
+      );
+      setTeamInvitations((items) => items.slice(1));
+      await refreshSession();
+      router.refresh();
+      notify("已经加入团队，岗位和简历也搬好了。我这次没敢偷懒。", "success");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "团队暂时没加入成功，请稍后再试",
+        "error",
+      );
+    } finally {
+      setTeamInvitationLoading(false);
+    }
+  }
+
+  /** rejectTeamInvitation 拒绝当前邀请，拒绝后管理员仍可重新邀请。 */
+  async function rejectTeamInvitation() {
+    const invitation = teamInvitations[0];
+    if (!invitation || teamInvitationLoading) return;
+    setTeamInvitationLoading(true);
+    try {
+      await cloudRequest(
+        `/api/tenants/invitations/${encodeURIComponent(invitation.id)}/reject`,
+        { method: "POST" },
+      );
+      setTeamInvitations((items) => items.slice(1));
+      notify("这次先不加入也没关系，我已经替你婉拒了。", "info");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "邀请暂时没处理成功，请稍后再试",
+        "error",
+      );
+    } finally {
+      setTeamInvitationLoading(false);
+    }
+  }
+
+  /** refreshSession 刷新用户、会员和系统公共配置。 */
+  const refreshSession = useCallback(async () => {
+    const results = await Promise.allSettled([
+      cloudRequest("/api/auth/me"),
+      cloudRequest("/api/subscription/status"),
+      cloudRequest("/api/system/app-config", { auth: false }),
+      cloudRequest("/api/runtime/config"),
+      cloudRequest("/api/ai-wallet"),
+      cloudRequest("/api/tenants/invitations/pending"),
+    ]);
+    const authResult = results[0];
+    if (authResult.status === "rejected") throw authResult.reason;
+    const authPayload = authResult.value;
+    const nextUser = authPayload.user || authPayload;
+    setUser(nextUser);
+    const welcomeKey = `goodhr_trial_welcome_${nextUser?.email || ""}`;
+    setTrialWelcomeOpen(
+      Boolean(authPayload.show_trial_welcome) &&
+        !localStorage.getItem(welcomeKey),
+    );
+    if (results[1].status === "fulfilled") {
+      const nextSubscription = normalizeSubscription(
+        results[1].value.subscription || {},
+      );
+      setSubscription(nextSubscription);
+      setMembershipTheme(
+        resolveMembershipTheme(
+          nextSubscription.active,
+          nextSubscription.member_type,
+        ),
+      );
+    }
+    if (results[4].status === "fulfilled")
+      setAIWallet(results[4].value.wallet || results[4].value || {});
+    if (results[5].status === "fulfilled")
+      setTeamInvitations(
+        Array.isArray(results[5].value.invitations)
+          ? results[5].value.invitations
+          : [],
+      );
+    if (results[2].status === "fulfilled") {
+      const payload = results[2].value;
+      setAppConfig(payload.config || payload.app_config || payload || {});
+    }
+    if (results[3].status === "fulfilled") {
+      setOnboardingConfig(results[3].value.config || {});
+    }
+  }, [setMembershipTheme]);
+
+  useEffect(() => {
+    let active = true;
+    captureLocalAgentPortFromURL();
+    const token = localStorage.getItem(TOKEN_KEY) || "";
+    if (!token) {
+      router.replace(`/login?next=${encodeURIComponent(initialPath.current)}`);
+      return () => {
+        active = false;
+      };
+    }
+    Promise.all([refreshSession(), refreshAgent()])
+      .catch(() => {
+        if (!localStorage.getItem(TOKEN_KEY)) {
+          router.replace("/login");
+          return;
+        }
+        notify("后台初始化失败，请检查网络后刷新页面", "error");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [notify, refreshAgent, refreshSession, router]);
+
+  const contextValue = useMemo(
+    () => ({
+      user,
+      subscription,
+      appConfig,
+      onboardingConfig,
+      agentBase,
+      refreshAgent,
+      refreshSession,
+      notify,
+      confirm,
+    }),
+    [
+      user,
+      subscription,
+      appConfig,
+      onboardingConfig,
+      agentBase,
+      refreshAgent,
+      refreshSession,
+      notify,
+      confirm,
+    ],
+  );
+  const visibleGroups = menuGroups.filter(
+    (group) => !group.superOnly || user?.role === "super_admin",
+  );
+
+  /** logout 清除登录状态并返回登录页。 */
+  function logout() {
+    localStorage.removeItem(TOKEN_KEY);
+    setMembershipTheme("free");
+    router.replace("/login");
+  }
+
+  const drawer = (
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <Box sx={{ px: 2.25, py: 2.25 }}>
+        <BrandMark />
+      </Box>
+      <Box component="nav" sx={{ flex: 1, px: 1.25, pb: 2, overflowY: "auto" }}>
+        {visibleGroups.map((group) => (
+          <Box key={group.label} sx={{ mt: 1.25 }}>
+            <Typography
+              sx={{
+                px: 1.5,
+                mb: 0.5,
+                color: "text.secondary",
+                fontSize: 11,
+                fontWeight: 760,
+              }}
+            >
+              {group.label}
+            </Typography>
+            <Stack spacing={0.35}>
+              {group.items.map(([href, label, Icon]) => {
+                const active =
+                  href === "/admin"
+                    ? pathname === href
+                    : pathname.startsWith(href);
+                return (
+                  <Button
+                    key={href}
+                    component={Link}
+                    href={href}
+                    startIcon={<Icon />}
+                    onClick={() => setMobileOpen(false)}
+                    sx={{
+                      justifyContent: "flex-start",
+                      minHeight: 40,
+                      px: 1.5,
+                      borderRadius: "8px",
+                      color: active ? "primary.dark" : "text.secondary",
+                      bgcolor: active ? "action.selected" : "transparent",
+                      "& .MuiButton-startIcon": {
+                        color: active ? "primary.main" : "text.disabled",
+                      },
+                      "&:hover": {
+                        color: active ? "primary.dark" : "text.primary",
+                        bgcolor: active ? "action.selected" : "action.hover",
+                      },
+                    }}
+                  >
+                    {label}
+                  </Button>
+                );
+              })}
+            </Stack>
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ p: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
+        <Button
+          startIcon={<LogoutRoundedIcon />}
+          onClick={logout}
+          fullWidth
+          sx={{
+            justifyContent: "flex-start",
+            borderRadius: "8px",
+            color: "text.secondary",
+            "& .MuiButton-startIcon": { color: "text.disabled" },
+          }}
+        >
+          退出登录
+        </Button>
+      </Box>
+    </Box>
+  );
+
+  if (loading)
+    return (
+      <Box sx={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
+        <CircularProgress />
+      </Box>
+    );
+
+  return (
+    <AdminContext.Provider value={contextValue}>
+      <Box
+        data-admin-root
+        sx={{
+          minHeight: "100vh",
+          bgcolor: "background.default",
+          p: { xs: 0, md: 2 },
+          "& .MuiButton-root": { minHeight: 38, px: 1.75 },
+          "& .MuiIconButton-root": { width: 38, height: 38 },
+          "& .MuiOutlinedInput-root": { minHeight: 46, borderRadius: "8px" },
+          "& .MuiOutlinedInput-root.MuiInputBase-multiline": {
+            minHeight: "unset",
+          },
+          "& .MuiInputLabel-root": { fontSize: 14 },
+        }}
+      >
+        <Paper
+          component="aside"
+          elevation={0}
+          sx={{
+            display: { xs: "none", md: "block" },
+            width: drawerWidth,
+            position: "fixed",
+            inset: "16px auto 16px 16px",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: "8px",
+            boxShadow: "0 16px 42px rgba(17,17,17,.08)",
+            overflow: "hidden",
+            zIndex: 1200,
+          }}
+        >
+          {drawer}
+        </Paper>
+        <Drawer
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          sx={{
+            display: { md: "none" },
+            "& .MuiDrawer-paper": { width: drawerWidth },
+          }}
+        >
+          {drawer}
+        </Drawer>
+        <AppBar
+          position="fixed"
+          color="inherit"
+          elevation={0}
+          sx={{
+            top: { xs: 0, md: 16 },
+            left: { md: drawerWidth + 32 },
+            right: { md: 16 },
+            width: { xs: "100%", md: `calc(100% - ${drawerWidth + 48}px)` },
+            border: 0,
+            borderRadius: { xs: 0, md: "8px" },
+            boxShadow: "0 12px 34px rgba(17,17,17,.07)",
+            overflow: "hidden",
+          }}
+        >
+          <Toolbar sx={{ minHeight: { xs: 64, md: 70 }, gap: 1.25 }}>
+            <IconButton
+              aria-label="打开菜单"
+              onClick={() => setMobileOpen(true)}
+              sx={{ display: { md: "none" } }}
+            >
+              <MenuRoundedIcon />
+            </IconButton>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography noWrap sx={{ fontWeight: 780 }}>
+                {user?.email || "GoodHR 控制台"}
+              </Typography>
+              <Typography noWrap sx={{ color: "text.secondary", fontSize: 12 }}>
+                {user?.role_label ||
+                  (user?.role === "super_admin" ? "超级管理员" : "用户")}
+              </Typography>
+            </Box>
+            <Button
+              variant="outlined"
+              startIcon={
+                <Box
+                  component="img"
+                  src={CHROMIUM_ICON_SRC}
+                  alt=""
+                  sx={{ width: 18, height: 18, display: "block" }}
+                />
+              }
+              onClick={() => void openBingBrowser()}
+              sx={{
+                ...topStatusButtonSx,
+                display: { xs: "none", sm: "inline-flex" },
+              }}
+            >
+              打开浏览器
+            </Button>
+            <Tooltip title="打开浏览器">
+              <IconButton
+                aria-label="打开浏览器"
+                onClick={() => void openBingBrowser()}
+                sx={{
+                  display: { xs: "inline-flex", sm: "none" },
+                  bgcolor: "action.hover",
+                }}
+              >
+                <Box
+                  component="img"
+                  src={CHROMIUM_ICON_SRC}
+                  alt=""
+                  sx={{ width: 22, height: 22, display: "block" }}
+                />
+              </IconButton>
+            </Tooltip>
+            <Button
+              component={Link}
+              href="/videos"
+              variant="contained"
+              startIcon={<PlayCircleRoundedIcon />}
+              sx={{
+                ...topStatusButtonSx,
+                display: { xs: "none", sm: "inline-flex" },
+                boxShadow: "0 8px 20px rgba(17,17,17,.14)",
+              }}
+            >
+              视频教程
+            </Button>
+            <Tooltip title="视频教程">
+              <IconButton
+                component={Link}
+                href="/videos"
+                aria-label="视频教程"
+                color="primary"
+                sx={{
+                  display: { xs: "inline-flex", sm: "none" },
+                  bgcolor: "action.selected",
+                }}
+              >
+                <PlayCircleRoundedIcon />
+              </IconButton>
+            </Tooltip>
+            <Button
+              variant="outlined"
+              color={subscription.active ? "primary" : "warning"}
+              startIcon={<CalendarMonthRoundedIcon />}
+              onClick={() => router.push("/admin/subscription")}
+              sx={{
+                ...topStatusButtonSx,
+                display: { xs: "none", lg: "inline-flex" },
+                px: 1.15,
+                fontSize: 12.5,
+              }}
+            >
+              {subscription.active
+                ? `${subscription.member_name} · 剩${subscription.remaining_days}天 · AI余额 ${formatAIBalance(aiWallet)}`
+                : `${subscription.expires_at ? `已过期 ${formatDate(subscription.expires_at)}` : "未开通"} · AI余额 ${formatAIBalance(aiWallet)}`}
+            </Button>
+            <Button
+              color={agentBase ? "success" : "error"}
+              variant="outlined"
+              startIcon={<SensorsRoundedIcon />}
+              onClick={() => void refreshAgent()}
+              sx={{
+                ...topStatusButtonSx,
+                display: { xs: "none", sm: "inline-flex" },
+              }}
+            >
+              {agentBase
+                ? agentBase.replace(
+                    "http://127.0.0.1:",
+                    `${agentVersion || "--"} · 端口 `,
+                  )
+                : "本地程序未连接"}
+            </Button>
+            <Tooltip title="选择主题">
+              <IconButton
+                aria-label="选择主题"
+                onClick={() => setThemeOpen(true)}
+              >
+                <PaletteRoundedIcon />
+              </IconButton>
+            </Tooltip>
+          </Toolbar>
+        </AppBar>
+        <Box
+          component="main"
+          sx={{
+            ml: { md: `${drawerWidth + 16}px` },
+            pt: { xs: "80px", md: "86px" },
+            height: { xs: "100vh", md: "calc(100vh - 32px)" },
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <AdminBanners appConfig={appConfig} />
+          <Paper
+            elevation={0}
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              p: { xs: 2, md: 3 },
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: { xs: "8px 8px 0 0", md: "8px" },
+              boxShadow: "0 16px 42px rgba(17,17,17,.06)",
+              overflow: "auto",
+            }}
+          >
+            {children}
+          </Paper>
+        </Box>
+        <Snackbar
+          open={notice.open}
+          autoHideDuration={3000}
+          onClose={() => setNotice((value) => ({ ...value, open: false }))}
+          anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        >
+          <Alert severity={notice.severity} variant="filled">
+            {notice.message}
+          </Alert>
+        </Snackbar>
+        <AdminDialog
+          open={trialWelcomeOpen && teamInvitations.length === 0}
+          title={`${subscription.member_name || "Max 全能体验版"}已到账`}
+          confirmText="我知道了"
+          showCancel={false}
+          onClose={() => void ackTrialWelcome()}
+          onConfirm={() => void ackTrialWelcome()}
+        >
+          <Stack spacing={1.25}>
+            <Typography color="text.secondary">
+              赠送的 {subscription.remaining_days || 3} 天{" "}
+              {subscription.member_name || "Max 全能版"}
+              已到账。支持：
+              {subscription.features.length
+                ? subscription.features.join("、")
+                : "AI 筛选、自动打招呼和自动回复"}
+              。
+            </Typography>
+            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+              到期时间：{formatDate(subscription.expires_at) || "--"}。到期后可以续费，也可以继续使用免费版。
+            </Typography>
+          </Stack>
+        </AdminDialog>{" "}
+        <AdminDialog
+          open={teamInvitations.length > 0}
+          title="有人想拉你进团队"
+          description="这次得你亲自点头，我不敢擅自替你答应。"
+          confirmText="同意加入"
+          showCancel={false}
+          hideClose
+          loading={teamInvitationLoading}
+          loadingText="正在搬家"
+          onClose={() => undefined}
+          onConfirm={() => void acceptTeamInvitation()}
+          extraActions={
+            <Button
+              color="secondary"
+              disabled={teamInvitationLoading}
+              onClick={() => void rejectTeamInvitation()}
+            >
+              拒绝邀请
+            </Button>
+          }
+        >
+          <Stack spacing={1.5}>
+            <Box
+              sx={{
+                p: 2,
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: "8px",
+                bgcolor: "action.hover",
+              }}
+            >
+              <Typography sx={{ fontWeight: 780, overflowWrap: "anywhere" }}>
+                {teamInvitations[0]?.tenant_name ||
+                  `${teamInvitations[0]?.tenant_owner || "对方"} 的团队`}
+              </Typography>
+              <Typography
+                sx={{ mt: 0.75, color: "text.secondary", fontSize: 13, overflowWrap: "anywhere" }}
+              >
+                邀请人：{teamInvitations[0]?.invited_by_email || "团队管理员"} ·
+                加入后身份：
+                {teamInvitations[0]?.role === "admin" ? "团队管理员" : "普通成员"}
+              </Typography>
+            </Box>
+            <Alert severity="warning" variant="outlined">
+              同意后，你现在的岗位、简历和平台账号会一起搬进这个团队，简历也会进入团队统一管理范围。如果你当前还有岗位在运行，我会先拦一下，请停掉后再加入。
+            </Alert>
+          </Stack>
+        </AdminDialog>
+        <AdminDialog
+          open={Boolean(deviceBindingError) && !trialWelcomeOpen && teamInvitations.length === 0}
+          title="这台电脑已经有账号了"
+          description="为了避免重复领取体验会员，一台电脑同一时间只能绑定一个 GoodHR 账号。"
+          confirmText="退出当前账号"
+          showCancel={false}
+          hideClose
+          onClose={() => undefined}
+          onConfirm={logout}
+        >
+          <Typography color="text.secondary">{deviceBindingError}</Typography>
+        </AdminDialog>
+        <AdminDialog
+          open={localAgentInstallNoticeOpen}
+          title="请先安装本地程序"
+          confirmText="去安装"
+          showCancel={false}
+          onClose={() => setLocalAgentInstallNoticeClosed(true)}
+          onConfirm={() => router.push("/download")}
+        >
+          <Stack spacing={2}>
+            <Typography color="text.secondary">
+              如果您是首次使用，请先安装本地程序。如果您已经安装，请尝试双击桌面上的图标。
+            </Typography>
+            <Box
+              sx={{
+                p: 1.5,
+                border: "1px solid",
+                borderColor: "warning.light",
+                borderRadius: "8px",
+                bgcolor: "#fffaf0",
+              }}
+            >
+              <Typography sx={{ fontWeight: 760 }}>
+                本地程序开着，还是连不上？
+              </Typography>
+              <Typography
+                sx={{ mt: 0.75, mb: 1.5, color: "text.secondary", fontSize: 13 }}
+              >
+                也可能是浏览器没有允许“设备上的应用”。点击地址栏左侧的网站设置按钮，打开“设备上的应用”开关后再试。
+              </Typography>
+              <ClickableImagePreview
+                src={LOCAL_AGENT_PERMISSION_IMAGE_SRC}
+                alt="Chrome 设备上的应用权限开关位置"
+              />
+            </Box>
+          </Stack>
+        </AdminDialog>
+        <RequiredRuntimeInstaller
+          agentBase={agentBase}
+          onboardingConfig={onboardingConfig}
+          notify={notify}
+        />
+        <AdminSystemDialogs
+          appConfig={appConfig}
+          onboardingConfig={onboardingConfig}
+          agentBase={agentBase}
+          refreshAgent={refreshAgent}
+        />
+        <AdminDialog
+          open={confirmState.open}
+          title={confirmState.title}
+          confirmText="确认"
+          onClose={() => closeConfirm(false)}
+          onConfirm={() => closeConfirm(true)}
+        >
+          <Typography color="text.secondary">{confirmState.message}</Typography>
+        </AdminDialog>
+        <AdminDialog
+          open={themeOpen}
+          title="当前会员主题"
+          description="主题会按当前有效会员自动匹配，这里只负责展示，暂时不能手动修改。"
+          confirmText="知道了"
+          onClose={() => setThemeOpen(false)}
+          onConfirm={() => setThemeOpen(false)}
+        >
+          <ChoiceCards
+            label="会员主题"
+            value={membershipTheme}
+            columns={3}
+            readOnly
+            onChange={() => undefined}
+            options={[
+              {
+                value: "free",
+                label: "免费版 · 松绿色",
+                description: "默认主题，安静清晰，久看也不累。",
+              },
+              {
+                value: "plus",
+                label: "Plus · 深墨黑",
+                description: "克制稳重，用黑色标记重点内容。",
+              },
+              {
+                value: "max",
+                label: "Max · 黑金色",
+                description: "低调黑金，只在重点位置使用金色。",
+              },
+            ]}
+          />
+        </AdminDialog>
+      </Box>
+    </AdminContext.Provider>
+  );
+}

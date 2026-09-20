@@ -1,0 +1,29 @@
+// Package zhaopin 文件作用：实现智联打招呼后的电话、微信、简历和追加消息动作。
+package zhaopin
+
+import (
+	"context"
+
+	"goodhr5/local-agent-go-new/internal/platform/common"
+	"goodhr5/local-agent-go-new/internal/platform/model"
+)
+
+// EnsureCandidateConversation 打开或复用智联当前候选人的聊天框。
+func (r *Runtime) EnsureCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate) error {
+	return common.EnsureCandidateConversationFromCard(ctx, browser, cfg, candidate)
+}
+
+// RequestCandidateInfo 在已确认身份的智联聊天框内按岗位要求索要信息。
+func (r *Runtime) RequestCandidateInfo(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate, request model.CandidateInfoRequest) error {
+	return common.RequestCandidateInfo(ctx, browser, cfg, request)
+}
+
+// SendCandidateMessage 向已确认身份的智联候选人发送消息。
+func (r *Runtime) SendCandidateMessage(ctx context.Context, browser model.Browser, cfg model.Config, candidate model.Candidate, message string) error {
+	return common.SendCandidateMessage(ctx, browser, cfg, candidate, message)
+}
+
+// CloseCandidateConversation 关闭智联候选人聊天框；卡片继续沟通路径不会打开联系人列表。
+func (r *Runtime) CloseCandidateConversation(ctx context.Context, browser model.Browser, cfg model.Config, _ model.Candidate) error {
+	return common.CloseCandidateChat(ctx, browser, cfg)
+}

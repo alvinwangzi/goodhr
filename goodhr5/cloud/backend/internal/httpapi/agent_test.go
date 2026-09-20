@@ -1,0 +1,174 @@
+// 本文件负责测试云端 Agent 本地程序连接记录 API。
+package httpapi
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// TestAgentBindAndCurrent 验证登录后可以绑定并查询当前机器。
+func TestAgentBindAndCurrent(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "agent@example.com")
+
+	bindReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"sha256-test","agent_version":"0.1.0","local_port":55271}`),
+	)
+	bindReq.Header.Set("Authorization", "Bearer "+token)
+	bindResp := httptest.NewRecorder()
+	routes.ServeHTTP(bindResp, bindReq)
+
+	if bindResp.Code != http.StatusOK {
+		t.Fatalf("bind status = %d, body = %s", bindResp.Code, bindResp.Body.String())
+	}
+
+	currentReq := httptest.NewRequest(http.MethodGet, "/api/agents/current", nil)
+	currentReq.Header.Set("Authorization", "Bearer "+token)
+	currentResp := httptest.NewRecorder()
+	routes.ServeHTTP(currentResp, currentReq)
+
+	if currentResp.Code != http.StatusOK {
+		t.Fatalf("current status = %d, body = %s", currentResp.Code, currentResp.Body.String())
+	}
+
+	var payload struct {
+		Agent struct {
+			MachineID string `json:"machine_id"`
+		} `json:"agent"`
+	}
+	if err := json.NewDecoder(currentResp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Agent.MachineID != "sha256-test" {
+		t.Fatalf("machine_id = %q", payload.Agent.MachineID)
+	}
+}
+
+// TestAgentBindAllowsAnotherMachine 验证同一账号可以换电脑连接本地程序。
+func TestAgentBindAllowsAnotherMachine(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	token := loginForTest(t, routes, "agent-conflict@example.com")
+
+	firstReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"goodhr-device-v1-first","agent_version":"6","local_port":43129}`),
+	)
+	firstReq.Header.Set("Authorization", "Bearer "+token)
+	firstResp := httptest.NewRecorder()
+	routes.ServeHTTP(firstResp, firstReq)
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("first bind status = %d, body = %s", firstResp.Code, firstResp.Body.String())
+	}
+
+	secondReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/agents/bind",
+		bytes.NewBufferString(`{"machine_id":"goodhr-device-v1-second","agent_version":"6","local_port":43129}`),
+	)
+	secondReq.Header.Set("Authorization", "Bearer "+token)
+	secondResp := httptest.NewRecorder()
+	routes.ServeHTTP(secondResp, secondReq)
+	if secondResp.Code != http.StatusOK {
+		t.Fatalf("second bind status = %d, want %d, body = %s", secondResp.Code, http.StatusOK, secondResp.Body.String())
+	}
+}
+
+// TestAgentBindRejectsDeviceOwnedByAnotherAccount 验证一台稳定设备不能同时绑定两个账号，并返回完整占用邮箱。
+func TestAgentBindRejectsDeviceOwnedByAnotherAccount(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	firstToken := loginForTest(t, routes, "device-owner@example.com")
+	secondToken := loginForTest(t, routes, "device-new@example.com")
+	payload := `{"machine_id":"goodhr-device-v1-shared","agent_version":"6","local_port":43129}`
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/agents/bind", bytes.NewBufferString(payload))
+	firstReq.Header.Set("Authorization", "Bearer "+firstToken)
+	firstResp := httptest.NewRecorder()
+	routes.ServeHTTP(firstResp, firstReq)
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("first bind status = %d, body = %s", firstResp.Code, firstResp.Body.String())
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/agents/bind", bytes.NewBufferString(payload))
+	secondReq.Header.Set("Authorization", "Bearer "+secondToken)
+	secondResp := httptest.NewRecorder()
+	routes.ServeHTTP(secondResp, secondReq)
+	if secondResp.Code != http.StatusConflict {
+		t.Fatalf("second bind status = %d, body = %s", secondResp.Code, secondResp.Body.String())
+	}
+	var response struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(secondResp.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != "DEVICE_ALREADY_BOUND" || !strings.Contains(response.Error.Message, "device-owner@example.com") {
+		t.Fatalf("unexpected conflict response: %+v", response.Error)
+	}
+}
+
+// TestAgentBindRejectsAnonymous 验证未登录请求不能绑定机器。
+func TestAgentBindRejectsAnonymous(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/bind", bytes.NewBufferString(`{"machine_id":"sha256-test"}`))
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("bind status = %d, want %d", resp.Code, http.StatusUnauthorized)
+	}
+}
+
+// loginForTest 调用验证码登录接口，并返回可用于后续接口测试的 token。
+func loginForTest(t *testing.T, routes http.Handler, email string) string {
+	t.Helper()
+
+	// 调用发送验证码接口，获取开发模式下返回的 debug_code。
+	sendReq := httptest.NewRequest(http.MethodPost, "/api/auth/send-code", bytes.NewBufferString(`{"email":"`+email+`"}`))
+	sendResp := httptest.NewRecorder()
+	routes.ServeHTTP(sendResp, sendReq)
+	if sendResp.Code != http.StatusOK {
+		t.Fatalf("send code status = %d, body = %s", sendResp.Code, sendResp.Body.String())
+	}
+
+	var sendPayload struct {
+		DebugCode string `json:"debug_code"`
+	}
+	if err := json.NewDecoder(sendResp.Body).Decode(&sendPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	// 调用登录接口，使用验证码换取当前测试会话 token。
+	loginReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/auth/login",
+		bytes.NewBufferString(`{"email":"`+email+`","code":"`+sendPayload.DebugCode+`","agreement_accepted":true}`),
+	)
+	loginResp := httptest.NewRecorder()
+	routes.ServeHTTP(loginResp, loginReq)
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("login status = %d, body = %s", loginResp.Code, loginResp.Body.String())
+	}
+
+	var loginPayload struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginPayload); err != nil {
+		t.Fatal(err)
+	}
+	return loginPayload.AccessToken
+}
