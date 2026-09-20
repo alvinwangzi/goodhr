@@ -1,0 +1,20 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: dev
+nodes_managed: true
+exported_at: "2026-09-20T12:54:38Z"
+modules:
+    "":
+        dir_name: 项目根目录与 AI 助手约定
+        title: 项目根目录与 AI 助手约定
+        scope:
+            - .agents/
+            - AGENTS.md
+            - CLAUDE.md
+            - LICENSE
+            - README.md
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: ""
+title: 项目根目录与 AI 助手约定
+scope:
+    - .agents/
+    - AGENTS.md
+    - CLAUDE.md
+    - LICENSE
+    - README.md
+source_files: []
+depends_on: []
+related_to: []
