@@ -1,6 +1,7 @@
 /** 本文件负责新版后台身份、悬浮布局、分类菜单、顶部状态和全局消息。 */
 "use client";
 
+import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
 import AdminPanelSettingsRoundedIcon from "@mui/icons-material/AdminPanelSettingsRounded";
 import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
 import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
@@ -121,7 +122,8 @@ const menuGroups: MenuGroup[] = [
     label: "团队与账户",
     items: [
       ["/admin/team", "团队管理", GroupRoundedIcon],
-      ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
+      // ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
+      ["/admin/ai-config", "AI配置", AutoAwesomeRoundedIcon],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
     ],
@@ -747,7 +749,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               startIcon={<PlayCircleRoundedIcon />}
               sx={{
                 ...topStatusButtonSx,
-                display: { xs: "none", sm: "inline-flex" },
+                display: "none",
                 boxShadow: "0 8px 20px rgba(17,17,17,.14)",
               }}
             >
@@ -760,7 +762,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 aria-label="视频教程"
                 color="primary"
                 sx={{
-                  display: { xs: "inline-flex", sm: "none" },
+                  display: "none",
                   bgcolor: "action.selected",
                 }}
               >
@@ -774,7 +776,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               onClick={() => router.push("/admin/subscription")}
               sx={{
                 ...topStatusButtonSx,
-                display: { xs: "none", lg: "inline-flex" },
+                display: "none",
                 px: 1.15,
                 fontSize: 12.5,
               }}
@@ -793,12 +795,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                 display: { xs: "none", sm: "inline-flex" },
               }}
             >
-              {agentBase
-                ? agentBase.replace(
-                    "http://127.0.0.1:",
-                    `${agentVersion || "--"} · 端口 `,
-                  )
-                : "本地程序未连接"}
+              {agentBase ? "本地程序已连接" : "本地程序未连接"}
             </Button>
           </Toolbar>
         </AppBar>

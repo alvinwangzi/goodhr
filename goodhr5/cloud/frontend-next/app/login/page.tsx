@@ -91,7 +91,7 @@ export default function LoginPage() {
               }}
             >
               <Typography component="h2" sx={{ color: "text.primary", fontSize: 24, fontWeight: 750, mb: 2 }}>
-                登录
+                欢迎登录
               </Typography>
               <LoginForm />
             </Box>

@@ -1,23 +1,15 @@
-/** 本文件负责新版后台个人 AI 接口、操作节奏和模拟休息配置。 */
+/** 本文件负责新版后台个人操作节奏和模拟休息配置。 */
 "use client";
 
-import ApiRoundedIcon from "@mui/icons-material/ApiRounded";
 import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
-import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
-import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
-import PlayCircleOutlineRoundedIcon from "@mui/icons-material/PlayCircleOutlineRounded";
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
-import ScienceRoundedIcon from "@mui/icons-material/ScienceRounded";
 import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
 import {
-  Alert,
   Box,
   Button,
   InputAdornment,
   Stack,
-  Tab,
-  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
@@ -29,10 +21,6 @@ import { useAdmin } from "@/components/admin/AdminApp";
 import NotificationProfileDialog from "@/components/admin/NotificationProfileDialog";
 
 const defaults = {
-  base_url:
-    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-  model: "qwen3.7-plus",
-  api_key: "",
   click_frequency: 80,
   detail_open_probability: 80,
   detail_open_delay_min: 1,
@@ -49,42 +37,20 @@ const defaults = {
   rest_duration_max: 7,
 };
 
-/** normalizeAIBaseURL 补全 OpenAI 兼容的 Chat Completions 地址。 */
-function normalizeAIBaseURL(baseURL: string) {
-  const value = baseURL.trim().replace(/\/+$/, "");
-  if (!value) return "";
-  if (value.endsWith("/chat/completions")) return value;
-  if (value.endsWith("/v1")) return `${value}/chat/completions`;
-  return `${value}/v1/chat/completions`;
-}
-
-/** PersonalConfigPage 管理 AI 接口和模拟人工操作参数。 */
+/** PersonalConfigPage 管理操作节奏和模拟人工操作参数。 */
 export default function PersonalConfigPage() {
   const { notify } = useAdmin();
   const [form, setForm] = useState({ ...defaults });
-  const [keySet, setKeySet] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profileOpenSignal, setProfileOpenSignal] = useState(0);
-  const [activeTab, setActiveTab] = useState("builtin");
 
-  /** load 读取个人 AI 配置和操作偏好。 */
+  /** load 读取个人操作偏好。 */
   async function load() {
     setLoading(true);
     try {
-      const [aiData, preferenceData] = await Promise.all([
-        cloudRequest("/api/config/user-ai"),
-        cloudRequest("/api/config/user-preferences"),
-      ]);
-      const ai = aiData.config || {};
-      const preference = preferenceData.config || {};
-      setKeySet(Boolean(ai.api_key_set));
-      setForm({
-        ...defaults,
-        ...preference,
-        base_url: ai.base_url || defaults.base_url,
-        model: ai.model || preference.ai_model || defaults.model,
-        api_key: ai.api_key || "",
-      });
+      const data = await cloudRequest("/api/config/user-preferences");
+      const preference = data.config || {};
+      setForm({ ...defaults, ...preference });
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "个人配置读取失败",
@@ -99,94 +65,17 @@ export default function PersonalConfigPage() {
     void load();
   }, []);
 
-  /** testAI 通过云端代理验证当前填写的 AI 接口。 */
-  async function testAI() {
-    if (!form.api_key.trim()) return notify("测试前请填写 AI Key", "warning");
-    const baseURL = normalizeAIBaseURL(form.base_url);
-    if (!baseURL || !form.model.trim())
-      return notify("请填写 AI 地址和模型", "warning");
-    setLoading(true);
-    try {
-      setForm((current) => ({ ...current, base_url: baseURL }));
-      await cloudRequest("/api/config/test-ai", {
-        method: "POST",
-        body: {
-          base_url: baseURL,
-          model: form.model.trim(),
-          api_key: form.api_key.trim(),
-          temperature: 0,
-          enabled: true,
-        },
-      });
-      notify("AI 接口测试成功", "success");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "AI 接口测试失败",
-        "error",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  /** save 保存 AI 配置和操作偏好。 */
+  /** save 保存操作偏好。 */
   async function save() {
-    const baseURL = normalizeAIBaseURL(form.base_url);
-    if (!baseURL || !form.model.trim())
-      return notify("请填写 AI 地址和模型", "warning");
-    if (!keySet && !form.api_key.trim())
-      return notify("请填写 AI Key", "warning");
     setLoading(true);
     try {
-      setForm((current) => ({ ...current, base_url: baseURL }));
-      await cloudRequest("/api/config/user-ai", {
-        method: "PUT",
-        body: {
-          base_url: baseURL,
-          model: form.model.trim(),
-          api_key: form.api_key.trim(),
-          temperature: 0,
-          prompt_template: "",
-          enabled: true,
-        },
-      });
-      const { base_url: _baseURL, model, api_key: _key, ...preference } = form;
       await cloudRequest("/api/config/user-preferences", {
         method: "PUT",
-        body: { ...preference, ai_model: model },
+        body: { ...form },
       });
-      setKeySet(true);
       notify("个人配置已保存", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "保存配置失败", "error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  /** useBuiltinAI 切换为系统内置 AI，并把分配好的配置填入表单。 */
-  async function useBuiltinAI() {
-    setLoading(true);
-    try {
-      const data = await cloudRequest("/api/ai-wallet/use-builtin", {
-        method: "POST",
-      });
-      const config = data.config || {};
-      setForm((current) => ({
-        ...current,
-        base_url: config.base_url || current.base_url,
-        model: config.model || current.model,
-        api_key: config.api_key || current.api_key,
-      }));
-      setKeySet(Boolean(config.api_key));
-      notify("已切到内置 AI，余额够的话我就能开工。", "success");
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "内置 AI 没切成功，我们再来一次。",
-        "error",
-      );
     } finally {
       setLoading(false);
     }
@@ -202,16 +91,9 @@ export default function PersonalConfigPage() {
       <NotificationProfileDialog openSignal={profileOpenSignal} />
       <PageHeader
         title='个人配置'
-        description='设置 AI 接口和岗位运行操作节奏，保存后会用于本地岗位运行。'
+        description='设置岗位运行的操作节奏和模拟人工参数，保存后会用于本地岗位运行。'
         actions={
           <>
-            <Button
-              variant='outlined'
-              startIcon={<NotificationsActiveRoundedIcon />}
-              onClick={() => setProfileOpenSignal((value) => value + 1)}
-            >
-              通知偏好
-            </Button>
             <Button
               variant='contained'
               startIcon={<SaveRoundedIcon />}
@@ -224,179 +106,17 @@ export default function PersonalConfigPage() {
         }
       />
 
-      <SectionPanel sx={{ mb: 2, py: 0.5 }}>
-        <Tabs
-          value={activeTab}
-          onChange={(_event, value) => setActiveTab(String(value))}
-          aria-label='个人配置分类'
-          variant='scrollable'
-          scrollButtons='auto'
-          sx={{ minHeight: 48 }}
-        >
-          <Tab value='builtin' label='内置AI' />
-          <Tab value='custom' label='自定义AI' />
-          <Tab value='timing' label='随机时间' />
-        </Tabs>
-      </SectionPanel>
-
-      {activeTab === "builtin" ? (
-        <SectionPanel
-          sx={{
-            mb: 2,
-            borderColor: "primary.light",
-            bgcolor: "action.selected",
-          }}
-        >
-          <SectionTitle
-            icon={<AutoAwesomeRoundedIcon />}
-            title='内置 AI'
-            description='不想研究接口也没关系，使用系统准备好的 AI 配置就能开始。'
-          />
-          <Alert severity='info' sx={{ mt: 2, mb: 2 }}>
-            内置 AI 会消耗账户中的 AI 余额，省去申请模型、填写地址和保存 Key 的步骤。
-          </Alert>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1.5}
-            sx={{ alignItems: { sm: "center" } }}
-          >
-            <Button
-              variant='contained'
-              startIcon={<AutoAwesomeRoundedIcon />}
-              disabled={loading}
-              onClick={() => void useBuiltinAI()}
-              sx={{ width: { xs: "100%", sm: "auto" } }}
-            >
-              使用内置 AI
-            </Button>
-            <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-              {keySet ? "当前已有可用的 AI 配置。" : "当前还没有可用的 AI 配置，请先点击使用内置 AI。"}
-            </Typography>
-          </Stack>
-        </SectionPanel>
-      ) : null}
-
-      {activeTab === "custom" ? (
-        <>
-
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", lg: "1.15fr .85fr" },
-          gap: 2,
-          mb: 2,
-        }}
-      >
-        <QuickLink
-          href='/videos'
-          icon={<PlayCircleOutlineRoundedIcon />}
-          eyebrow='新手推荐'
-          title='查看视频教程'
-          description='按视频一步步完成 AI 平台申请、接口填写、测试和保存。'
-          primary
-        />
+      <Box sx={{ mb: 2 }}>
         <QuickLink
           href='https://www.qianwenai.com/'
           external
           icon={<PsychologyAltRoundedIcon />}
           eyebrow='AI 接入'
           title='获取 AI 接口'
-          description='前往千问平台申请多模态模型和 API Key。'
+          description='前往千问平台申请多模态模型和 API Key，然后在「AI配置」中填写。'
         />
       </Box>
 
-      <SectionPanel
-        sx={{
-          mb: 2,
-          borderColor: "primary.light",
-          bgcolor: "action.selected",
-          boxShadow: "0 16px 44px rgba(17, 17, 17, .08)",
-        }}
-      >
-        <SectionTitle
-          icon={<ApiRoundedIcon />}
-          title='自定义 AI'
-          description='填写自己的 AI 接口，建议先测试成功，再点击页面右上角保存。'
-        />
-        <Alert
-          severity='info'
-          icon={<ApiRoundedIcon />}
-          sx={{
-            mt: 2,
-            mb: 2,
-            border: "1px solid",
-            borderColor: "primary.light",
-            bgcolor: "action.hover",
-            color: "text.primary",
-            "& .MuiAlert-icon": { color: "primary.main" },
-          }}
-        >
-          可接入兼容 OpenAI 格式的多模态模型，例如千问、硅基流动和
-          OpenAI。模型必须支持图片识别；DeepSeek
-          当前不支持图片输入，请不要用于详情 AI 识别。
-        </Alert>
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "1fr",
-              lg: "minmax(0, 1.55fr) minmax(220px, .65fr)",
-            },
-            gap: 2,
-          }}
-        >
-          <TextField
-            label='API 地址'
-            value={form.base_url}
-            onChange={(event) =>
-              setForm({ ...form, base_url: event.target.value })
-            }
-            helperText='默认使用千问兼容 OpenAI 的 Chat Completions 地址。'
-          />
-          <TextField
-            label='模型名称'
-            value={form.model}
-            onChange={(event) =>
-              setForm({ ...form, model: event.target.value })
-            }
-            helperText='例如 qwen3.7-plus'
-          />
-          <TextField
-            label='API Key'
-            value={form.api_key}
-            onChange={(event) =>
-              setForm({ ...form, api_key: event.target.value })
-            }
-            placeholder='请输入 API Key'
-            helperText='这里会明文显示当前保存的 Key，方便复制和修改。'
-            sx={{ gridColumn: { lg: "1 / -1" }, maxWidth: 760 }}
-          />
-        </Box>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1.25}
-          sx={{ mt: 2.25, alignItems: { sm: "center" } }}
-        >
-          <Button
-            variant='contained'
-            startIcon={<ScienceRoundedIcon />}
-            disabled={loading}
-            onClick={() => void testAI()}
-            sx={{ borderRadius: "999px", px: 2.4 }}
-          >
-            先测试 AI
-          </Button>
-
-          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-            {keySet ? "当前已有保存过的 AI Key。" : "当前还没有保存 AI Key。"}测试成功后，请点击页面右上角保存配置。
-          </Typography>
-        </Stack>
-      </SectionPanel>
-
-        </>
-      ) : null}
-
-      {activeTab === "timing" ? (
       <Box
         sx={{
           display: "grid",
@@ -492,7 +212,6 @@ export default function PersonalConfigPage() {
           </Stack>
         </SectionPanel>
       </Box>
-      ) : null}
     </>
   );
 }

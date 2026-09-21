@@ -751,7 +751,22 @@ export default function PositionsPage() {
       }));
       notify("岗位要求已优化", "success");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "AI 优化失败", "error");
+      const message = error instanceof Error ? error.message : "AI 优化失败";
+      // 检测 AI 配置相关错误，提示用户前往 AI 配置页
+      if (
+        message.includes("AI 配置") ||
+        message.includes("个人配置") ||
+        message.includes("AI 配置不完整") ||
+        message.includes("AI 配置未启用")
+      ) {
+        const go = await confirm(
+          "AI 配置缺失",
+          "使用 AI 功能需要先在 AI 配置里填写 API 地址、模型和 Key，是否前往设置？",
+        );
+        if (go) router.push("/admin/ai-config");
+        return;
+      }
+      notify(message, "error");
     } finally {
       setOptimizing(false);
     }
