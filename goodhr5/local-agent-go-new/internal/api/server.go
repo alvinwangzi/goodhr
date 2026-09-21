@@ -80,6 +80,7 @@ func NewServer(cfg config.Config, dependencies Dependencies) *Server {
 	mux.HandleFunc("GET /api/v1/diagnostics", server.handleDiagnostics)
 	mux.HandleFunc("POST /api/v1/tasks/start", server.handleTaskStart)
 	mux.HandleFunc("POST /api/v1/tasks/stop", server.handleTaskStop)
+	mux.HandleFunc("POST /api/v1/tasks/force-stop", server.handleForceStop)
 	mux.HandleFunc("GET /api/v1/tasks/{task_id}", server.handleTaskStatus)
 	mux.HandleFunc("/api/v1/local/positions/{position_id}/{action}", server.handleLocalPosition)
 	mux.HandleFunc("GET /api/v1/runtime/status", server.handleRuntimeStatus)
@@ -196,6 +197,26 @@ func (s *Server) handleTaskStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, err := s.runner.StopTask(r.Context(), request.TaskID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "TASK_NOT_FOUND", err)
+		return
+	}
+	writeSuccess(w, http.StatusOK, task)
+}
+
+// handleForceStop 强制停止任务，直接取消 context 不等优雅结束。
+func (s *Server) handleForceStop(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := decodeJSON(w, r, &request); err != nil || strings.TrimSpace(request.TaskID) == "" {
+		if err == nil {
+			err = fmt.Errorf("task_id 不能为空")
+		}
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+	task, err := s.runner.ForceStopTask(r.Context(), request.TaskID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "TASK_NOT_FOUND", err)
 		return

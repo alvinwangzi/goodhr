@@ -149,6 +149,27 @@
       "timeout_ms": 3000,
       "description": "Boss当前岗位"
     },
+    "position.empty": {
+      "_comment": "岗位搜索没有相关职位时的空态提示。",
+      "frames": [
+        {
+          "_comment": "Boss 人才推荐主框架。",
+          "selectors": [
+            { "_comment": "推荐页面固定 iframe。", "type": "css", "value": "iframe[name='recommendFrame']" }
+          ]
+        }
+      ],
+      "parents": [],
+      "target": {
+        "_comment": "空态提示文字。",
+        "selectors": [
+          { "_comment": "Boss 搜索空态提示。", "type": "css", "value": ".search-job-empty" }
+        ]
+      },
+      "state": "visible",
+      "timeout_ms": 600,
+      "description": "Boss没有相关职位提示"
+    },
     "position.input": {
       "_comment": "岗位搜索输入框。",
       "frames": [

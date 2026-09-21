@@ -1,0 +1,217 @@
+2026/09/20 14:07:29.216969 PostgreSQL 连接失败: dial tcp: lookup postgres on 127.0.0.11:53: no such host
+2026/09/21 00:12:15.892179 [migrate] existing database detected, mark current migrations as applied
+2026/09/21 00:12:15.966511 PostgreSQL 连接检查成功
+2026/09/21 00:12:15.967107 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 00:12:15.967690 GoodHR 5 cloud backend listening on :8084
+2026/09/21 00:13:26.015345 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 00:13:26.015851 GoodHR dev login code for wangweisainan@126.com: 8466
+2026/09/21 00:44:09.792212 [migrate] done
+2026/09/21 00:44:09.793061 PostgreSQL 连接检查成功
+2026/09/21 00:44:09.793814 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 00:44:09.794361 GoodHR 5 cloud backend listening on :8084
+2026/09/21 00:44:58.066377 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 00:45:24.229331 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 00:57:29.544853 [migrate] done
+2026/09/21 00:57:29.546177 PostgreSQL 连接检查成功
+2026/09/21 00:57:29.546845 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 00:57:29.547467 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:03:20.564577 [migrate] done
+2026/09/21 01:03:20.565744 PostgreSQL 连接检查成功
+2026/09/21 01:03:20.566492 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:03:20.567036 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:26:12.807646 [migrate] done
+2026/09/21 01:26:12.809893 PostgreSQL 连接检查成功
+2026/09/21 01:26:12.810481 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:26:12.810956 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:26:21.327228 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 01:27:15.457097 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 01:33:54.994724 [migrate] done
+2026/09/21 01:33:54.996030 PostgreSQL 连接检查成功
+2026/09/21 01:33:54.996750 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:33:54.997163 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:40:06.750032 [migrate] done
+2026/09/21 01:40:06.751164 PostgreSQL 连接检查成功
+2026/09/21 01:40:06.751849 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:40:06.752355 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:42:05.913767 [migrate] done
+2026/09/21 01:42:05.914427 PostgreSQL 连接检查成功
+2026/09/21 01:42:05.914952 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:42:05.915384 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:42:24.567314 邮箱域名不在白名单 email=test@example.com domain=example.com
+2026/09/21 01:42:35.402261 GoodHR 登录验证码已生成 email=test@qq.com code_length=4
+2026/09/21 01:42:35.402742 GoodHR dev login code for test@qq.com: 3533
+2026/09/21 01:48:13.909271 [migrate] done
+2026/09/21 01:48:13.910458 PostgreSQL 连接检查成功
+2026/09/21 01:48:13.910887 [Mailer] 当前为开发环境（GOODHR_APP_ENV=""），走开发发信器，不发送真实邮件
+2026/09/21 01:48:13.911400 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:48:13.911796 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:49:03.783192 [migrate] done
+2026/09/21 01:49:03.783803 PostgreSQL 连接检查成功
+2026/09/21 01:49:03.784252 [Mailer] 当前为开发环境（GOODHR_APP_ENV=""），走开发发信器，不发送真实邮件
+2026/09/21 01:49:03.784801 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:49:03.785262 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:49:54.073706 [migrate] done
+2026/09/21 01:49:54.074345 PostgreSQL 连接检查成功
+2026/09/21 01:49:54.074779 [Mailer] 当前为开发环境（GOODHR_APP_ENV=""），走开发发信器，不发送真实邮件
+2026/09/21 01:49:54.075300 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:49:54.075733 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:51:27.511143 [migrate] done
+2026/09/21 01:51:27.511845 PostgreSQL 连接检查成功
+2026/09/21 01:51:27.512337 [Mailer] 当前为开发环境（GOODHR_APP_ENV=""），走开发发信器，不发送真实邮件
+2026/09/21 01:51:27.512938 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:51:27.513387 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:51:57.271924 [migrate] done
+2026/09/21 01:51:57.272531 PostgreSQL 连接检查成功
+2026/09/21 01:51:57.272978 [Mailer] 当前为开发环境（GOODHR_APP_ENV=""），走开发发信器，不发送真实邮件
+2026/09/21 01:51:57.273519 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:51:57.274079 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:52:13.098591 [migrate] done
+2026/09/21 01:52:13.099213 PostgreSQL 连接检查成功
+2026/09/21 01:52:13.099648 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 01:52:13.100084 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 01:52:13.100545 GoodHR 5 cloud backend listening on :8084
+2026/09/21 01:52:24.289392 GoodHR 登录验证码已生成 email=test@qq.com code_length=4
+2026/09/21 01:52:24.289925 GoodHR dev login code for test@qq.com: 8318
+2026/09/21 05:01:47.607566 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 05:01:47.608160 GoodHR dev login code for wangweisainan@126.com: 2238
+2026/09/21 05:02:40.338777 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 05:14:03.039085 GoodHR dev position status for wangweisainan@126.com: position=全栈开发工程师 status=岗位运行失败 error=选择岗位没处理成功：打开岗位列表失败：Boss岗位下拉按钮 没点成功，我已经记下卡住的位置；我已经记下具体步骤，可以直接重试
+2026/09/21 05:28:39.571404 GoodHR dev position status for wangweisainan@126.com: position=全栈开发工程师 status=岗位运行失败 error=选择岗位没处理成功：读取岗位列表失败：Boss岗位列表项 暂时没找到，我已经把尝试过程记下来了；已尝试 17 次；页面可能还没加载好，或平台页面结构有变化
+2026/09/21 11:55:18.942768 GoodHR dev position status for wangweisainan@126.com: position=全栈开发工程师 status=岗位运行失败 error=选择岗位没处理成功：Boss直聘上没有搜到“全栈开发工程师”相关的职位，换个岗位叫法试试，或先在Boss直聘上确认这个职位能不能搜到
+2026/09/21 11:57:18.339166 GoodHR dev position status for wangweisainan@126.com: position=java开发工程师 status=岗位运行失败 error=处理候选人并打招呼没处理成功：AI 请求失败，状态码 401，响应：{"error":"AI Key 不太对，我先不敢乱花钱。","ok":false}
+2026/09/21 11:59:08.043964 [AI配置测试] 开始 user=wangweisainan@126.com model=qwen3.7-plus target=https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions
+2026/09/21 11:59:08.130346 [AI配置测试] 连接成功 host=goodhr5.58it.cn ip=43.228.79.108 port=443
+2026/09/21 11:59:08.484668 [AI配置测试] AI响应 target=https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions status=401 elapsed=440ms
+2026/09/21 11:59:08.485601 [AI配置测试] 失败 user=wangweisainan@126.com model=qwen3.7-plus target=https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions elapsed=442ms err=AI 服务返回状态码 401：{"error":"AI Key 不太对，我先不敢乱花钱。","ok":false}
+2026/09/21 11:59:38.106760 [AI配置测试] 开始 user=wangweisainan@126.com model=qwen3.7-plus target=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+2026/09/21 11:59:38.130160 [AI配置测试] 连接成功 host=dashscope.aliyuncs.com ip=39.96.198.249 port=443
+2026/09/21 11:59:38.956460 [AI配置测试] AI响应 target=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions status=200 elapsed=849ms
+2026/09/21 11:59:38.958434 [AI配置测试] 成功 user=wangweisainan@126.com model=qwen3.7-plus target=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions elapsed=852ms
+2026/09/21 12:02:58.504116 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 12:02:58.504782 GoodHR dev login code for wangweisainan@126.com: 8300
+2026/09/21 12:03:09.264799 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 12:03:40.703519 GoodHR dev position status for wangweisainan@126.com: position=java开发工程师 status=岗位运行失败 error=处理候选人并打招呼没处理成功：AI 请求失败，状态码 401，响应：{"error":"AI Key 不太对，我先不敢乱花钱。","ok":false}
+2026/09/21 12:04:02.932704 [AI配置测试] 开始 user=wangweisainan@126.com model=qwen3.7-plus target=https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions
+2026/09/21 12:04:02.964331 [AI配置测试] 连接成功 host=goodhr5.58it.cn ip=43.228.79.108 port=443
+2026/09/21 12:04:03.329321 [AI配置测试] AI响应 target=https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions status=401 elapsed=396ms
+2026/09/21 12:04:03.329953 [AI配置测试] 失败 user=wangweisainan@126.com model=qwen3.7-plus target=https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions elapsed=397ms err=AI 服务返回状态码 401：{"error":"AI Key 不太对，我先不敢乱花钱。","ok":false}
+2026/09/21 12:04:34.031161 [AI配置测试] 开始 user=wangweisainan@126.com model=qwen3.7-plus target=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+2026/09/21 12:04:34.049762 [AI配置测试] 连接成功 host=dashscope.aliyuncs.com ip=39.96.198.249 port=443
+2026/09/21 12:04:34.973148 [AI配置测试] AI响应 target=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions status=200 elapsed=942ms
+2026/09/21 12:04:34.973879 [AI配置测试] 成功 user=wangweisainan@126.com model=qwen3.7-plus target=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions elapsed=944ms
+2026/09/21 12:07:01.569176 GoodHR dev position status for wangweisainan@126.com: position=java开发工程师 status=岗位运行完成 error=
+2026/09/21 12:28:28.907377 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 12:28:28.908473 GoodHR dev login code for wangweisainan@126.com: 7216
+2026/09/21 12:28:40.098919 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 12:33:40.314591 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 12:33:40.315321 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 12:33:40.315845 GoodHR 5 cloud backend listening on :8084
+2026/09/21 12:35:07.324529 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 12:35:07.325274 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 12:35:07.325757 GoodHR 5 cloud backend listening on :8084
+2026/09/21 12:36:52.129505 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 12:36:52.130287 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 12:36:52.130805 GoodHR 5 cloud backend listening on :8084
+2026/09/21 12:37:29.851697 PostgreSQL 连接失败: dial tcp: lookup postgres on 127.0.0.11:53: no such host
+2026/09/21 12:38:09.238694 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 12:38:09.239455 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 12:38:09.239962 GoodHR 5 cloud backend listening on :8084
+2026/09/21 20:41:04.232269 [migrate] 0001_initial_schema.sql
+2026/09/21 20:41:04.272769 [migrate] 0002_add_system_configs.sql
+2026/09/21 20:41:04.279573 [migrate] 0003_insert_platform_configs.sql
+2026/09/21 20:41:04.284276 [migrate] 0004_tenants.sql
+2026/09/21 20:41:04.291614 [migrate] 0005_cookie_storage.sql
+2026/09/21 20:41:04.299430 [migrate] 0006_agent_public_key.sql
+2026/09/21 20:41:04.303657 [migrate] 0007_platform_login_config.sql
+2026/09/21 20:41:04.308352 [migrate] 0008_cookie_only_accounts.sql
+2026/09/21 20:41:04.318697 [migrate] 0009_position_template_configs.sql
+2026/09/21 20:41:04.323934 [migrate] 0010_task_enable_sound.sql
+2026/09/21 20:41:04.328119 [migrate] 0011_user_preferences.sql
+2026/09/21 20:41:04.335479 [migrate] 0012_platform_locator_schema.sql
+2026/09/21 20:41:04.338914 [migrate] 0013_detail_prompt_and_preferences.sql
+2026/09/21 20:41:04.343623 [migrate] 0014_platform_auth_public_pages.sql
+2026/09/21 20:41:04.347811 [migrate] 0015_system_default_prompts.sql
+2026/09/21 20:41:04.352528 [migrate] 0016_task_candidates.sql
+2026/09/21 20:41:04.363981 [migrate] 0017_add_review_prompt_default.sql
+2026/09/21 20:41:04.368155 [migrate] 0018_upgrade_default_prompts_to_score_mode.sql
+2026/09/21 20:41:04.372876 [migrate] 0019_upgrade_position_ai_prompts_to_score_mode.sql
+2026/09/21 20:41:04.376612 [migrate] 0020_unescape_prompt_newlines.sql
+2026/09/21 20:41:04.380791 [migrate] 0021_system_app_config.sql
+2026/09/21 20:41:04.384970 [migrate] 0022_user_subscription.sql
+2026/09/21 20:41:04.391109 [migrate] 0023_payment_orders.sql
+2026/09/21 20:41:04.403997 [migrate] 0024_user_onboarding.sql
+2026/09/21 20:41:04.409768 [migrate] 0025_system_guide.sql
+2026/09/21 20:41:04.415566 [migrate] 0026_invitation_activation_codes.sql
+2026/09/21 20:41:04.426765 [migrate] 0027_email_domain_whitelist.sql
+2026/09/21 20:41:04.431453 [migrate] 0028_candidate_profile_engagement_events.sql
+2026/09/21 20:41:04.469858 [migrate] 0029_onboarding_agent_download_platform_urls.sql
+2026/09/21 20:41:04.474565 [migrate] 0030_task_name.sql
+2026/09/21 20:41:04.479261 [migrate] 0031_position_requirement_optimize_prompt.sql
+2026/09/21 20:41:04.484008 [migrate] 0032_detail_open_probability_default.sql
+2026/09/21 20:41:04.488791 [migrate] 0033_user_preference_delay_ranges.sql
+2026/09/21 20:41:04.498731 [migrate] 0034_position_platform_id.sql
+2026/09/21 20:41:04.503433 [migrate] 0035_detail_close_delay_default_zero.sql
+2026/09/21 20:41:04.508119 [migrate] 0036_boss_position_switch_config.sql
+2026/09/21 20:41:04.512618 [migrate] 0036_user_notification_profile.sql
+2026/09/21 20:41:04.517334 [migrate] 0037_boss_detail_content_resume_only.sql
+2026/09/21 20:41:04.520478 [migrate] 0038_ensure_boss_position_config.sql
+2026/09/21 20:41:04.525717 [migrate] 0039_fix_boss_position_placeholder.sql
+2026/09/21 20:41:04.530485 [migrate] 0040_task_enable_thinking.sql
+2026/09/21 20:41:04.535508 [migrate] 0041_task_daily_greeted_count.sql
+2026/09/21 20:41:04.540766 [migrate] 0042_onboarding_runtime_components.sql
+2026/09/21 20:41:04.544986 [migrate] 0043_remove_onboarding_node_worker.sql
+2026/09/21 20:41:04.549169 [migrate] 0044_restore_platform_accounts.sql
+2026/09/21 20:41:04.559441 [migrate] 0045_free_daily_greet_limit.sql
+2026/09/21 20:41:04.563147 [migrate] 0046_system_daily_stats.sql
+2026/09/21 20:41:04.568362 [migrate] 0047_platform_login_page_code.sql
+2026/09/21 20:41:04.573083 [migrate] 0048_admin_banner_and_announcement_url.sql
+2026/09/21 20:41:04.577602 [migrate] 0049_admin_banners_array.sql
+2026/09/21 20:41:04.581806 [migrate] 0050_simplify_candidate_resume_schema.sql
+2026/09/21 20:41:04.589667 [migrate] 0051_hliepin_platform_config.sql
+2026/09/21 20:41:04.593904 [migrate] 0052_liepin_zhaopin_dom_platforms.sql
+2026/09/21 20:41:04.597943 [migrate] 0053_admin_email_campaigns.sql
+2026/09/21 20:41:04.608983 [migrate] 0054_user_trial_welcome_ack.sql
+2026/09/21 20:41:04.613356 [migrate] 0055_ai_wallet_and_builtin_ai.sql
+2026/09/21 20:41:04.623838 [migrate] 0056_ai_wallet_units.sql
+2026/09/21 20:41:04.630089 [migrate] 0057_repair_ai_wallet_units.sql
+2026/09/21 20:41:04.634799 [migrate] 0058_ai_wallet_legacy_cents_defaults.sql
+2026/09/21 20:41:04.639568 [migrate] 0059_local_agent_console_url.sql
+2026/09/21 20:41:04.643757 [migrate] 0059_refresh_liepin_zhaopin_platform_configs.sql
+2026/09/21 20:41:04.648465 [migrate] 0060_position_structured_resume_switch.sql
+2026/09/21 20:41:04.652128 [migrate] 0061_platform_open_default_true.sql
+2026/09/21 20:41:04.656508 [migrate] 0062_boss_position_search_input.sql
+2026/09/21 20:41:04.660686 [migrate] 0063_user_flow_tracking.sql
+2026/09/21 20:41:04.681806 [migrate] 0064_flow_reminder_email_config.sql
+2026/09/21 20:41:04.686540 [migrate] 0065_refresh_hliepin_2026_selectors.sql
+2026/09/21 20:41:04.690709 [migrate] 0066_remove_tasks_use_positions.sql
+2026/09/21 20:41:04.727272 [migrate] 0067_repair_position_scanned_counts.sql
+2026/09/21 20:41:04.731993 [migrate] 0068_subscription_tiers.sql
+2026/09/21 20:41:04.744964 [migrate] 0068_user_agreement_acceptance.sql
+2026/09/21 20:41:04.750174 [migrate] 0069_subscription_grant_backfill.sql
+2026/09/21 20:41:04.755940 [migrate] 0070_allow_max_to_plus_remove_position_total.sql
+2026/09/21 20:41:04.761735 [migrate] 0071_optimize_greet_scoring_prompt.sql
+2026/09/21 20:41:04.766634 [migrate] 0072_unique_active_device_binding.sql
+2026/09/21 20:41:04.771332 [migrate] 0073_tenant_invitations.sql
+2026/09/21 20:41:04.781295 [migrate] 0074_wechat_payment_provider.sql
+2026/09/21 20:41:04.785533 [migrate] 0075_system_payment_wechat.sql
+2026/09/21 20:41:04.788694 [migrate] done
+2026/09/21 20:41:04.788694 PostgreSQL 连接检查成功
+2026/09/21 20:41:04.788694 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 20:41:04.789220 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 20:41:04.789220 GoodHR 5 cloud backend listening on :8084
+2026/09/21 20:41:04.789745 listen tcp :8084: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+2026/09/21 20:41:54.743127 [migrate] done
+2026/09/21 20:41:54.752010 PostgreSQL 连接检查成功
+2026/09/21 20:41:54.752010 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 20:41:54.752010 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 20:41:54.752010 GoodHR 5 cloud backend listening on :8084
+2026/09/21 20:48:28.329450 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 20:48:28.329450 GoodHR dev login code for wangweisainan@126.com: 8415
+2026/09/21 20:52:54.033996 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 20:53:14.984302 GoodHR dev team invitation for haha@126.com: inviter=wangweisainan@126.com team=wangweisainan@126.com 的团队
+2026/09/21 20:53:25.781882 GoodHR 登录验证码已生成 email=haha@126.com code_length=4
+2026/09/21 20:53:25.782407 GoodHR dev login code for haha@126.com: 6145
+2026/09/21 20:53:39.596776 邀请绑定跳过 invitee=haha@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 20:54:19.943526 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 20:54:19.943526 GoodHR dev login code for wangweisainan@126.com: 6937
+2026/09/21 20:54:26.881006 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id

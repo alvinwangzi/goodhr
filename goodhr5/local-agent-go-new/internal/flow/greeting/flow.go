@@ -217,13 +217,32 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 					"preview",
 					!item.Decision.Accepted,
 				)
+				shared.ReportProgress(
+					f.Logger,
+					prepared.Request.TaskID,
+					fmt.Sprintf("候选人“%s”基础评分 %.1f，%s",
+						maskName(candidate.Name),
+						item.Decision.Score,
+						func() string {
+							if item.Decision.Accepted {
+								return "通过，继续查看详情"
+							}
+							return "暂不打开详情：" + item.Decision.Reason
+						}(),
+					),
+				)
 			} else if item.Err != nil {
 				reportAIError(f.Logger, prepared.Request.TaskID, candidate, item.Err)
+				shared.ReportProgress(
+					f.Logger,
+					prepared.Request.TaskID,
+					fmt.Sprintf("候选人“%s”基础评分失败：%s", maskName(candidate.Name), item.Err.Error()),
+				)
 			}
 			shared.ReportProgress(
 				f.Logger,
 				prepared.Request.TaskID,
-				fmt.Sprintf("正在处理候选人“%s”", candidateName),
+				fmt.Sprintf("正在处理候选人“%s”", maskName(candidateName)),
 			)
 			candidateCtx, cancelCandidate := context.WithTimeout(ctx, candidateTimeout)
 			candidateErr := item.Err
@@ -237,7 +256,7 @@ func (f *Flow) processBatches(ctx context.Context, prepared shared.PreparedTask,
 					time.Now(),
 					fmt.Errorf(
 						"候选人“%s”基础评分 %.1f，暂不打开详情：%s",
-						candidate.Name,
+						maskName(candidate.Name),
 						item.Decision.Score,
 						item.Decision.Reason,
 					),
@@ -350,6 +369,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 		keywordMatch := matchKeywords(candidate, "", prepared.Position)
 		if isKeywordMode(prepared.Position) {
 			reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch)
+			shared.ReportProgress(
+				f.Logger,
+				prepared.Request.TaskID,
+				fmt.Sprintf("候选人“%s”关键词匹配：%s", maskName(candidate.Name), keywordMatch.Reason),
+			)
 		}
 		if !keywordMatch.Accepted {
 			stats.Skipped++
@@ -437,6 +461,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	if deferKeywordDecision {
 		keywordMatch := matchKeywords(candidate, detail.Text, prepared.Position)
 		reportKeywordMatch(f.Logger, prepared.Request.TaskID, candidate, keywordMatch)
+		shared.ReportProgress(
+			f.Logger,
+			prepared.Request.TaskID,
+			fmt.Sprintf("候选人“%s”关键词匹配（含详情）：%s", maskName(candidate.Name), keywordMatch.Reason),
+		)
 		if !keywordMatch.Accepted {
 			stats.Skipped++
 			f.saveCandidate(ctx, prepared, candidate, "filter", "skipped", keywordMatch.Reason)
@@ -516,6 +545,20 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			"final",
 			true,
 		)
+		shared.ReportProgress(
+			f.Logger,
+			prepared.Request.TaskID,
+			fmt.Sprintf("候选人“%s”最终评分 %.1f，%s",
+				maskName(candidate.Name),
+				decision.Score,
+				func() string {
+					if decision.Accepted {
+						return "匹配，准备打招呼：" + decision.Reason
+					}
+					return "不匹配，跳过：" + decision.Reason
+				}(),
+			),
+		)
 		f.log(prepared.Request.TaskID, "ai_decision", "success", decisionStartedAt, nil)
 		accepted = decision.Accepted
 		score = decision.Score
@@ -582,12 +625,22 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 			stats.Skipped++
 			f.log(prepared.Request.TaskID, "greet", "skipped", time.Now(), greetErr)
 			f.saveCandidate(ctx, prepared, candidate, "greet", "skipped", "候选人已经沟通过，本轮不重复打招呼")
+			shared.ReportProgress(
+				f.Logger,
+				prepared.Request.TaskID,
+				fmt.Sprintf("候选人“%s”已经沟通过，本轮不重复打招呼", maskName(candidate.Name)),
+			)
 			return nil
 		}
 		f.reportPageDiagnostics(ctx, prepared.Request.TaskID, "打招呼失败")
 		evaluationStatus = "failed"
 		stats.Failed++
 		f.saveCandidate(ctx, prepared, candidate, "greet", "failed", greetErr.Error())
+		shared.ReportProgress(
+			f.Logger,
+			prepared.Request.TaskID,
+			fmt.Sprintf("候选人“%s”打招呼失败：%s", maskName(candidate.Name), greetErr.Error()),
+		)
 		return fmt.Errorf("打招呼失败：%w", greetErr)
 	}
 	if prepared.Position.EnableSound && f.Notifier != nil {
@@ -638,6 +691,11 @@ func (f *Flow) processCandidate(ctx context.Context, prepared shared.PreparedTas
 	evaluationStatus = "greeted"
 	stats.Succeeded++
 	f.saveCandidate(ctx, prepared, candidate, "greet", "success", reason)
+	shared.ReportProgress(
+		f.Logger,
+		prepared.Request.TaskID,
+		fmt.Sprintf("候选人“%s”打招呼成功", maskName(candidate.Name)),
+	)
 	return nil
 }
 
@@ -655,6 +713,19 @@ func (f *Flow) saveCandidate(ctx context.Context, prepared shared.PreparedTask, 
 // isKeywordMode 判断岗位是否使用免费关键词筛选模式。
 func isKeywordMode(position cloud.PositionSnapshot) bool {
 	return strings.EqualFold(strings.TrimSpace(position.CommonConfig.ModeDefault), "keyword")
+}
+
+// maskName 返回候选人姓名的脱敏版本（姓+*），用于日志展示。
+func maskName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "未知"
+	}
+	runes := []rune(name)
+	if len(runes) == 1 {
+		return name + "*"
+	}
+	return string(runes[0]) + "*"
 }
 
 // log 输出主动打招呼步骤日志。

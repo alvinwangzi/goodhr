@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -13,7 +14,14 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// AppEnvDev 与 AppEnvProd 是 GOODHR_APP_ENV 环境变量的合法取值，用于区分开发/生产环境。
+const (
+	AppEnvDev  = "dev"
+	AppEnvProd = "prod"
+)
+
 type Config struct {
+	AppEnv                      string
 	PostgresDSN                 string
 	RedisAddr                   string
 	RedisPassword               string
@@ -27,9 +35,25 @@ type Config struct {
 	UniversalLoginCodeOffsetMin int
 }
 
+// Env 返回标准化后的小写环境模式，未识别时回退为 dev。
+func (c Config) Env() string {
+	switch strings.ToLower(strings.TrimSpace(c.AppEnv)) {
+	case AppEnvProd:
+		return AppEnvProd
+	default:
+		return AppEnvDev
+	}
+}
+
+// IsDev 判断当前是否运行在开发环境。
+func (c Config) IsDev() bool {
+	return c.Env() == AppEnvDev
+}
+
 // LoadConfigFromEnv 从环境变量读取云端后端配置。
 func LoadConfigFromEnv() Config {
 	return Config{
+		AppEnv:                      os.Getenv("GOODHR_APP_ENV"),
 		PostgresDSN:                 os.Getenv("GOODHR_PG_DSN"),
 		RedisAddr:                   os.Getenv("GOODHR_REDIS_ADDR"),
 		RedisPassword:               os.Getenv("GOODHR_REDIS_PASSWORD"),
@@ -86,9 +110,14 @@ func (c Config) AuthStore() (AuthStore, error) {
 	return NewMemoryAuthStore(), nil
 }
 
-// Mailer 创建验证码发信器；配置 SMTP 时真实发信，否则使用开发模式。
+// Mailer 创建验证码发信器。开发环境（GOODHR_APP_ENV=dev 或未配置）下走开发发信器、不发真实邮件，忽略 SMTP 配置；生产环境（GOODHR_APP_ENV=prod）下要求 SMTP 账号齐全，配置不全时降级为开发发信器并在启动日志中明确警告。
 func (c Config) Mailer() (Mailer, bool) {
+	if c.IsDev() {
+		log.Printf("[Mailer] 当前为开发环境（GOODHR_APP_ENV=%q），走开发发信器，不发送真实邮件", strings.TrimSpace(c.AppEnv))
+		return DevMailer{}, true
+	}
 	if c.SMTPHost != "" && c.SMTPUsername != "" && c.SMTPPassword != "" {
+		log.Printf("[Mailer] 当前为生产环境，使用 SMTP 发信器 host=%s port=%d", c.SMTPHost, c.SMTPPort)
 		return SMTPMailer{
 			Host:     c.SMTPHost,
 			Port:     c.SMTPPort,
@@ -97,6 +126,7 @@ func (c Config) Mailer() (Mailer, bool) {
 			From:     c.SMTPFrom,
 		}, false
 	}
+	log.Printf("[Mailer] 警告：当前为生产环境（GOODHR_APP_ENV=prod），但 SMTP 配置不完整（host/username/password 需全部填写）；降级为开发发信器，不会发送真实邮件")
 	return DevMailer{}, true
 }
 

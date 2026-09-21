@@ -10,6 +10,7 @@ import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
+import WarningRoundedIcon from "@mui/icons-material/WarningRounded";
 import {
   Alert,
   Box,
@@ -561,8 +562,44 @@ export default function PositionsPage() {
       );
       notify("岗位已停下，浏览器先给你留着", "success");
       await load();
+      // load 后再更新一次，确保按钮状态正确（云端可能还没同步）
+      setItems((current) => current.map((p) => p.id === item.id ? { ...p, status: "stopped" } : p));
     } catch (error) {
       notify(error instanceof Error ? error.message : "停止岗位失败", "error");
+    } finally {
+      setBusyPositionID("");
+    }
+  }
+
+  /** forceStopPosition 强制停止任务，直接取消 context 不等优雅结束。 */
+  async function forceStopPosition(item: any) {
+    if (!agentBase) return notify("本地程序还没连上", "warning");
+    setExpandedLogPositionID("");
+    setBusyPositionID(item.id);
+    try {
+      // 先获取当前任务 ID
+      const taskData = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`);
+      const taskID = taskData?.task?.task_id || taskData?.task?.id;
+      if (!taskID) {
+        notify("没找到运行中的任务", "warning");
+        return;
+      }
+      // 调用强制停止 API
+      await localRequest(agentBase, `/api/v1/tasks/force-stop`, {
+        method: "POST",
+        body: { task_id: taskID },
+        timeoutMS: 30000,
+      });
+      setFloatingPositionTask((current) =>
+        current && current.id === item.id
+          ? { ...current, status: "stopped", followTask: false }
+          : current,
+      );
+      notify("已强制停止，任务已中断", "success");
+      await load();
+      setItems((current) => current.map((p) => p.id === item.id ? { ...p, status: "stopped" } : p));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "强制停止失败", "error");
     } finally {
       setBusyPositionID("");
     }
@@ -854,15 +891,27 @@ export default function PositionsPage() {
                   {isCurrentUserPosition(item, user?.email) ? (
                   <Stack direction='row' spacing={1} sx={{ flexWrap: "wrap" }}>
                     {item.status === "running" ? (
-                      <Button
-                        color='error'
-                        variant='contained'
-                        startIcon={<StopRoundedIcon />}
-                        disabled={busyPositionID === item.id}
-                        onClick={() => void stopPosition(item)}
-                      >
-                        停止
-                      </Button>
+                      <>
+                        <Button
+                          color='error'
+                          variant='contained'
+                          startIcon={<StopRoundedIcon />}
+                          disabled={busyPositionID === item.id}
+                          onClick={() => void stopPosition(item)}
+                        >
+                          停止
+                        </Button>
+                        <Button
+                          color='error'
+                          variant='outlined'
+                          startIcon={<WarningRoundedIcon />}
+                          disabled={busyPositionID === item.id}
+                          onClick={() => void forceStopPosition(item)}
+                          title="强制停止：直接中断任务，不等当前候选人处理完"
+                        >
+                          强制停止
+                        </Button>
+                      </>
                     ) : (
                       <Button
                         color='primary'

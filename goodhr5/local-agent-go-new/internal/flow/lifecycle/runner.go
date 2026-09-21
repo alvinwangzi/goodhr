@@ -185,6 +185,34 @@ func (r *Runner) StopTask(ctx context.Context, taskID string) (storage.TaskRun, 
 	}
 }
 
+// ForceStopTask 强制停止任务，直接取消 context 不等优雅结束。
+// 用于任务卡住时用户手动强制停止。
+func (r *Runner) ForceStopTask(ctx context.Context, taskID string) (storage.TaskRun, error) {
+	r.mu.Lock()
+	active := r.active[taskID]
+	if active == nil {
+		r.mu.Unlock()
+		return r.store.Task(ctx, taskID)
+	}
+	active.stopped = true
+	active.stopOnce.Do(func() {
+		close(active.stop)
+	})
+	// 直接取消 context，强制中断当前操作
+	if active.cancel != nil {
+		active.cancel()
+	}
+	done := active.done
+	r.mu.Unlock()
+	shared.ReportProgress(r.logger, taskID, "强制停止请求，立即中断任务")
+	select {
+	case <-ctx.Done():
+		return storage.TaskRun{}, ctx.Err()
+	case <-done:
+		return r.store.Task(context.Background(), taskID)
+	}
+}
+
 // TaskStatus 返回 SQLite 任务状态和当前内存分析结果。
 func (r *Runner) TaskStatus(ctx context.Context, taskID string) (TaskSnapshot, error) {
 	task, err := r.store.Task(ctx, taskID)

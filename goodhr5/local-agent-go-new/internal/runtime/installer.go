@@ -233,13 +233,20 @@ func platformKey() string {
 	}
 }
 
-// validateAssetURL 校验组件下载地址必须使用 HTTPS。
+// validateAssetURL 校验组件下载地址必须使用 HTTPS；本机开发地址（localhost/127.0.0.1/::1）允许 HTTP，方便本地联调。
 func validateAssetURL(value string) error {
 	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Host == "" || parsed.Scheme != "https" || parsed.User != nil {
-		return fmt.Errorf("只支持 HTTPS 地址")
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("地址格式不正确")
 	}
-	return nil
+	if parsed.Scheme == "https" {
+		return nil
+	}
+	host := parsed.Hostname()
+	if parsed.Scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+		return nil
+	}
+	return fmt.Errorf("只支持 HTTPS 地址")
 }
 
 // archiveName 根据下载地址保留支持的压缩包后缀。

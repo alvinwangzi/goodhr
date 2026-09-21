@@ -49,6 +49,9 @@ func SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config
 		Selector: selector, MaxItems: 200, Fields: fields,
 	})
 	if err != nil {
+		if empty, probeErr := positionSearchEmpty(ctx, browser, cfg); probeErr == nil && empty {
+			return fmt.Errorf("%s上没有搜到“%s”相关的职位，换个岗位叫法试试，或先在%s上确认这个职位能不能搜到", cfg.Name, positionName, cfg.Name)
+		}
 		return fmt.Errorf("读取岗位列表失败：%w", err)
 	}
 	matchIndex := -1
@@ -90,6 +93,15 @@ func SelectPosition(ctx context.Context, browser model.Browser, cfg model.Config
 		return fmt.Errorf("岗位切换后页面显示“%s”，目标是“%s”", current, positionName)
 	}
 	return nil
+}
+
+// positionSearchEmpty 判断岗位搜索后平台是否显示了“没有相关职位”的空态提示。
+// 平台没有配置空态选择器时直接返回 false，不影响原有错误流程。
+func positionSearchEmpty(ctx context.Context, browser model.Browser, cfg model.Config) (bool, error) {
+	if _, exists := cfg.Selectors["position.empty"]; !exists {
+		return false, nil
+	}
+	return ProbeSelectorExists(ctx, browser, cfg, "position.empty")
 }
 
 // openPositionList 打开岗位列表并确认弹层出现，页面吞掉首次点击时只重试一次。
