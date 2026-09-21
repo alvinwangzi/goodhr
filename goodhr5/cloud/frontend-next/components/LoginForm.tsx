@@ -415,6 +415,7 @@ export default function LoginForm() {
         sx={{
           mb: 2.5,
           minHeight: 36,
+          "& .MuiTabs-flexContainer": { justifyContent: "flex-end" },
           "& .MuiTab-root": { minHeight: 36, py: 0.5, fontSize: 14, fontWeight: 600 },
         }}
       >
