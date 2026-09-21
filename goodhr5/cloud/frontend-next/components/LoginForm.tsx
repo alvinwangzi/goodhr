@@ -188,6 +188,10 @@ export default function LoginForm() {
       const status = data.status as any;
       if (status) {
         setHasPassword(!!status.has_password);
+        /* 未设置密码时自动切回验证码登录 */
+        if (!status.has_password && activeTab === 1) {
+          setActiveTab(0);
+        }
         if (status.is_locked) {
           setIsLocked(true);
           setLockRemainingSec(status.lock_remaining_sec || 0);
@@ -538,30 +542,6 @@ export default function LoginForm() {
           noValidate
         >
           <Stack spacing={2.25}>
-            {!hasPassword && !isLocked ? (
-              /* 未设置密码 */
-              <Alert severity="info" sx={{ width: "100%" }}>
-                还没设置密码呢，
-                <Box
-                  component="span"
-                  sx={{
-                    color: "primary.main",
-                    cursor: "pointer",
-                    fontWeight: 600,
-                    textDecoration: "underline",
-                  }}
-                  onClick={handleOpenSetPassword}
-                >
-                  点我设置
-                </Box>
-              </Alert>
-            ) : isLocked ? (
-              /* 已锁定 */
-              <Alert severity="warning" sx={{ width: "100%" }}>
-                密码错误太多次，先休息 {formatCountdown(lockRemainingSec)} 再试，或者先用验证码登录
-              </Alert>
-            ) : null}
-
             <TextField
               label="密码"
               type={showPassword ? "text" : "password"}
