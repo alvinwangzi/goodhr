@@ -1,4 +1,4 @@
-/** 本文件负责定义 GoodHR 新版前端的 MUI 明亮主题。 */
+/** 本文件负责定义 HR Plus 新版前端的 MUI 明亮主题。 */
 "use client";
 
 import { createTheme } from "@mui/material/styles";
@@ -19,15 +19,15 @@ type MembershipPalette = {
 
 const membershipPalettes: Record<MembershipTheme, MembershipPalette> = {
   free: {
-    main: "#159a62",
-    dark: "#0f754a",
-    soft: "#edf7f1",
-    secondary: "#17211c",
-    background: "#f6f9f7",
-    textPrimary: "#17211c",
-    textSecondary: "#637069",
-    divider: "#dce5e0",
-    hover: "#f2f7f4",
+    main: "#0052CC",
+    dark: "#003D99",
+    soft: "#EBF0FF",
+    secondary: "#1A1F36",
+    background: "#F5F7FF",
+    textPrimary: "#1A1F36",
+    textSecondary: "#5E6580",
+    divider: "#D6DCF0",
+    hover: "#EEF1FF",
   },
   plus: {
     main: "#242424",

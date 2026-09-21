@@ -694,7 +694,7 @@ function PaymentUnderstandingDialog({
           >
             <Typography sx={{ fontWeight: 800 }}>AI 余额</Typography>
             <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
-              仅用于 HR Radar 内置 AI 调用，并按实际使用扣减；自己配置 AI Key 时不扣这里的余额。会员费不包含 AI 余额，AI 余额也不能替代会员订阅。
+              仅用于 HR Plus 内置 AI 调用，并按实际使用扣减；自己配置 AI Key 时不扣这里的余额。会员费不包含 AI 余额，AI 余额也不能替代会员订阅。
             </Typography>
           </Box>
           <Box

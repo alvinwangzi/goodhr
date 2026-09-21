@@ -1,4 +1,4 @@
-/** 本文件防止后台页面重新写入旧版固定绿色，确保会员主题能完整生效。 */
+/** 本文件防止后台页面重新写入旧版固定色值，确保会员主题能完整生效。 */
 
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -11,7 +11,7 @@ const sourceDirectories = [
   join(frontendRoot, "app", "admin"),
   join(frontendRoot, "components", "admin"),
 ];
-const forbiddenFixedGreens = [
+const forbiddenFixedColors = [
   "#0f754a",
   "#15271e",
   "#15945f",
@@ -77,12 +77,23 @@ const forbiddenFixedGreens = [
   "#fafbfa",
   "#fbfcfb",
   "#fbfdfc",
+  // 新版蓝色主题色值（防止硬编码，须使用主题变量）
+  "#0052cc",
+  "#003d99",
+  "#ebf0ff",
+  "#1a1f36",
+  "#f5f7ff",
+  "#5e6580",
+  "#d6dcf0",
+  "#eef1ff",
 ];
-const forbiddenGreenShadows = [
+const forbiddenFixedShadows = [
   "rgba(21,154,98,.2)",
   "rgba(31,54,42,.06)",
   "rgba(31,54,42,.07)",
   "rgba(31,54,42,.08)",
+  "rgba(0,82,204,.14)",
+  "rgba(0,82,204,.2)",
 ];
 
 /**
@@ -105,7 +116,7 @@ test("后台装饰颜色统一使用会员主题变量", () => {
 
   for (const filePath of sourceDirectories.flatMap(collectSourceFiles)) {
     const source = readFileSync(filePath, "utf8").toLowerCase();
-    for (const color of [...forbiddenFixedGreens, ...forbiddenGreenShadows]) {
+    for (const color of [...forbiddenFixedColors, ...forbiddenFixedShadows]) {
       if (source.includes(color)) {
         violations.push(`${filePath.replace(`${frontendRoot}/`, "")}: ${color}`);
       }

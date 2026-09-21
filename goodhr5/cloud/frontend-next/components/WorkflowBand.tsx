@@ -1,4 +1,4 @@
-/** 本文件负责展示 HR Radar 招聘自动化主流程。 */
+/** 本文件负责展示 HR Plus 招聘自动化主流程。 */
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
 import CalendarMonthRoundedIcon from "@mui/icons-material/CalendarMonthRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";

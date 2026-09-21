@@ -11,9 +11,9 @@ import MarketingShell from "@/components/MarketingShell";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "联系HR Radar - 招聘自动化与AI招聘工具咨询",
+  title: "联系HR Plus - 招聘自动化与AI招聘工具咨询",
   description:
-    "联系 HR Radar，咨询 BOSS、猎聘、智联等招聘平台自动化、AI筛选、自动打招呼、自动回复、本地程序安装和订阅问题。",
+    "联系 HR Plus，咨询 BOSS、猎聘、智联等招聘平台自动化、AI筛选、自动打招呼、自动回复、本地程序安装和订阅问题。",
   path: "/contact",
   keywords: ["招聘自动化咨询", "AI招聘工具客服", "BOSS自动打招呼技术支持"],
 });
@@ -36,7 +36,7 @@ const contacts = [
   {
     icon: LanguageRoundedIcon,
     label: "官方网站",
-    value: "HR Radar 官方网站",
+    value: "HR Plus 官方网站",
     href: process.env.NEXT_PUBLIC_SITE_URL || "#",
     note: "查看产品更新、教程和下载入口。",
   },
@@ -48,18 +48,18 @@ const qrcodes = [
     title: "微信联系作者",
     description: "安装、订阅、发票、功能建议，都可以直接加我。",
     image: "/assets/contact/wechat-developer.jpg",
-    alt: "HR Radar 作者微信二维码",
+    alt: "HR Plus 作者微信二维码",
   },
   {
     icon: GroupsRoundedIcon,
-    title: "加入 HR Radar 解答群",
+    title: "加入 HR Plus 解答群",
     description: "常见问题、使用交流、更新通知，群里会同步。",
     image: "/assets/contact/qq-group.jpg",
-    alt: "HR Radar 解答 QQ 群二维码",
+    alt: "HR Plus 解答 QQ 群二维码",
   },
 ];
 
-/** ContactPage 展示 HR Radar 联系方式。 */
+/** ContactPage 展示 HR Plus 联系方式。 */
 export default function ContactPage() {
   return (
     <MarketingShell

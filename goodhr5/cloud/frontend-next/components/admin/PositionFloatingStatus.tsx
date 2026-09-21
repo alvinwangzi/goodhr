@@ -98,7 +98,7 @@ export async function openPositionFloatingWindow() {
     viewport.name = "viewport";
     viewport.content = "width=device-width, initial-scale=1";
     pipWindow.document.head.replaceChildren(viewport);
-    pipWindow.document.title = "HR Radar 任务状态";
+    pipWindow.document.title = "HR Plus 任务状态";
     pipWindow.document.documentElement.lang = "zh-CN";
     pipWindow.document.body.replaceChildren();
     Object.assign(pipWindow.document.body.style, {
@@ -227,7 +227,7 @@ export default function PositionFloatingStatus({
             fontSize: 12,
           }}
         >
-          <span style={{ opacity: 0.8 }}>HR Radar · 招聘小助手</span>
+          <span style={{ opacity: 0.8 }}>HR Plus · 招聘小助手</span>
           <strong
             style={{
               padding: "3px 7px",

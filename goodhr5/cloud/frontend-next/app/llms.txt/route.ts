@@ -1,4 +1,4 @@
-/** 本文件负责向 AI 搜索与问答系统提供 HR Radar 的纯文本产品说明。 */
+/** 本文件负责向 AI 搜索与问答系统提供 HR Plus 的纯文本产品说明。 */
 
 import { PLATFORM_AUTOMATION_KEYWORDS, RECRUITMENT_PLATFORMS, SITE_URL } from "@/lib/seo";
 
@@ -6,9 +6,9 @@ export const dynamic = "force-static";
 
 /** GET 返回便于大模型读取的站点事实、能力和公开页面索引。 */
 export function GET() {
-  const content = `# HR Radar
+  const content = `# HR Plus
 
-> HR Radar 是面向 HR、招聘团队和猎头顾问的招聘自动化工具，通过本地程序完成招聘平台浏览器操作，通过岗位模板完成候选人筛选、详情分析、自动打招呼和后续沟通。
+> HR Plus 是面向 HR、招聘团队和猎头顾问的招聘自动化工具，通过本地程序完成招聘平台浏览器操作，通过岗位模板完成候选人筛选、详情分析、自动打招呼和后续沟通。
 
 ## 核心能力
 - 招聘平台候选人自动读取与去重
@@ -20,7 +20,7 @@ export function GET() {
 - 关键词筛选与基础招聘流程可免费使用
 
 ## 招聘平台相关场景
-HR Radar 面向 ${RECRUITMENT_PLATFORMS.join("、")} 等招聘平台持续适配。相关场景包括自动打招呼、AI 自动打招呼、自动筛选、AI 筛选、自动回复、AI 自动回复和招聘简历下载。
+HR Plus 面向 ${RECRUITMENT_PLATFORMS.join("、")} 等招聘平台持续适配。相关场景包括自动打招呼、AI 自动打招呼、自动筛选、AI 筛选、自动回复、AI 自动回复和招聘简历下载。
 
 ## 平台与自动化检索词
 ${PLATFORM_AUTOMATION_KEYWORDS.join("、")}

@@ -67,7 +67,7 @@ export default function InvitationsPage() {
     <>
       <PageHeader
         title='邀请奖励'
-        description='把 HR Radar 分享给朋友，注册和订阅都能为你增加会员时间。'
+        description='把 HR Plus 分享给朋友，注册和订阅都能为你增加会员时间。'
         actions={
           <RefreshButton loading={loading} onClick={() => void load()} />
         }

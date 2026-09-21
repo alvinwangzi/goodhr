@@ -1,48 +1,103 @@
-/** 本文件负责展示 HR Radar 新版邮箱验证码登录页面。 */
-import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
+/** 本文件负责展示 HR Plus 登录页面，采用极光渐变背景 + 左右结构布局。 */
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import { Box, Button, Container, Paper, Stack, Typography } from "@mui/material";
 import BrandMark from "@/components/BrandMark";
 import LoginForm from "@/components/LoginForm";
+import { Box, Container, Stack, Typography } from "@mui/material";
 
-const loginPoints = ["邮箱验证码登录，无需记密码", "登录状态与现有后台完全兼容", "平台账号与浏览器数据仍保留在本地"];
+const loginPoints = ["简历数据存本地，隐私安全有保障","邮箱验证码登录，方便快捷"];
 
-/** LoginPage 输出与新版首页统一的明亮登录界面。 */
+/** LoginPage 输出极光渐变背景 + 左文右表结构的登录界面。 */
 export default function LoginPage() {
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", display: "flex", flexDirection: "column" }}>
-      <Container maxWidth="lg" sx={{ py: 2.5 }}>
-        <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
-          <BrandMark />
-          <Button component="a" href="/" color="secondary" startIcon={<ArrowBackRoundedIcon />}>返回首页</Button>
-        </Stack>
-      </Container>
-      <Container maxWidth="lg" sx={{ flex: 1, display: "grid", alignItems: "center", py: { xs: 5, md: 8 } }}>
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 460px" }, gap: { xs: 6, md: 12 }, alignItems: "center" }}>
-          <Box>
-            <Typography sx={{ color: "primary.main", fontWeight: 800, fontSize: 14 }}>HR RADAR 控制台</Typography>
-            <Typography component="h1" sx={{ mt: 2, maxWidth: 620, color: "text.primary", fontSize: { xs: 42, sm: 54, md: 64 }, lineHeight: 1.12, fontWeight: 780 }}>
-              登录之后，继续你的招聘岗位运行
-            </Typography>
-            <Typography sx={{ mt: 3, maxWidth: 590, color: "text.secondary", fontSize: 18, lineHeight: 1.8 }}>
-              账号和岗位信息保存在云端，招聘平台登录状态、截图和浏览器数据只留在你的电脑里。
-            </Typography>
-            <Stack spacing={1.5} sx={{ mt: 4 }}>
-              {loginPoints.map((point) => (
-                <Stack key={point} direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
-                  <CheckCircleRoundedIcon color="primary" fontSize="small" />
-                  <Typography sx={{ color: "text.secondary" }}>{point}</Typography>
-                </Stack>
-              ))}
-            </Stack>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        position: "relative",
+        overflow: "hidden",
+        background: "linear-gradient(135deg, #0a1628 0%, #0d2137 15%, #0f2d4a 30%, #0c3b6e 50%, #0a2d5c 65%, #0d1f3c 80%, #0a1628 100%)",
+        backgroundSize: "400% 400%",
+        animation: "auroraShift 18s ease infinite",
+      }}
+    >
+      {/* 极光光斑 */}
+      <Box sx={{ position: "absolute", top: "-15%", right: "-10%", width: "60vw", maxWidth: 900, aspectRatio: 1, borderRadius: "50%", background: "radial-gradient(circle, #1a6dd4 0%, transparent 70%)", filter: "blur(100px)", opacity: 0.35, animation: "auroraShift 22s ease-in-out infinite alternate", pointerEvents: "none" }} />
+      <Box sx={{ position: "absolute", bottom: "-10%", left: "-8%", width: "50vw", maxWidth: 750, aspectRatio: 1, borderRadius: "50%", background: "radial-gradient(circle, #0052CC 0%, transparent 70%)", filter: "blur(100px)", opacity: 0.35, animation: "auroraShift 26s ease-in-out -8s infinite alternate", pointerEvents: "none" }} />
+
+      {/* 内容层 */}
+      <Box sx={{ position: "relative", zIndex: 1, minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        {/* 顶部品牌 */}
+        <Container maxWidth="lg" sx={{ py: 2.5 }}>
+          <div className="login-fade-in">
+            <Box sx={{ "& .MuiTypography-root": { color: "rgba(255,255,255,0.92) !important" } }}>
+              <BrandMark />
+            </Box>
+          </div>
+        </Container>
+
+        {/* 左右结构主体 */}
+        <Container maxWidth="lg" sx={{ flex: 1, display: "grid", alignItems: "center", py: { xs: 4, md: 6 } }}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 440px" },
+              gap: { xs: 5, md: 10 },
+              alignItems: "start",
+            }}
+          >
+            {/* 左侧文案 */}
+            <Box>
+              <Typography
+                component="h1"
+                className="login-fade-in"
+                sx={{
+                  color: "#ffffff",
+                  fontSize: { xs: 32, sm: 40, md: 50 },
+                  lineHeight: 1.2,
+                  fontWeight: 800,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                解放双手，<br />
+                聚焦价值创造，<br/>
+                聚焦有温度的交流
+              </Typography>
+              <Typography
+                className="login-fade-in-delay"
+                sx={{ mt: 3, color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 1.8, maxWidth: 480 }}
+              >
+                · 判断 
+                · 共情 
+                · 吸引 
+                · 共赢
+              </Typography>
+              <Stack spacing={1.5} sx={{ mt: 4 }}>
+                {loginPoints.map((point) => (
+                  <Stack key={point} direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                    <CheckCircleRoundedIcon sx={{ color: "rgba(255,255,255,0.45)", fontSize: 18 }} />
+                    <Typography sx={{ color: "rgba(255,255,255,0.55)", fontSize: 14 }}>{point}</Typography>
+                  </Stack>
+                ))}
+              </Stack>
+            </Box>
+
+            {/* 右侧白色登录卡片 */}
+            <Box
+              className="login-fade-in-delay"
+              sx={{
+                p: { xs: 3, sm: 4 },
+                bgcolor: "#ffffff",
+                borderRadius: "24px",
+                boxShadow: "0 24px 80px rgba(0, 0, 0, 0.25)",
+              }}
+            >
+              <Typography component="h2" sx={{ color: "text.primary", fontSize: 24, fontWeight: 750, mb: 2 }}>
+                登录
+              </Typography>
+              <LoginForm />
+            </Box>
           </Box>
-          <Paper variant="outlined" sx={{ p: { xs: 3, sm: 4 }, borderRadius: "24px", borderColor: "divider", boxShadow: "0 24px 70px rgba(31, 55, 43, 0.10)" }}>
-            <Typography component="h2" sx={{ color: "text.primary", fontSize: 28, fontWeight: 750 }}>欢迎回来</Typography>
-            <Typography sx={{ mt: 1, mb: 3.5, color: "text.secondary" }}>输入邮箱，获取 4 位验证码</Typography>
-            <LoginForm />
-          </Paper>
-        </Box>
-      </Container>
+        </Container>
+      </Box>
     </Box>
   );
 }

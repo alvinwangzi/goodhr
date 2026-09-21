@@ -1,4 +1,4 @@
-/** 本文件负责把 HR Radar 新版候选人接口数据整理成简历库展示结构。 */
+/** 本文件负责把 HR Plus 新版候选人接口数据整理成简历库展示结构。 */
 
 export type NormalizedExperience = {
   companyName?: string;

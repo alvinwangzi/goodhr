@@ -11,14 +11,14 @@ import MarketingShell from "@/components/MarketingShell";
 import { getLocalAgentUpdates, type LocalAgentUpdate } from "@/lib/public-data";
 import { createPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = createPageMetadata({ title: "下载HR Radar - HR与猎头招聘自动化工具", description: "下载 HR Radar Windows 或 macOS 本地程序，用于招聘平台自动筛选、AI筛选、自动打招呼、AI自动回复、OCR和简历下载管理。", path: "/download", keywords: ["招聘软件免费下载", "BOSS自动打招呼软件下载", "猎聘自动化工具下载", "HR招聘助手下载"] });
+export const metadata: Metadata = createPageMetadata({ title: "下载HR Plus - HR与猎头招聘自动化工具", description: "下载 HR Plus Windows 或 macOS 本地程序，用于招聘平台自动筛选、AI筛选、自动打招呼、AI自动回复、OCR和简历下载管理。", path: "/download", keywords: ["招聘软件免费下载", "BOSS自动打招呼软件下载", "猎聘自动化工具下载", "HR招聘助手下载"] });
 
 /** DownloadPage 提供 Windows 和 macOS 本地程序下载入口。 */
 export default async function DownloadPage() {
 	const updates = await getLocalAgentUpdates();
 	const latest = updates[0];
 
-	return <MarketingShell eyebrow="本地程序" title="下载并安装 HR Radar" description="本地程序负责招聘平台浏览器操作、自动打招呼、截图、OCR、AI筛选流程和本地简历数据管理。安装后会自动打开控制台。">
+	return <MarketingShell eyebrow="本地程序" title="下载并安装 HR Plus" description="本地程序负责招聘平台浏览器操作、自动打招呼、截图、OCR、AI筛选流程和本地简历数据管理。安装后会自动打开控制台。">
     <Box component="section" sx={{ pb: { xs: 8, md: 12 } }}><Container maxWidth="lg">
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" }, gap: 2 }}>
         <DownloadCard icon={<WindowRoundedIcon />} system="Windows" note="支持 Windows 10 / 11，推荐 64 位系统。" href={latest?.urlWin || ""} available={Boolean(latest?.urlWin)} />

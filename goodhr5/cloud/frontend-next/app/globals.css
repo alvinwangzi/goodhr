@@ -1,8 +1,8 @@
-/* 本文件负责 HR Radar 新版前端的全局基础样式和轻量动效。 */
+/* 本文件负责 HR Plus 新版前端的全局基础样式和轻量动效。 */
 :root {
   color-scheme: light;
-  --goodhr-green: #159a62;
-  --goodhr-ink: #17211c;
+  --goodhr-brand: #0052CC;
+  --goodhr-ink: #1A1F36;
 }
 
 * {
@@ -25,7 +25,7 @@ a {
 
 ::selection {
   color: #fff;
-  background: var(--goodhr-green);
+  background: var(--goodhr-brand);
 }
 
 @keyframes signalFlow {
@@ -57,8 +57,36 @@ a {
 
 @keyframes workflowNode {
   0%, 16%, 100% { transform: scale(1); box-shadow: 0 0 0 1px #dce5e0; }
-  22%, 34% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(21, 154, 98, 0.14); }
+  22%, 34% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(0, 82, 204, 0.14); }
   42% { transform: scale(1); box-shadow: 0 0 0 1px #dce5e0; }
+}
+
+/* 登录页极光渐变背景 */
+@keyframes auroraShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* 登录卡片入场动画 */
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 登录卡片入场动画 */
+.login-fade-in {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.login-fade-in-delay {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
 }
 
 @media (prefers-reduced-motion: reduce) {

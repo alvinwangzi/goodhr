@@ -224,13 +224,13 @@ export default function TeamPage() {
           border: "1px solid",
           borderColor: "divider",
           borderRadius: "8px",
-          bgcolor: "#f3f8f4",
+          bgcolor: "action.selected",
         }}
       >
         <Typography sx={{ color: "text.secondary", fontSize: 14 }}>
           今日团队打招呼
         </Typography>
-        <Typography sx={{ fontSize: 24, fontWeight: 820, color: "#2f6b45" }}>
+        <Typography sx={{ fontSize: 24, fontWeight: 820, color: "primary.main" }}>
           {todayGreetedCount}
         </Typography>
         <Typography sx={{ color: "text.secondary", fontSize: 13 }}>次</Typography>

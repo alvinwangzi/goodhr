@@ -12,6 +12,8 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const codeTTL = 5 * time.Minute
@@ -211,6 +213,243 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		"expires_in":   int(sessionTTL.Seconds()),
 		"user":         s.publicUser(email),
 	})
+}
+
+const maxPasswordLoginAttempts = 3
+const passwordLoginLockDuration = 5 * time.Minute
+const passwordFailCountTTL = 10 * time.Minute
+
+type loginPasswordRequest struct {
+	Email string `json:"email"`
+	Password string `json:"password"`
+}
+
+// LoginPassword 处理邮箱 + 密码登录，包含失败计数和锁定逻辑。
+func (s *AuthService) LoginPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req loginPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+
+	password := strings.TrimSpace(req.Password)
+	if password == "" {
+		writeError(w, http.StatusBadRequest, "password is required")
+		return
+	}
+
+	// 检查是否被锁定
+	lockUntil, err := s.store.GetLoginLockUntil(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check lock status")
+		return
+	}
+	if !lockUntil.IsZero() && time.Now().Before(lockUntil) {
+		remaining := int(lockUntil.Sub(time.Now()).Seconds())
+		writeError(w, http.StatusTooManyRequests, fmt.Sprintf("密码错误次数过多，请%d秒后重试或使用验证码登录", remaining))
+		return
+	}
+
+	// 获取密码哈希
+	hash, err := s.store.GetUserPasswordHash(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get password hash")
+		return
+	}
+	if hash == "" {
+		writeError(w, http.StatusUnauthorized, "该账号未设置密码，请使用验证码登录")
+		return
+	}
+
+	// 验证密码
+	if !checkPassword(password, hash) {
+		// 密码错误，增加失败计数
+		count, err := s.store.GetLoginFailCount(email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get fail count")
+			return
+		}
+		count++
+		if err := s.store.SetLoginFailCount(email, count, passwordFailCountTTL); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update fail count")
+			return
+		}
+
+		if count >= maxPasswordLoginAttempts {
+			// 达到最大失败次数，锁定
+			lockUntil := time.Now().Add(passwordLoginLockDuration)
+			if err := s.store.SetLoginLockUntil(email, lockUntil, passwordLoginLockDuration); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to set lock")
+				return
+			}
+			writeError(w, http.StatusTooManyRequests, "密码错误次数过多，已锁定5分钟，请使用验证码登录")
+			return
+		}
+
+		remaining := maxPasswordLoginAttempts - count
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("密码错误，还可尝试%d次", remaining))
+		return
+	}
+
+	// 密码正确，清除失败状态
+	if err := s.store.ClearLoginFailState(email); err != nil {
+		log.Printf("GoodHR 清除密码登录失败状态失败 email=%s err=%v", email, err)
+	}
+
+	// 生成会话
+	token, err := randomToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	now := time.Now()
+	if err := s.store.SaveSession(token, Session{
+		Email:     email,
+		CreatedAt: now,
+	}, sessionTTL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save session")
+		return
+	}
+	if err := s.userActivity.RecordLogin(email, now); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to record login")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"access_token": token,
+		"token_type":   "Bearer",
+		"expires_in":   int(sessionTTL.Seconds()),
+		"user":         s.publicUser(email),
+	})
+}
+
+type setPasswordRequest struct {
+	Email    string `json:"email"`
+	Code     string `json:"code"`
+	Password string `json:"password"`
+}
+
+// SetPassword 通过验证码验证后设置密码。
+func (s *AuthService) SetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req setPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+
+	code := strings.TrimSpace(req.Code)
+	if len(code) != 4 {
+		writeError(w, http.StatusBadRequest, "invalid code")
+		return
+	}
+
+	password := strings.TrimSpace(req.Password)
+	if len(password) < 6 {
+		writeError(w, http.StatusBadRequest, "密码长度不能少于6位")
+		return
+	}
+
+	// 验证验证码
+	matched, err := s.loginCodeMatched(email, code, time.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify code")
+		return
+	}
+	if !matched {
+		writeError(w, http.StatusUnauthorized, "验证码错误或已过期")
+		return
+	}
+
+	// 哈希密码并保存
+	hash, err := hashPassword(password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		return
+	}
+	if err := s.store.SetUserPasswordHash(email, hash); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save password")
+		return
+	}
+
+	// 清除失败状态
+	_ = s.store.ClearLoginFailState(email)
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+type loginStatusResponse struct {
+	HasPassword      bool   `json:"has_password"`
+	IsLocked         bool   `json:"is_locked"`
+	LockRemainingSec int    `json:"lock_remaining_sec"`
+	FailCount        int    `json:"fail_count"`
+}
+
+// GetLoginStatus 查询邮箱的登录状态（是否设置密码、是否被锁定等）。
+func (s *AuthService) GetLoginStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	email, ok := normalizeEmail(r.URL.Query().Get("email"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+
+	hash, err := s.store.GetUserPasswordHash(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get password hash")
+		return
+	}
+
+	lockUntil, err := s.store.GetLoginLockUntil(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get lock status")
+		return
+	}
+
+	failCount, err := s.store.GetLoginFailCount(email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get fail count")
+		return
+	}
+
+	resp := loginStatusResponse{
+		HasPassword: hash != "",
+		FailCount:   failCount,
+	}
+
+	if !lockUntil.IsZero() && time.Now().Before(lockUntil) {
+		resp.IsLocked = true
+		resp.LockRemainingSec = int(lockUntil.Sub(time.Now()).Seconds())
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": resp})
 }
 
 func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
@@ -560,4 +799,19 @@ func (s *AuthService) userRoleLabel(email string) string {
 	default:
 		return "成员"
 	}
+}
+
+// hashPassword 使用 bcrypt 哈希密码。
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// checkPassword 验证密码与哈希是否匹配。
+func checkPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }

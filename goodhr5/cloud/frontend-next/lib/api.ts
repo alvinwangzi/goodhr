@@ -1,4 +1,4 @@
-/** 本文件负责新版前端访问 HR Radar 云端 API 和统一错误处理。 */
+/** 本文件负责新版前端访问 HR Plus 云端 API 和统一错误处理。 */
 
 export const TOKEN_KEY = "goodhr5_access_token";
 export const SESSION_EMAIL_KEY = "goodhr5_session_email";
@@ -51,6 +51,11 @@ function normalizeAPIError(value: unknown) {
     "failed to send code": "验证码发送失败，请稍后重试",
     "failed to save session": "登录状态保存失败，请稍后重试",
     "session is invalid or expired": "登录状态已过期，请重新登录",
+    "password is required": "密码不能为空",
+    "密码错误": "密码不对哦，再想想？",
+    "该账号未设置密码，请使用验证码登录": "还没有设置密码呢，先用验证码登录吧",
+    "验证码错误或已过期": "验证码不对或者过期了，再试一次？",
+    "密码长度不能少于6位": "密码至少要 6 位哦",
   };
   return messages[message] || message || "请求失败，请稍后重试";
 }

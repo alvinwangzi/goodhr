@@ -711,7 +711,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </IconButton>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography noWrap sx={{ fontWeight: 780 }}>
-                {user?.email || "HR Radar 控制台"}
+                {user?.email || "HR Plus 控制台"}
               </Typography>
               <Typography noWrap sx={{ color: "text.secondary", fontSize: 12 }}>
                 {user?.role_label ||
@@ -935,7 +935,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         <AdminDialog
           open={Boolean(deviceBindingError) && !trialWelcomeOpen && teamInvitations.length === 0}
           title="这台电脑已经有账号了"
-          description="为了避免重复领取体验会员，一台电脑同一时间只能绑定一个 HR Radar 账号。"
+          description="为了避免重复领取体验会员，一台电脑同一时间只能绑定一个 HR Plus 账号。"
           confirmText="退出当前账号"
           showCancel={false}
           hideClose

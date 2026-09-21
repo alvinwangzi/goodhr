@@ -18,7 +18,7 @@ export const CORE_SEO_KEYWORDS = [
   "BOSS简历下载", "猎聘自动化工具", "猎聘自动打招呼", "猎聘AI筛选", "猎聘自动回复", "猎聘简历下载",
   "智联招聘自动化", "智联自动打招呼", "智联AI筛选", "智联自动回复", "智联简历下载", "前程无忧自动化",
   "51job自动打招呼", "拉勾招聘自动化", "58同城招聘自动化", "店长直聘自动打招呼", "赶集直招自动化",
-  "鱼泡直聘自动化", "脉脉招聘自动化", "招聘机器人", "候选人筛选", "人才筛选", "招聘效率工具", "HR Radar",
+  "鱼泡直聘自动化", "脉脉招聘自动化", "招聘机器人", "候选人筛选", "人才筛选", "招聘效率工具", "HR Plus",
   ...PLATFORM_AUTOMATION_KEYWORDS,
 ];
 
@@ -38,7 +38,7 @@ export function createPageMetadata({ title, description, path, keywords = [] }: 
     description,
     keywords: mergedKeywords,
     alternates: { canonical },
-    openGraph: { type: "website", locale: "zh_CN", siteName: "HR Radar", url: canonical, title, description },
+    openGraph: { type: "website", locale: "zh_CN", siteName: "HR Plus", url: canonical, title, description },
     twitter: { card: "summary_large_image", title, description },
     robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
   };
