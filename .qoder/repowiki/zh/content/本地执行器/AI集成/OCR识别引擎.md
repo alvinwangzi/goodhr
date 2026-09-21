@@ -7,7 +7,7 @@
 - [command_other.go](file://goodhr5/local-agent-go/internal/ocr/command_other.go)
 - [config.go](file://goodhr5/local-agent-go/internal/config/config.go)
 - [server.go](file://goodhr5/local-agent-go/internal/app/server.go)
-- [client.go](file://goodhr5/local-agent-go/internal/integration/ocr/client.go)
+- [client.go](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go)
 - [go_screenshot.go](file://goodhr5/local-agent-go/internal/browser/go_screenshot.go)
 </cite>
 
@@ -37,7 +37,7 @@
 ## 项目结构
 OCR相关代码主要分布在以下位置：
 - Go旧版实现：local-agent-go/internal/ocr
-- Go新版实现：local-agent-go/internal/integration/ocr
+- Go新版实现：local-agent-go-new/internal/integration/ocr
 - HTTP服务暴露：local-agent-go/internal/app/server.go
 - 配置与路径：local-agent-go/internal/config/config.go
 - 截图生成：local-agent-go/internal/browser/go_screenshot.go
@@ -57,14 +57,14 @@ F --> C
 图表来源
 - [server.go:484-517](file://goodhr5/local-agent-go/internal/app/server.go#L484-L517)
 - [engine.go:21-97](file://goodhr5/local-agent-go/internal/ocr/engine.go#L21-L97)
-- [client.go:65-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L65-L132)
+- [client.go:65-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L65-L132)
 - [go_screenshot.go:14-86](file://goodhr5/local-agent-go/internal/browser/go_screenshot.go#L14-L86)
 - [config.go:26-88](file://goodhr5/local-agent-go/internal/config/config.go#L26-L88)
 
 章节来源
 - [server.go:484-517](file://goodhr5/local-agent-go/internal/app/server.go#L484-L517)
 - [engine.go:21-97](file://goodhr5/local-agent-go/internal/ocr/engine.go#L21-L97)
-- [client.go:65-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L65-L132)
+- [client.go:65-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L65-L132)
 - [go_screenshot.go:14-86](file://goodhr5/local-agent-go/internal/browser/go_screenshot.go#L14-L86)
 - [config.go:26-88](file://goodhr5/local-agent-go/internal/config/config.go#L26-L88)
 
@@ -77,7 +77,7 @@ F --> C
 
 章节来源
 - [engine.go:21-97](file://goodhr5/local-agent-go/internal/ocr/engine.go#L21-L97)
-- [client.go:65-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L65-L132)
+- [client.go:65-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L65-L132)
 - [server.go:484-517](file://goodhr5/local-agent-go/internal/app/server.go#L484-L517)
 - [go_screenshot.go:14-86](file://goodhr5/local-agent-go/internal/browser/go_screenshot.go#L14-L86)
 - [config.go:26-88](file://goodhr5/local-agent-go/internal/config/config.go#L26-L88)
@@ -112,7 +112,7 @@ Note over API,PROC : 若进程退出或读取失败，记录日志并返回错�
 图表来源
 - [server.go:494-517](file://goodhr5/local-agent-go/internal/app/server.go#L494-L517)
 - [engine.go:59-97](file://goodhr5/local-agent-go/internal/ocr/engine.go#L59-L97)
-- [client.go:102-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L102-L132)
+- [client.go:102-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L102-L132)
 
 ## 详细组件分析
 
@@ -163,10 +163,10 @@ ReturnOK --> End
 - 附加参数：ocrArgs读取GOODHR_OCR_ARGS环境变量。
 
 章节来源
-- [client.go:20-63](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L20-L63)
-- [client.go:65-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L65-L132)
-- [client.go:144-181](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L144-L181)
-- [client.go:246-292](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L246-L292)
+- [client.go:20-63](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L20-L63)
+- [client.go:65-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L65-L132)
+- [client.go:144-181](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L144-L181)
+- [client.go:246-292](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L246-L292)
 
 ### HTTP服务集成
 - 状态接口：GET /api/v1/local/ocr/status，返回installed、path、dir、mode、models_ok；
@@ -205,14 +205,14 @@ Screenshot["截图(go_screenshot.go)"] --> Server
 图表来源
 - [server.go:484-517](file://goodhr5/local-agent-go/internal/app/server.go#L484-L517)
 - [engine.go:21-97](file://goodhr5/local-agent-go/internal/ocr/engine.go#L21-L97)
-- [client.go:65-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L65-L132)
+- [client.go:65-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L65-L132)
 - [config.go:26-88](file://goodhr5/local-agent-go/internal/config/config.go#L26-L88)
 - [go_screenshot.go:14-86](file://goodhr5/local-agent-go/internal/browser/go_screenshot.go#L14-L86)
 
 章节来源
 - [server.go:484-517](file://goodhr5/local-agent-go/internal/app/server.go#L484-L517)
 - [engine.go:21-97](file://goodhr5/local-agent-go/internal/ocr/engine.go#L21-L97)
-- [client.go:65-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L65-L132)
+- [client.go:65-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L65-L132)
 - [config.go:26-88](file://goodhr5/local-agent-go/internal/config/config.go#L26-L88)
 - [go_screenshot.go:14-86](file://goodhr5/local-agent-go/internal/browser/go_screenshot.go#L14-L86)
 
@@ -237,8 +237,8 @@ Screenshot["截图(go_screenshot.go)"] --> Server
 - 连续错误策略：岗位运行层有连续错误计数与重置逻辑，可用于OCR上游流程的容错控制。
 
 章节来源
-- [client.go:20-63](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L20-L63)
-- [client.go:102-132](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L102-L132)
+- [client.go:20-63](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L20-L63)
+- [client.go:102-132](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L102-L132)
 - [engine.go:148-179](file://goodhr5/local-agent-go/internal/ocr/engine.go#L148-L179)
 - [engine.go:218-238](file://goodhr5/local-agent-go/internal/ocr/engine.go#L218-L238)
 
@@ -259,7 +259,7 @@ Screenshot["截图(go_screenshot.go)"] --> Server
 章节来源
 - [config.go:26-88](file://goodhr5/local-agent-go/internal/config/config.go#L26-L88)
 - [engine.go:240-296](file://goodhr5/local-agent-go/internal/ocr/engine.go#L240-L296)
-- [client.go:246-292](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L246-L292)
+- [client.go:246-292](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L246-L292)
 
 ## 多语言与识别精度优化
 - 多语言支持：
@@ -318,7 +318,7 @@ Screenshot["截图(go_screenshot.go)"] --> Server
 章节来源
 - [server.go:484-517](file://goodhr5/local-agent-go/internal/app/server.go#L484-L517)
 - [engine.go:202-238](file://goodhr5/local-agent-go/internal/ocr/engine.go#L202-L238)
-- [client.go:20-63](file://goodhr5/local-agent-go/internal/integration/ocr/client.go#L20-L63)
+- [client.go:20-63](file://goodhr5/local-agent-go-new/internal/integration/ocr/client.go#L20-L63)
 
 ## 结论
 本OCR识别引擎以本地常驻进程方式调用RapidOCR-json，实现了安全的图片文字识别能力。其特点包括：

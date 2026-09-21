@@ -11,9 +11,9 @@ source_files:
     - goodhr5/cloud/backend/.env.example
     - goodhr5/local-agent-go/internal/config/config.go
     - goodhr5/local-agent-go/cmd/goodhr-local-agent/main.go
-    - goodhr5/local-agent-go/internal/config/config.go
-    - goodhr5/local-agent-go/cmd/goodhr-local-agent/main.go
-    - goodhr5/local-agent-go/internal/platform/config.go
+    - goodhr5/local-agent-go-new/internal/config/config.go
+    - goodhr5/local-agent-go-new/cmd/goodhr-local-agent/main.go
+    - goodhr5/local-agent-go-new/internal/platform/config.go
     - goodhr5/docker-compose.yml
 ---
 
@@ -35,8 +35,8 @@ GoodHR5 采用**分层配置**策略，按“进程启动参数 → 环境变量
 | 云端运行时配置 API | `goodhr5/cloud/backend/internal/httpapi/runtime_config.go` | 从 `system.onboarding_config` 返回给已登录用户的本地程序/组件配置 |
 | 云端 .env 模板 | `goodhr5/cloud/backend/.env.example` | 列出部署所需的环境变量 |
 | 旧版本地 Agent 配置 | `goodhr5/local-agent-go/internal/config/config.go` | `NewWithDataDir` 解析 host/port/data-dir/env，自动建目录 |
-| 新版本地 Agent 配置 | `goodhr5/local-agent-go/internal/config/config.go` | `Load` 解析更多字段（WorkerPort、NodePath、OCRExecutable、DatabasePath 等） |
-| 平台内置配置加载 | `goodhr5/local-agent-go/internal/platform/config.go` | `//go:embed boss/config.json` 等，提供 `LoadConfig` / `ValidateTaskConfig` |
+| 新版本地 Agent 配置 | `goodhr5/local-agent-go-new/internal/config/config.go` | `Load` 解析更多字段（WorkerPort、NodePath、OCRExecutable、DatabasePath 等） |
+| 平台内置配置加载 | `goodhr5/local-agent-go-new/internal/platform/config.go` | `//go:embed boss/config.json` 等，提供 `LoadConfig` / `ValidateTaskConfig` |
 | Docker Compose | `goodhr5/docker-compose.yml` | 为 backend/frontend 注入环境变量 |
 
 ## 3. 架构与约定

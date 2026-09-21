@@ -1,85 +1,24 @@
-/** 本文件负责定义 HR Plus 新版前端的 MUI 明亮主题。 */
+/** 本文件负责定义 HR Plus 新版前端的 MUI 明亮主题，全站统一使用一套蓝色主题。 */
 "use client";
 
 import { createTheme } from "@mui/material/styles";
 
-export type MembershipTheme = "free" | "plus" | "max";
-
-type MembershipPalette = {
-  main: string;
-  dark: string;
-  soft: string;
-  secondary: string;
-  background: string;
-  textPrimary: string;
-  textSecondary: string;
-  divider: string;
-  hover: string;
-};
-
-const membershipPalettes: Record<MembershipTheme, MembershipPalette> = {
-  free: {
-    main: "#0052CC",
-    dark: "#003D99",
-    soft: "#EBF0FF",
-    secondary: "#1A1F36",
-    background: "#F5F7FF",
-    textPrimary: "#1A1F36",
-    textSecondary: "#5E6580",
-    divider: "#D6DCF0",
-    hover: "#EEF1FF",
-  },
-  plus: {
-    main: "#242424",
-    dark: "#111111",
-    soft: "#f1f1ef",
-    secondary: "#4a4a46",
-    background: "#f7f7f5",
-    textPrimary: "#1b1b1a",
-    textSecondary: "#686865",
-    divider: "#e3e3df",
-    hover: "#f4f4f1",
-  },
-  max: {
-    main: "#8a6518",
-    dark: "#674a10",
-    soft: "#f8f3e6",
-    secondary: "#1b1812",
-    background: "#f8f7f2",
-    textPrimary: "#1f1c16",
-    textSecondary: "#6e685b",
-    divider: "#e5dfd0",
-    hover: "#f3eee1",
-  },
-};
-
-/** resolveMembershipTheme 根据有效会员类型返回对应后台主题。 */
-export function resolveMembershipTheme(
-  active: boolean,
-  memberType: unknown,
-): MembershipTheme {
-  if (!active) return "free";
-  const normalized = String(memberType || "").trim().toLowerCase();
-  return normalized === "plus" || normalized === "max" ? normalized : "free";
-}
-
-/** createGoodHRTheme 根据会员等级生成统一浅色主题。 */
-export function createGoodHRTheme(membershipTheme: MembershipTheme = "free") {
-  const accent = membershipPalettes[membershipTheme] || membershipPalettes.free;
+/** createGoodHRTheme 生成统一的浅色蓝色主题。 */
+export function createGoodHRTheme() {
   return createTheme({
     palette: {
       mode: "light",
       primary: {
-        main: accent.main,
-        dark: accent.dark,
-        light: accent.soft,
+        main: "#0052CC",
+        dark: "#003D99",
+        light: "#EBF0FF",
         contrastText: "#ffffff",
       },
-      secondary: { main: accent.secondary },
-      background: { default: accent.background, paper: "#ffffff" },
-      text: { primary: accent.textPrimary, secondary: accent.textSecondary },
-      divider: accent.divider,
-      action: { hover: accent.hover, selected: accent.soft },
+      secondary: { main: "#1A1F36" },
+      background: { default: "#F5F7FF", paper: "#ffffff" },
+      text: { primary: "#1A1F36", secondary: "#5E6580" },
+      divider: "#D6DCF0",
+      action: { hover: "#EEF1FF", selected: "#EBF0FF" },
       success: {
         main: "#238653",
         dark: "#17633d",

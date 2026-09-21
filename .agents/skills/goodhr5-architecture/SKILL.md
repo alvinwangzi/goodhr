@@ -32,7 +32,7 @@ description: GoodHR 5 项目架构规范。在 goodhr5 子目录开发云端 Go�
 
 ## 平台配置归属
 
-- 平台 URL、页面行为和选择器只放在 `local-agent-go/internal/platform/{platform}/config.json`。
+- 平台 URL、页面行为和选择器只放在 `local-agent-go-new/internal/platform/{platform}/config.json`。
 - 使用 `go:embed` 随本地程序发布；任务启动时直接加载本地配置。
 - 本地程序不得从云端请求、合并或覆盖平台配置。
 - 所有选择器继续使用统一强类型 `SelectorSpec`。
@@ -62,6 +62,6 @@ description: GoodHR 5 项目架构规范。在 goodhr5 子目录开发云端 Go�
 
 ## 修改前检查
 
-- 先读取目标目录最近的 `AGENTS.md`；`local-agent-go/AGENTS.md` 是该目录的详细权威规范。
+- 先读取目标目录最近的 `AGENTS.md`；`local-agent-go-new/AGENTS.md` 是该目录的详细权威规范。
 - 先搜索是否已有相同接口、方法、选择器逻辑键和错误码。
 - 判断改动属于云端业务、本地公共流程、平台适配还是 Worker 动作，再放入对应目录。

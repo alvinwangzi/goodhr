@@ -6,13 +6,13 @@
 - [cookie_store.go](file://goodhr5/cloud/backend/internal/httpapi/cookie_store.go)
 - [crypto.go](file://goodhr5/cloud/backend/internal/httpapi/crypto.go)
 - [0005_cookie_storage.sql](file://goodhr5/cloud/backend/db/migrations/0005_cookie_storage.sql)
-- [downloads.go](file://goodhr5/local-agent-go/internal/api/downloads.go)
-- [download.go](file://goodhr5/local-agent-go/internal/storage/download.go)
-- [store.go](file://goodhr5/local-agent-go/internal/storage/store.go)
+- [downloads.go](file://goodhr5/local-agent-go-new/internal/api/downloads.go)
+- [download.go](file://goodhr5/local-agent-go-new/internal/storage/download.go)
+- [store.go](file://goodhr5/local-agent-go-new/internal/storage/store.go)
 - [go_download.go](file://goodhr5/local-agent-go/internal/browser/go_download.go)
 - [files.go](file://goodhr5/local-agent-go/internal/app/files.go)
-- [types.go](file://goodhr5/local-agent-go/internal/browser/contract/types.go)
-- [002_download_records.sql](file://goodhr5/local-agent-go/migrations/002_download_records.sql)
+- [types.go](file://goodhr5/local-agent-go-new/internal/browser/contract/types.go)
+- [002_download_records.sql](file://goodhr5/local-agent-go-new/migrations/002_download_records.sql)
 </cite>
 
 ## 目录
@@ -70,23 +70,23 @@ G --> I
 - [crypto.go:28-114](file://goodhr5/cloud/backend/internal/httpapi/crypto.go#L28-L114)
 - [0005_cookie_storage.sql:1-2](file://goodhr5/cloud/backend/db/migrations/0005_cookie_storage.sql#L1-L2)
 - [go_download.go:9-105](file://goodhr5/local-agent-go/internal/browser/go_download.go#L9-L105)
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:11-108](file://goodhr5/local-agent-go/internal/storage/download.go#L11-L108)
-- [store.go:63-109](file://goodhr5/local-agent-go/internal/storage/store.go#L63-L109)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:11-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L11-L108)
+- [store.go:63-109](file://goodhr5/local-agent-go-new/internal/storage/store.go#L63-L109)
 - [files.go:19-357](file://goodhr5/local-agent-go/internal/app/files.go#L19-L357)
-- [002_download_records.sql:1-20](file://goodhr5/local-agent-go/migrations/002_download_records.sql#L1-L20)
+- [002_download_records.sql:1-20](file://goodhr5/local-agent-go-new/migrations/002_download_records.sql#L1-L20)
 
 章节来源
 - [cookie.go:15-21](file://goodhr5/cloud/backend/internal/httpapi/cookie.go#L15-L21)
 - [cookie_store.go:14-31](file://goodhr5/cloud/backend/internal/httpapi/cookie_store.go#L14-L31)
 - [crypto.go:28-114](file://goodhr5/cloud/backend/internal/httpapi/crypto.go#L28-L114)
 - [go_download.go:9-105](file://goodhr5/local-agent-go/internal/browser/go_download.go#L9-L105)
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:11-108](file://goodhr5/local-agent-go/internal/storage/download.go#L11-L108)
-- [store.go:63-109](file://goodhr5/local-agent-go/internal/storage/store.go#L63-L109)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:11-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L11-L108)
+- [store.go:63-109](file://goodhr5/local-agent-go-new/internal/storage/store.go#L63-L109)
 - [files.go:19-357](file://goodhr5/local-agent-go/internal/app/files.go#L19-L357)
 - [0005_cookie_storage.sql:1-2](file://goodhr5/cloud/backend/db/migrations/0005_cookie_storage.sql#L1-L2)
-- [002_download_records.sql:1-20](file://goodhr5/local-agent-go/migrations/002_download_records.sql#L1-L20)
+- [002_download_records.sql:1-20](file://goodhr5/local-agent-go-new/migrations/002_download_records.sql#L1-L20)
 
 ## 核心组件
 - Cookie 服务：提供 Cookie 的列表、创建、更新、申领、释放、状态更新与删除；负责租户隔离、名称去重、并发占用控制与加密存储。
@@ -101,9 +101,9 @@ G --> I
 - [cookie.go:43-397](file://goodhr5/cloud/backend/internal/httpapi/cookie.go#L43-L397)
 - [cookie_store.go:14-303](file://goodhr5/cloud/backend/internal/httpapi/cookie_store.go#L14-L303)
 - [crypto.go:28-114](file://goodhr5/cloud/backend/internal/httpapi/crypto.go#L28-L114)
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:11-108](file://goodhr5/local-agent-go/internal/storage/download.go#L11-L108)
-- [store.go:63-109](file://goodhr5/local-agent-go/internal/storage/store.go#L63-L109)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:11-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L11-L108)
+- [store.go:63-109](file://goodhr5/local-agent-go-new/internal/storage/store.go#L63-L109)
 - [go_download.go:9-105](file://goodhr5/local-agent-go/internal/browser/go_download.go#L9-L105)
 - [files.go:19-357](file://goodhr5/local-agent-go/internal/app/files.go#L19-L357)
 
@@ -144,8 +144,8 @@ Store-->>Agent : 成功
 - [cookie_store.go:149-298](file://goodhr5/cloud/backend/internal/httpapi/cookie_store.go#L149-L298)
 - [crypto.go:28-114](file://goodhr5/cloud/backend/internal/httpapi/crypto.go#L28-L114)
 - [go_download.go:9-105](file://goodhr5/local-agent-go/internal/browser/go_download.go#L9-L105)
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:26-108](file://goodhr5/local-agent-go/internal/storage/download.go#L26-L108)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:26-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L26-L108)
 
 ## 详细组件分析
 
@@ -293,15 +293,15 @@ Query --> Done
 ```
 
 图表来源
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:26-108](file://goodhr5/local-agent-go/internal/storage/download.go#L26-L108)
-- [store.go:292-323](file://goodhr5/local-agent-go/internal/storage/store.go#L292-L323)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:26-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L26-L108)
+- [store.go:292-323](file://goodhr5/local-agent-go-new/internal/storage/store.go#L292-L323)
 - [files.go:19-357](file://goodhr5/local-agent-go/internal/app/files.go#L19-L357)
 
 章节来源
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:26-108](file://goodhr5/local-agent-go/internal/storage/download.go#L26-L108)
-- [store.go:292-323](file://goodhr5/local-agent-go/internal/storage/store.go#L292-L323)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:26-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L26-L108)
+- [store.go:292-323](file://goodhr5/local-agent-go-new/internal/storage/store.go#L292-L323)
 - [files.go:19-357](file://goodhr5/local-agent-go/internal/app/files.go#L19-L357)
 
 ### Cookie 持久化策略与登录态维护
@@ -333,9 +333,9 @@ Query --> Done
 章节来源
 - [cookie.go:91-95](file://goodhr5/cloud/backend/internal/httpapi/cookie.go#L91-L95)
 - [cookie.go:196-199](file://goodhr5/cloud/backend/internal/httpapi/cookie.go#L196-L199)
-- [download.go:26-69](file://goodhr5/local-agent-go/internal/storage/download.go#L26-L69)
-- [store.go:292-323](file://goodhr5/local-agent-go/internal/storage/store.go#L292-L323)
-- [downloads.go:64-74](file://goodhr5/local-agent-go/internal/api/downloads.go#L64-L74)
+- [download.go:26-69](file://goodhr5/local-agent-go-new/internal/storage/download.go#L26-L69)
+- [store.go:292-323](file://goodhr5/local-agent-go-new/internal/storage/store.go#L292-L323)
+- [downloads.go:64-74](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L64-L74)
 
 ### Cookie 安全处理与下载异常恢复机制
 - Cookie 安全
@@ -349,9 +349,9 @@ Query --> Done
 
 章节来源
 - [crypto.go:28-114](file://goodhr5/cloud/backend/internal/httpapi/crypto.go#L28-L114)
-- [download.go:26-69](file://goodhr5/local-agent-go/internal/storage/download.go#L26-L69)
-- [store.go:270-290](file://goodhr5/local-agent-go/internal/storage/store.go#L270-L290)
-- [downloads.go:109-164](file://goodhr5/local-agent-go/internal/api/downloads.go#L109-L164)
+- [download.go:26-69](file://goodhr5/local-agent-go-new/internal/storage/download.go#L26-L69)
+- [store.go:270-290](file://goodhr5/local-agent-go-new/internal/storage/store.go#L270-L290)
+- [downloads.go:109-164](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L109-L164)
 
 ## 依赖关系分析
 - 云端后端
@@ -378,22 +378,22 @@ Files["文件操作"] --> OS["系统命令"]
 - [cookie_store.go:14-31](file://goodhr5/cloud/backend/internal/httpapi/cookie_store.go#L14-L31)
 - [crypto.go:28-114](file://goodhr5/cloud/backend/internal/httpapi/crypto.go#L28-L114)
 - [0005_cookie_storage.sql:1-2](file://goodhr5/cloud/backend/db/migrations/0005_cookie_storage.sql#L1-L2)
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:11-108](file://goodhr5/local-agent-go/internal/storage/download.go#L11-L108)
-- [store.go:63-109](file://goodhr5/local-agent-go/internal/storage/store.go#L63-L109)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:11-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L11-L108)
+- [store.go:63-109](file://goodhr5/local-agent-go-new/internal/storage/store.go#L63-L109)
 - [files.go:19-357](file://goodhr5/local-agent-go/internal/app/files.go#L19-L357)
-- [002_download_records.sql:1-20](file://goodhr5/local-agent-go/migrations/002_download_records.sql#L1-L20)
+- [002_download_records.sql:1-20](file://goodhr5/local-agent-go-new/migrations/002_download_records.sql#L1-L20)
 
 章节来源
 - [cookie.go:15-21](file://goodhr5/cloud/backend/internal/httpapi/cookie.go#L15-L21)
 - [cookie_store.go:14-31](file://goodhr5/cloud/backend/internal/httpapi/cookie_store.go#L14-L31)
 - [crypto.go:28-114](file://goodhr5/cloud/backend/internal/httpapi/crypto.go#L28-L114)
 - [0005_cookie_storage.sql:1-2](file://goodhr5/cloud/backend/db/migrations/0005_cookie_storage.sql#L1-L2)
-- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
-- [download.go:11-108](file://goodhr5/local-agent-go/internal/storage/download.go#L11-L108)
-- [store.go:63-109](file://goodhr5/local-agent-go/internal/storage/store.go#L63-L109)
+- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [download.go:11-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L11-L108)
+- [store.go:63-109](file://goodhr5/local-agent-go-new/internal/storage/store.go#L63-L109)
 - [files.go:19-357](file://goodhr5/local-agent-go/internal/app/files.go#L19-L357)
-- [002_download_records.sql:1-20](file://goodhr5/local-agent-go/migrations/002_download_records.sql#L1-L20)
+- [002_download_records.sql:1-20](file://goodhr5/local-agent-go-new/migrations/002_download_records.sql#L1-L20)
 
 ## 性能考虑
 - Cookie 加密：AES-GCM 与 ECDH 计算开销较小，适合高频创建/更新场景。
@@ -423,10 +423,10 @@ Files["文件操作"] --> OS["系统命令"]
 章节来源
 - [cookie.go:62-128](file://goodhr5/cloud/backend/internal/httpapi/cookie.go#L62-L128)
 - [cookie.go:286-340](file://goodhr5/cloud/backend/internal/httpapi/cookie.go#L286-L340)
-- [downloads.go:40-74](file://goodhr5/local-agent-go/internal/api/downloads.go#L40-L74)
-- [downloads.go:109-164](file://goodhr5/local-agent-go/internal/api/downloads.go#L109-L164)
-- [download.go:26-69](file://goodhr5/local-agent-go/internal/storage/download.go#L26-L69)
-- [store.go:63-109](file://goodhr5/local-agent-go/internal/storage/store.go#L63-L109)
+- [downloads.go:40-74](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L40-L74)
+- [downloads.go:109-164](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L109-L164)
+- [download.go:26-69](file://goodhr5/local-agent-go-new/internal/storage/download.go#L26-L69)
+- [store.go:63-109](file://goodhr5/local-agent-go-new/internal/storage/store.go#L63-L109)
 
 ## 结论
 本系统通过云端后端的 Cookie 加密存储与本地代理的浏览器控制，实现了安全的 Cookie 共享与会话保持；通过下载目录配置、记录持久化与文件操作，提供了完整的下载管理能力。Cookie 状态机与下载记录去重确保了并发一致性与数据完整性；路径安全校验与过期清理保障了系统安全性与存储空间健康。
@@ -440,4 +440,4 @@ Files["文件操作"] --> OS["系统命令"]
 
 章节来源
 - [0005_cookie_storage.sql:1-2](file://goodhr5/cloud/backend/db/migrations/0005_cookie_storage.sql#L1-L2)
-- [002_download_records.sql:1-20](file://goodhr5/local-agent-go/migrations/002_download_records.sql#L1-L20)
+- [002_download_records.sql:1-20](file://goodhr5/local-agent-go-new/migrations/002_download_records.sql#L1-L20)

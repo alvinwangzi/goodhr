@@ -14,7 +14,6 @@ import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
-import PaletteRoundedIcon from "@mui/icons-material/PaletteRounded";
 import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
@@ -48,8 +47,6 @@ import {
   type ReactNode,
 } from "react";
 import BrandMark from "@/components/BrandMark";
-import { useMembershipTheme } from "@/app/providers";
-import { resolveMembershipTheme } from "@/app/theme";
 import { TOKEN_KEY } from "@/lib/api";
 import {
   APIRequestError,
@@ -70,7 +67,6 @@ import {
 import { reportUserFlow } from "@/lib/user-flow";
 import AdminDialog from "./AdminDialog";
 import AdminSystemDialogs from "./AdminSystemDialogs";
-import ChoiceCards from "./ChoiceCards";
 import ClickableImagePreview from "./ClickableImagePreview";
 import RequiredRuntimeInstaller from "./RequiredRuntimeInstaller";
 
@@ -225,9 +221,7 @@ function formatAIBalance(wallet: any) {
 export default function AdminApp({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { membershipTheme, setMembershipTheme } = useMembershipTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [themeOpen, setThemeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [subscription, setSubscription] =
@@ -475,12 +469,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         results[1].value.subscription || {},
       );
       setSubscription(nextSubscription);
-      setMembershipTheme(
-        resolveMembershipTheme(
-          nextSubscription.active,
-          nextSubscription.member_type,
-        ),
-      );
     }
     if (results[4].status === "fulfilled")
       setAIWallet(results[4].value.wallet || results[4].value || {});
@@ -497,7 +485,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
     if (results[3].status === "fulfilled") {
       setOnboardingConfig(results[3].value.config || {});
     }
-  }, [setMembershipTheme]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -556,7 +544,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   /** logout 清除登录状态并返回登录页。 */
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
-    setMembershipTheme("free");
     router.replace("/login");
   }
 
@@ -813,14 +800,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                   )
                 : "本地程序未连接"}
             </Button>
-            <Tooltip title="选择主题">
-              <IconButton
-                aria-label="选择主题"
-                onClick={() => setThemeOpen(true)}
-              >
-                <PaletteRoundedIcon />
-              </IconButton>
-            </Tooltip>
           </Toolbar>
         </AppBar>
         <Box
@@ -999,39 +978,6 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           onConfirm={() => closeConfirm(true)}
         >
           <Typography color="text.secondary">{confirmState.message}</Typography>
-        </AdminDialog>
-        <AdminDialog
-          open={themeOpen}
-          title="当前会员主题"
-          description="主题会按当前有效会员自动匹配，这里只负责展示，暂时不能手动修改。"
-          confirmText="知道了"
-          onClose={() => setThemeOpen(false)}
-          onConfirm={() => setThemeOpen(false)}
-        >
-          <ChoiceCards
-            label="会员主题"
-            value={membershipTheme}
-            columns={3}
-            readOnly
-            onChange={() => undefined}
-            options={[
-              {
-                value: "free",
-                label: "免费版 · 松绿色",
-                description: "默认主题，安静清晰，久看也不累。",
-              },
-              {
-                value: "plus",
-                label: "Plus · 深墨黑",
-                description: "克制稳重，用黑色标记重点内容。",
-              },
-              {
-                value: "max",
-                label: "Max · 黑金色",
-                description: "低调黑金，只在重点位置使用金色。",
-              },
-            ]}
-          />
         </AdminDialog>
       </Box>
     </AdminContext.Provider>

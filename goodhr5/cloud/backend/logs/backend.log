@@ -235,3 +235,6 @@
 2026/09/21 22:44:47.849191 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
 2026/09/21 22:44:47.849727 GoodHR dev login code for wangweisainan@126.com: 7020
 2026/09/21 22:45:01.191996 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/22 00:26:04.776885 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/22 00:26:04.776885 GoodHR dev login code for wangweisainan@126.com: 3357
+2026/09/22 00:28:38.482515 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id

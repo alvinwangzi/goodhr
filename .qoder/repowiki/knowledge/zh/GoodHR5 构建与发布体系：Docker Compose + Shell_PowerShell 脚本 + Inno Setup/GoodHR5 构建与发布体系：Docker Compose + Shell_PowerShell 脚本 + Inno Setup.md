@@ -18,16 +18,16 @@ source_files:
     - goodhr5/local-agent-go/scripts/build_go_binary.ps1
     - goodhr5/local-agent-go/scripts/package_worker.sh
     - goodhr5/local-agent-go/packaging/GoodHRLocalAgentGo.iss
-    - goodhr5/local-agent-go/scripts/build.sh
-    - goodhr5/local-agent-go/scripts/package-release.sh
-    - goodhr5/local-agent-go/scripts/package-windows.ps1
-    - goodhr5/local-agent-go/packaging/GoodHRLocalAgent.iss
-    - goodhr5/local-agent-go/worker/package.json
+    - goodhr5/local-agent-go-new/scripts/build.sh
+    - goodhr5/local-agent-go-new/scripts/package-release.sh
+    - goodhr5/local-agent-go-new/scripts/package-windows.ps1
+    - goodhr5/local-agent-go-new/packaging/GoodHRLocalAgent.iss
+    - goodhr5/local-agent-go-new/worker/package.json
 ---
 
 ## 1. 整体方案
 
-GoodHR5 是一个多语言、多组件的仓库，包含云端 Go 后端、Next.js 前端、Go+TypeScript 本地 Agent（两套实现 `local-agent-go` 与 `local-agent-go`）。构建与发布采用以下组合：
+GoodHR5 是一个多语言、多组件的仓库，包含云端 Go 后端、Next.js 前端、Go+TypeScript 本地 Agent（两套实现 `local-agent-go` 与 `local-agent-go-new`）。构建与发布采用以下组合：
 
 - **云端服务**：使用 Docker + Docker Compose 进行开发编排与服务器部署；生产通过根目录 `auto_deploy.sh` 脚本基于 Git diff 做增量构建与滚动更新。
 - **本地 Agent**：使用 Go 交叉编译 + Node/TypeScript Worker 预编译产物打包，Windows 端用 Inno Setup 生成安装器，macOS/Linux 端输出 ZIP 发布包。
@@ -62,7 +62,7 @@ GoodHR5 是一个多语言、多组件的仓库，包含云端 Go 后端、Next.
 - `packaging/GoodHRLocalAgentGo.iss`：Inno Setup 脚本，安装到 `{localappdata}\Programs\GoodHRLocalAgent`，升级时删除旧 `worker-node` 与 `runtime/browser-worker` 目录，安装后启动主程序。
 - `scripts/install_local_worker_dev.sh` / `scripts/package_node_runtime.sh`：辅助脚本，用于开发环境与运行时打包。
 
-### 本地 Agent v2 (`local-agent-go`)
+### 本地 Agent v2 (`local-agent-go-new`)
 - `scripts/build.sh`：macOS 专用，先 `cd worker && npm ci && npm run build` 编译严格 TypeScript Worker，再 `go build -o bin/goodhr-local-agent`。
 - `scripts/package-release.sh`：macOS 发布流程，校验版本号格式，按 `uname -m` 判断 arm64/x64，构建 ZIP 包 `goodhr-local-agent-v{ver}-darwin-{arch}`，并通过 `ditto -c -k` 压缩。
 - `scripts/package-windows.ps1`：Windows 完整发布流水线，依次执行：清理 → 编译 TypeScript Worker → 安装生产依赖 → 交叉编译 Go (`CGO_ENABLED=0, GOOS=windows, GOARCH=amd64`) → 生成 ZIP → 调用 Inno Setup 编译器 `ISCC.exe` 生成安装器。
