@@ -413,19 +413,20 @@ export default function LoginForm() {
   return (
     <Box>
       {/* ── Tab 切换：验证码登录 / 密码登录 ── */}
-      <Tabs
-        value={activeTab}
-        onChange={handleTabChange}
-        sx={{
-          mb: 2.5,
-          minHeight: 36,
-          "& .MuiTabs-flexContainer": { justifyContent: "flex-end" },
-          "& .MuiTab-root": { minHeight: 36, py: 0.5, fontSize: 14, fontWeight: 600 },
-        }}
-      >
+      <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          sx={{
+            mb: 2.5,
+            minHeight: 36,
+            "& .MuiTab-root": { minHeight: 36, py: 0.5, fontSize: 14, fontWeight: 600 },
+          }}
+        >
         <Tab label="验证码登录" />
         <Tab label="密码登录" />
-      </Tabs>
+        </Tabs>
+      </Box>
 
       {/* ── 公共邮箱输入 ── */}
       <TextField
