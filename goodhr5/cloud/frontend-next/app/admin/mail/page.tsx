@@ -5,13 +5,15 @@ import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import { Alert, Box, Button, Chip, LinearProgress, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
-import type { IDomEditor, IEditorConfig, IToolbarConfig } from "@wangeditor/editor";
-import "@wangeditor/editor/dist/css/style.css";
-import { Editor, Toolbar } from "@wangeditor/editor-for-react";
+import type { IEditorConfig, IToolbarConfig } from "@wangeditor/editor";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { CLOUD_API_BASE, cloudRequest, formatDate, getToken } from "@/lib/admin-api";
+
+// 延迟加载邮件编辑器，ssr: false 避免 WangEditor 在服务端初始化导致重复创建错误
+const MailEditor = dynamic(() => import("@/components/admin/MailEditor"), { ssr: false });
 
 const profileOptions = [
   ["hr", "企业HR"],
@@ -64,6 +66,7 @@ type BatchAdjustResult = {
 export default function AdminMailPage() {
   const { user, notify, confirm } = useAdmin();
   const [operation, setOperation] = useState<"mail" | "adjust">("mail");
+  const [mailKey, setMailKey] = useState(0);
   const [subject, setSubject] = useState("");
   const [mailHtml, setMailHtml] = useState("");
   const [mode, setMode] = useState("filter");
@@ -82,7 +85,6 @@ export default function AdminMailPage() {
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustResults, setAdjustResults] = useState<BatchAdjustResult[]>([]);
-  const [editor, setEditor] = useState<IDomEditor | null>(null);
   const progress = activeBatch?.total_count ? Math.round(((activeBatch.sent_count + activeBatch.failed_count) / activeBatch.total_count) * 100) : 0;
 
   const toolbarConfig: Partial<IToolbarConfig> = useMemo(() => ({}), []);
@@ -106,10 +108,6 @@ export default function AdminMailPage() {
   useEffect(() => {
     if (user?.role === "super_admin") void load();
   }, [user?.role]);
-
-  useEffect(() => () => {
-    editor?.destroy();
-  }, [editor]);
 
   useEffect(() => {
     if (!activeBatch?.id || progress >= 100) return;
@@ -206,12 +204,12 @@ export default function AdminMailPage() {
 
   return <>
     <PageHeader title="邮件与批量调整" description="发邮件，或批量调整会员天数和 AI 余额。该通知的我都会认真通知。" actions={operation === "mail" ? <RefreshButton loading={loading} onClick={() => void load()} /> : undefined} />
-    <ToggleButtonGroup exclusive value={operation} onChange={(_, value) => value && setOperation(value)} sx={{ mb: 2, "& .MuiToggleButton-root": { px: 2.5, py: 1, borderColor: "divider", fontWeight: 760 } }}>
+    <ToggleButtonGroup exclusive value={operation} onChange={(_, value) => { if (value && value !== operation && value === "mail") setMailKey((k) => k + 1); if (value) setOperation(value); }} sx={{ mb: 2, "& .MuiToggleButton-root": { px: 2.5, py: 1, borderColor: "divider", fontWeight: 760 } }}>
       <ToggleButton value="mail"><MailOutlineRoundedIcon sx={{ mr: 0.8, fontSize: 19 }} />发邮件</ToggleButton>
       <ToggleButton value="adjust"><TuneRoundedIcon sx={{ mr: 0.8, fontSize: 19 }} />调整天数、余额</ToggleButton>
     </ToggleButtonGroup>
     {operation === "mail" ?
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 380px" }, gap: 2 }}>
+    <Box key={mailKey} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 380px" }, gap: 2 }}>
       <SectionPanel>
         <Stack spacing={2}>
           <TextField label="邮件标题" value={subject} onChange={(event) => setSubject(event.target.value)} fullWidth />
@@ -233,10 +231,7 @@ export default function AdminMailPage() {
             <OptionGroup title="用户标记" value={tags} options={profileOptions} onChange={setTags} />
             <OptionGroup title="流程卡点" value={flows} options={flowOptions} onChange={setFlows} />
           </> : null}
-          <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: "8px", overflow: "hidden", "& .w-e-text-container": { minHeight: "260px !important" }, "& img": { maxWidth: "100%", height: "auto" } }}>
-            <Toolbar editor={editor} defaultConfig={toolbarConfig} mode="default" style={{ borderBottom: "1px solid #eee" }} />
-            <Editor defaultConfig={editorConfig} value={mailHtml} onCreated={setEditor} onChange={(nextEditor) => setMailHtml(nextEditor.getHtml())} mode="default" style={{ height: 320, overflowY: "hidden" }} />
-          </Box>
+          <MailEditor key={mailKey} value={mailHtml} onChange={setMailHtml} toolbarConfig={toolbarConfig} editorConfig={editorConfig} />
           <Button variant="contained" size="large" startIcon={<SendRoundedIcon />} disabled={sending} onClick={() => void send()}>{sending ? "正在创建批次" : "发送邮件"}</Button>
         </Stack>
       </SectionPanel>

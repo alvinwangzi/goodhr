@@ -215,3 +215,23 @@
 2026/09/21 20:54:19.943526 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
 2026/09/21 20:54:19.943526 GoodHR dev login code for wangweisainan@126.com: 6937
 2026/09/21 20:54:26.881006 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 21:04:11.106631 [migrate] done
+2026/09/21 21:04:11.115421 PostgreSQL 连接检查成功
+2026/09/21 21:04:11.115421 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 21:04:11.115421 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 21:04:11.115421 GoodHR 5 cloud backend listening on :8084
+2026/09/21 21:04:11.115936 listen tcp :8084: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+2026/09/21 21:04:31.837694 [migrate] done
+2026/09/21 21:04:31.845535 PostgreSQL 连接检查成功
+2026/09/21 21:04:31.845535 [Mailer] 当前为开发环境（GOODHR_APP_ENV="dev"），走开发发信器，不发送真实邮件
+2026/09/21 21:04:31.846055 GoodHR 5 cloud backend log file: logs/backend.log
+2026/09/21 21:04:31.846055 GoodHR 5 cloud backend listening on :8084
+2026/09/21 21:04:49.179558 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 21:04:49.179558 GoodHR dev login code for wangweisainan@126.com: 0607
+2026/09/21 21:05:09.857840 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 21:10:06.448619 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 21:10:06.448619 GoodHR dev login code for wangweisainan@126.com: 6272
+2026/09/21 21:10:11.049141 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id
+2026/09/21 22:44:47.849191 GoodHR 登录验证码已生成 email=wangweisainan@126.com code_length=4
+2026/09/21 22:44:47.849727 GoodHR dev login code for wangweisainan@126.com: 7020
+2026/09/21 22:45:01.191996 邀请绑定跳过 invitee=wangweisainan@126.com inviter_id= reason=empty_inviter_id

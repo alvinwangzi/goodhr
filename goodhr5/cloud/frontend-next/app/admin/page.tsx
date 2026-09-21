@@ -49,9 +49,9 @@ const guideSteps: GuideStep[] = [
   {
     key: "agent_detected",
     title: "确认本地程序已启动",
-    description: "浏览器控制、截图和 OCR 都依赖本地 GoodHR 程序。",
+    description: "浏览器控制、截图和 OCR 都依赖本地 HR Radar 程序。",
     tips: [
-      "启动本地 GoodHR 程序",
+      "启动本地 HR Radar 程序",
       "连接成功后会自动完成",
       "未安装时前往组件信息页面",
     ],
@@ -81,7 +81,7 @@ const guideSteps: GuideStep[] = [
     key: "platform_login_verified",
     title: "登录招聘平台",
     description: "开始岗位运行时确认招聘平台账号处于登录状态。",
-    tips: ["点击开始岗位运行", "在打开的招聘平台完成登录", "回到 GoodHR 继续"],
+    tips: ["点击开始岗位运行", "在打开的招聘平台完成登录", "回到 HR Radar 继续"],
     href: "/admin/positions", action: "检查平台登录", icon: PlayCircleRoundedIcon,
   },
   {
@@ -193,7 +193,7 @@ export default function DashboardPage() {
   async function rechargeAI() {
     const accepted = await confirm(
       "支付前请确认",
-      "AI 余额仅用于 GoodHR 内置 AI 调用。需要开发票请联系作者处理，发票开出后该笔订单不支持退费。",
+      "AI 余额仅用于 HR Radar 内置 AI 调用。需要开发票请联系作者处理，发票开出后该笔订单不支持退费。",
     );
     if (!accepted) return;
     setRecharging(true);
@@ -558,7 +558,7 @@ function AIWalletCard({
             lineHeight: 1.7,
           }}
         >
-          默认已接入 GoodHR 内置 AI，也可以去个人配置里换成自己的 Key。
+          默认已接入 HR Radar 内置 AI，也可以去个人配置里换成自己的 Key。
         </Typography>
       </Stack>
     </SectionPanel>

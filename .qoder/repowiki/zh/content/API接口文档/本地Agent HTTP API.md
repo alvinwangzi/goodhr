@@ -2,18 +2,18 @@
 
 <cite>
 **本文引用的文件**
-- [main.go](file://goodhr5/local-agent-go-new/cmd/goodhr-local-agent/main.go)
-- [server.go](file://goodhr5/local-agent-go-new/internal/api/server.go)
-- [agent_binding.go](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go)
-- [diagnostics.go](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go)
-- [downloads.go](file://goodhr5/local-agent-go-new/internal/api/downloads.go)
-- [update.go](file://goodhr5/local-agent-go-new/internal/api/update.go)
-- [config.go](file://goodhr5/local-agent-go-new/internal/config/config.go)
-- [browser-api.md](file://goodhr5/local-agent-go-new/contracts/browser-api.md)
-- [worker main.ts](file://goodhr5/local-agent-go-new/worker/src/main.ts)
-- [worker server.ts](file://goodhr5/local-agent-go-new/worker/src/http/server.ts)
-- [store.go](file://goodhr5/local-agent-go-new/internal/storage/store.go)
-- [download.go](file://goodhr5/local-agent-go-new/internal/storage/download.go)
+- [main.go](file://goodhr5/local-agent-go/cmd/goodhr-local-agent/main.go)
+- [server.go](file://goodhr5/local-agent-go/internal/api/server.go)
+- [agent_binding.go](file://goodhr5/local-agent-go/internal/api/agent_binding.go)
+- [diagnostics.go](file://goodhr5/local-agent-go/internal/api/diagnostics.go)
+- [downloads.go](file://goodhr5/local-agent-go/internal/api/downloads.go)
+- [update.go](file://goodhr5/local-agent-go/internal/api/update.go)
+- [config.go](file://goodhr5/local-agent-go/internal/config/config.go)
+- [browser-api.md](file://goodhr5/local-agent-go/contracts/browser-api.md)
+- [worker main.ts](file://goodhr5/local-agent-go/worker/src/main.ts)
+- [worker server.ts](file://goodhr5/local-agent-go/worker/src/http/server.ts)
+- [store.go](file://goodhr5/local-agent-go/internal/storage/store.go)
+- [download.go](file://goodhr5/local-agent-go/internal/storage/download.go)
 </cite>
 
 ## 目录
@@ -47,14 +47,14 @@ H --> I["Worker 路由与能力<br/>worker/src/main.ts"]
 ```
 
 图表来源
-- [main.go:21-63](file://goodhr5/local-agent-go-new/cmd/goodhr-local-agent/main.go#L21-L63)
-- [server.go:67-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L67-L119)
-- [worker server.ts:6-41](file://goodhr5/local-agent-go-new/worker/src/http/server.ts#L6-L41)
-- [worker main.ts:5-38](file://goodhr5/local-agent-go-new/worker/src/main.ts#L5-L38)
+- [main.go:21-63](file://goodhr5/local-agent-go/cmd/goodhr-local-agent/main.go#L21-L63)
+- [server.go:67-119](file://goodhr5/local-agent-go/internal/api/server.go#L67-L119)
+- [worker server.ts:6-41](file://goodhr5/local-agent-go/worker/src/http/server.ts#L6-L41)
+- [worker main.ts:5-38](file://goodhr5/local-agent-go/worker/src/main.ts#L5-L38)
 
 章节来源
-- [main.go:21-63](file://goodhr5/local-agent-go-new/cmd/goodhr-local-agent/main.go#L21-L63)
-- [server.go:67-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L67-L119)
+- [main.go:21-63](file://goodhr5/local-agent-go/cmd/goodhr-local-agent/main.go#L21-L63)
+- [server.go:67-119](file://goodhr5/local-agent-go/internal/api/server.go#L67-L119)
 
 ## 核心组件
 - HTTP 服务器与中间件：统一健康检查、CORS 白名单、请求大小限制、严格 JSON 解码、统一成功/错误响应格式。
@@ -68,13 +68,13 @@ H --> I["Worker 路由与能力<br/>worker/src/main.ts"]
 - 本地存储：SQLite 迁移、任务/候选人/对话/下载记录持久化与过期清理。
 
 章节来源
-- [server.go:137-421](file://goodhr5/local-agent-go-new/internal/api/server.go#L137-L421)
-- [agent_binding.go:14-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L14-L54)
-- [diagnostics.go:18-192](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go#L18-L192)
-- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
-- [update.go:11-37](file://goodhr5/local-agent-go-new/internal/api/update.go#L11-L37)
-- [store.go:19-410](file://goodhr5/local-agent-go-new/internal/storage/store.go#L19-L410)
-- [download.go:11-108](file://goodhr5/local-agent-go-new/internal/storage/download.go#L11-L108)
+- [server.go:137-421](file://goodhr5/local-agent-go/internal/api/server.go#L137-L421)
+- [agent_binding.go:14-54](file://goodhr5/local-agent-go/internal/api/agent_binding.go#L14-L54)
+- [diagnostics.go:18-192](file://goodhr5/local-agent-go/internal/api/diagnostics.go#L18-L192)
+- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
+- [update.go:11-37](file://goodhr5/local-agent-go/internal/api/update.go#L11-L37)
+- [store.go:19-410](file://goodhr5/local-agent-go/internal/storage/store.go#L19-L410)
+- [download.go:11-108](file://goodhr5/local-agent-go/internal/storage/download.go#L11-L108)
 
 ## 架构总览
 本地 Agent 对外暴露一组受控的 HTTP 接口，所有请求经中间件进行安全头设置与受限跨域放行；业务处理器负责参数解析、调用下游服务并返回统一 JSON 结构。浏览器自动化由 Node.js Worker 承担，Go 通过内部 HTTP 协议与其通信，Worker 仅监听 127.0.0.1。
@@ -96,9 +96,9 @@ S-->>C : {ok : true, data : ...}
 ```
 
 图表来源
-- [server.go:163-184](file://goodhr5/local-agent-go-new/internal/api/server.go#L163-L184)
-- [browser-api.md:37-68](file://goodhr5/local-agent-go-new/contracts/browser-api.md#L37-L68)
-- [store.go:116-160](file://goodhr5/local-agent-go-new/internal/storage/store.go#L116-L160)
+- [server.go:163-184](file://goodhr5/local-agent-go/internal/api/server.go#L163-L184)
+- [browser-api.md:37-68](file://goodhr5/local-agent-go/contracts/browser-api.md#L37-L68)
+- [store.go:116-160](file://goodhr5/local-agent-go/internal/storage/store.go#L116-L160)
 
 ## 详细接口说明
 
@@ -112,9 +112,9 @@ S-->>C : {ok : true, data : ...}
 - 跨域：仅允许空 Origin、http://127.0.0.1、http://localhost 及特定 https goodhr5.58it.cn。
 
 章节来源
-- [config.go:15-28](file://goodhr5/local-agent-go-new/internal/config/config.go#L15-L28)
-- [server.go:304-340](file://goodhr5/local-agent-go-new/internal/api/server.go#L304-L340)
-- [server.go:342-384](file://goodhr5/local-agent-go-new/internal/api/server.go#L342-L384)
+- [config.go:15-28](file://goodhr5/local-agent-go/internal/config/config.go#L15-L28)
+- [server.go:304-340](file://goodhr5/local-agent-go/internal/api/server.go#L304-L340)
+- [server.go:342-384](file://goodhr5/local-agent-go/internal/api/server.go#L342-L384)
 
 ### 健康检查
 - GET /health
@@ -122,7 +122,7 @@ S-->>C : {ok : true, data : ...}
 - 响应 data 字段包含：status、version、agent_version、port、data_dir、logs_dir、profiles_dir、extensions_dir、extension_paths、downloads_dir、screenshots_dir、db_path。
 
 章节来源
-- [server.go:137-161](file://goodhr5/local-agent-go-new/internal/api/server.go#L137-L161)
+- [server.go:137-161](file://goodhr5/local-agent-go/internal/api/server.go#L137-L161)
 
 ### 设备绑定（Agent 绑定）
 - POST /api/v1/session/bind
@@ -132,7 +132,7 @@ S-->>C : {ok : true, data : ...}
 - 成功时返回云端绑定结果。
 
 章节来源
-- [agent_binding.go:14-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L14-L54)
+- [agent_binding.go:14-54](file://goodhr5/local-agent-go/internal/api/agent_binding.go#L14-L54)
 
 ### 诊断信息
 - GET /api/v1/diagnostics
@@ -140,7 +140,7 @@ S-->>C : {ok : true, data : ...}
 - 扩展目录打开：POST /api/v1/extensions/open-directory 用于用系统文件管理器打开扩展目录。
 
 章节来源
-- [diagnostics.go:18-192](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go#L18-L192)
+- [diagnostics.go:18-192](file://goodhr5/local-agent-go/internal/api/diagnostics.go#L18-L192)
 
 ### 任务管理
 - POST /api/v1/tasks/start
@@ -155,7 +155,7 @@ S-->>C : {ok : true, data : ...}
   - 行为：查询任务状态，缺失时返回 404。
 
 章节来源
-- [server.go:163-218](file://goodhr5/local-agent-go-new/internal/api/server.go#L163-L218)
+- [server.go:163-218](file://goodhr5/local-agent-go/internal/api/server.go#L163-L218)
 
 ### 运行环境
 - GET /api/v1/runtime/status
@@ -167,7 +167,7 @@ S-->>C : {ok : true, data : ...}
   - 错误码：TASK_RUNNING、RUNTIME_INSTALL_FAILED。
 
 章节来源
-- [server.go:220-278](file://goodhr5/local-agent-go-new/internal/api/server.go#L220-L278)
+- [server.go:220-278](file://goodhr5/local-agent-go/internal/api/server.go#L220-L278)
 
 ### 浏览器控制
 - GET /api/v1/browser/status
@@ -180,8 +180,8 @@ S-->>C : {ok : true, data : ...}
   - 行为：获取当前页面 URL。
 
 章节来源
-- [server.go:280-302](file://goodhr5/local-agent-go-new/internal/api/server.go#L280-L302)
-- [browser-api.md:37-68](file://goodhr5/local-agent-go-new/contracts/browser-api.md#L37-L68)
+- [server.go:280-302](file://goodhr5/local-agent-go/internal/api/server.go#L280-L302)
+- [browser-api.md:37-68](file://goodhr5/local-agent-go/contracts/browser-api.md#L37-L68)
 
 ### OCR 能力
 - GET /api/v1/local/ocr/status
@@ -190,7 +190,7 @@ S-->>C : {ok : true, data : ...}
   - 行为：执行 OCR 识别（具体入参与返回由内部实现决定）。
 
 章节来源
-- [server.go:96-97](file://goodhr5/local-agent-go-new/internal/api/server.go#L96-L97)
+- [server.go:96-97](file://goodhr5/local-agent-go/internal/api/server.go#L96-L97)
 
 ### 规则管理
 - GET /api/v1/local/rules/status
@@ -199,7 +199,7 @@ S-->>C : {ok : true, data : ...}
   - 行为：更新规则（具体入参与返回由内部实现决定）。
 
 章节来源
-- [server.go:98-99](file://goodhr5/local-agent-go-new/internal/api/server.go#L98-L99)
+- [server.go:98-99](file://goodhr5/local-agent-go/internal/api/server.go#L98-L99)
 
 ### 截图
 - GET /api/v1/local/screenshots
@@ -208,7 +208,7 @@ S-->>C : {ok : true, data : ...}
   - 行为：创建截图（具体入参与返回由内部实现决定）。
 
 章节来源
-- [server.go:100-101](file://goodhr5/local-agent-go-new/internal/api/server.go#L100-L101)
+- [server.go:100-101](file://goodhr5/local-agent-go/internal/api/server.go#L100-L101)
 
 ### 应用更新
 - GET /api/v1/app-update/status
@@ -218,7 +218,7 @@ S-->>C : {ok : true, data : ...}
   - 错误码：UPDATER_NOT_READY、APP_UPDATE_FAILED。
 
 章节来源
-- [update.go:11-37](file://goodhr5/local-agent-go-new/internal/api/update.go#L11-L37)
+- [update.go:11-37](file://goodhr5/local-agent-go/internal/api/update.go#L11-L37)
 
 ### 下载管理
 - GET /api/v1/downloads
@@ -242,14 +242,14 @@ S-->>C : {ok : true, data : ...}
   - 错误码：INVALID_FILE_PATH、FILE_ACTION_FAILED。
 
 章节来源
-- [downloads.go:17-177](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L17-L177)
+- [downloads.go:17-177](file://goodhr5/local-agent-go/internal/api/downloads.go#L17-L177)
 
 ### 本地位置快捷操作
 - GET /api/v1/local/positions/{position_id}/{action}
   - 行为：针对某岗位的快捷操作（具体 action 由内部实现决定）。
 
 章节来源
-- [server.go:84](file://goodhr5/local-agent-go-new/internal/api/server.go#L84)
+- [server.go:84](file://goodhr5/local-agent-go/internal/api/server.go#L84)
 
 ### Worker 进程管理
 - POST /api/v1/worker/start
@@ -260,15 +260,15 @@ S-->>C : {ok : true, data : ...}
   - 行为：查询 Worker 状态。
 
 章节来源
-- [server.go:89-91](file://goodhr5/local-agent-go-new/internal/api/server.go#L89-L91)
+- [server.go:89-91](file://goodhr5/local-agent-go/internal/api/server.go#L89-L91)
 
 ### 浏览器 Worker 内部协议（IPC）
 Worker 仅监听 127.0.0.1，Go 通过内部 HTTP 协议调用其能力，包括浏览器启停、页面操作、元素交互、滚动、截图、Cookie、下载管理等。统一响应结构与错误码见契约文档。
 
 章节来源
-- [browser-api.md:1-145](file://goodhr5/local-agent-go-new/contracts/browser-api.md#L1-L145)
-- [worker main.ts:5-38](file://goodhr5/local-agent-go-new/worker/src/main.ts#L5-L38)
-- [worker server.ts:6-41](file://goodhr5/local-agent-go-new/worker/src/http/server.ts#L6-L41)
+- [browser-api.md:1-145](file://goodhr5/local-agent-go/contracts/browser-api.md#L1-L145)
+- [worker main.ts:5-38](file://goodhr5/local-agent-go/worker/src/main.ts#L5-L38)
+- [worker server.ts:6-41](file://goodhr5/local-agent-go/worker/src/http/server.ts#L6-L41)
 
 ## 依赖关系分析
 - 路由层依赖：lifecycle.Runner、runtime.Manager、browser/client.Client、downloadflow.Monitor、storage.Store、profile.Manager、ocr.Client、updater.Manager、cloudintegration.Client。
@@ -290,14 +290,14 @@ ST --> DB["SQLite"]
 ```
 
 图表来源
-- [server.go:35-65](file://goodhr5/local-agent-go-new/internal/api/server.go#L35-L65)
-- [config.go:30-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L30-L50)
-- [store.go:19-88](file://goodhr5/local-agent-go-new/internal/storage/store.go#L19-L88)
+- [server.go:35-65](file://goodhr5/local-agent-go/internal/api/server.go#L35-L65)
+- [config.go:30-50](file://goodhr5/local-agent-go/internal/config/config.go#L30-L50)
+- [store.go:19-88](file://goodhr5/local-agent-go/internal/storage/store.go#L19-L88)
 
 章节来源
-- [server.go:35-65](file://goodhr5/local-agent-go-new/internal/api/server.go#L35-L65)
-- [config.go:30-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L30-L50)
-- [store.go:19-88](file://goodhr5/local-agent-go-new/internal/storage/store.go#L19-L88)
+- [server.go:35-65](file://goodhr5/local-agent-go/internal/api/server.go#L35-L65)
+- [config.go:30-50](file://goodhr5/local-agent-go/internal/config/config.go#L30-L50)
+- [store.go:19-88](file://goodhr5/local-agent-go/internal/storage/store.go#L19-L88)
 
 ## 性能与可靠性
 - 超时配置：读头 5s、读 30s、写最长 4 分钟、空闲 90s，适合长任务与截图/下载场景。
@@ -307,12 +307,12 @@ ST --> DB["SQLite"]
 - 数据保留：本地数据默认保留 90 天，定期清理过期任务、下载、日志等。
 
 章节来源
-- [server.go:111-118](file://goodhr5/local-agent-go-new/internal/api/server.go#L111-L118)
-- [server.go:342-355](file://goodhr5/local-agent-go-new/internal/api/server.go#L342-L355)
-- [downloads.go:133-164](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L133-L164)
-- [store.go:63-88](file://goodhr5/local-agent-go-new/internal/storage/store.go#L63-L88)
-- [store.go:292-323](file://goodhr5/local-agent-go-new/internal/storage/store.go#L292-L323)
-- [worker main.ts:21-27](file://goodhr5/local-agent-go-new/worker/src/main.ts#L21-L27)
+- [server.go:111-118](file://goodhr5/local-agent-go/internal/api/server.go#L111-L118)
+- [server.go:342-355](file://goodhr5/local-agent-go/internal/api/server.go#L342-L355)
+- [downloads.go:133-164](file://goodhr5/local-agent-go/internal/api/downloads.go#L133-L164)
+- [store.go:63-88](file://goodhr5/local-agent-go/internal/storage/store.go#L63-L88)
+- [store.go:292-323](file://goodhr5/local-agent-go/internal/storage/store.go#L292-L323)
+- [worker main.ts:21-27](file://goodhr5/local-agent-go/worker/src/main.ts#L21-L27)
 
 ## 故障排查指南
 - 端口占用：通过 /api/v1/diagnostics 查看当前端口与其他候选端口占用情况。
@@ -322,9 +322,9 @@ ST --> DB["SQLite"]
 - 任务异常：通过任务状态接口查看 current_step、error_code、error_message；异常中断会在启动时自动收尾。
 
 章节来源
-- [diagnostics.go:84-192](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go#L84-L192)
-- [downloads.go:27-74](file://goodhr5/local-agent-go-new/internal/api/downloads.go#L27-L74)
-- [store.go:270-290](file://goodhr5/local-agent-go-new/internal/storage/store.go#L270-L290)
+- [diagnostics.go:84-192](file://goodhr5/local-agent-go/internal/api/diagnostics.go#L84-L192)
+- [downloads.go:27-74](file://goodhr5/local-agent-go/internal/api/downloads.go#L27-L74)
+- [store.go:270-290](file://goodhr5/local-agent-go/internal/storage/store.go#L270-L290)
 
 ## 结论
 新本地 Agent 以清晰的 HTTP 边界封装了任务编排、浏览器自动化、运行环境管理、下载与存储等能力，并通过严格的参数校验、统一响应与受限跨域保障安全性与可维护性。配合 Node.js Worker 的内部协议，实现了稳定可靠的本地执行环境，便于上层控制台与系统集成。
@@ -346,7 +346,7 @@ ST --> DB["SQLite"]
   - GOODHR_WORKER_ENTRY：Worker 入口路径
 
 章节来源
-- [main.go:21-28](file://goodhr5/local-agent-go-new/cmd/goodhr-local-agent/main.go#L21-L28)
-- [config.go:52-90](file://goodhr5/local-agent-go-new/internal/config/config.go#L52-L90)
-- [config.go:92-135](file://goodhr5/local-agent-go-new/internal/config/config.go#L92-L135)
-- [config.go:207-259](file://goodhr5/local-agent-go-new/internal/config/config.go#L207-L259)
+- [main.go:21-28](file://goodhr5/local-agent-go/cmd/goodhr-local-agent/main.go#L21-L28)
+- [config.go:52-90](file://goodhr5/local-agent-go/internal/config/config.go#L52-L90)
+- [config.go:92-135](file://goodhr5/local-agent-go/internal/config/config.go#L92-L135)
+- [config.go:207-259](file://goodhr5/local-agent-go/internal/config/config.go#L207-L259)

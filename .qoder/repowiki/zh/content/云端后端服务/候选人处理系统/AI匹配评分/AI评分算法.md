@@ -3,13 +3,13 @@
 <cite>
 **本文引用的文件**
 - [local-agent-go/internal/localai/client.go](file://goodhr5/local-agent-go/internal/localai/client.go)
-- [local-agent-go-new/internal/integration/ai/client.go](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go)
+- [local-agent-go/internal/integration/ai/client.go](file://goodhr5/local-agent-go/internal/integration/ai/client.go)
+- [local-agent-go/internal/integration/ai/stream_decision.go](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go)
 - [local-agent-go/internal/positionrunner/pipeline.go](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go)
 - [local-agent-go/internal/positionrunner/scan.go](file://goodhr5/local-agent-go/internal/positionrunner/scan.go)
-- [local-agent-go-new/internal/flow/greeting/flow.go](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go)
-- [local-agent-go-new/internal/flow/greeting/analysis.go](file://goodhr5/local-agent-go-new/internal/flow/greeting/analysis.go)
-- [local-agent-go-new/internal/flow/greeting/policy.go](file://goodhr5/local-agent-go-new/internal/flow/greeting/policy.go)
+- [local-agent-go/internal/flow/greeting/flow.go](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go)
+- [local-agent-go/internal/flow/greeting/analysis.go](file://goodhr5/local-agent-go/internal/flow/greeting/analysis.go)
+- [local-agent-go/internal/flow/greeting/policy.go](file://goodhr5/local-agent-go/internal/flow/greeting/policy.go)
 - [cloud/backend/internal/httpapi/default_prompts.go](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go)
 - [cloud/frontend-next/app/admin/positions/page.tsx](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx)
@@ -60,10 +60,10 @@ I --> C
 **图示来源**
 - [local-agent-go/internal/positionrunner/pipeline.go:49-131](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L131)
 - [local-agent-go/internal/positionrunner/scan.go:351-374](file://goodhr5/local-agent-go/internal/positionrunner/scan.go#L351-L374)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [local-agent-go/internal/localai/client.go:164-256](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [cloud/backend/internal/httpapi/default_prompts.go:11-56](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L11-L56)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 - [cloud/frontend-next/app/admin/positions/page.tsx:1519-1545](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx#L1519-L1545)
@@ -71,10 +71,10 @@ I --> C
 **章节来源**
 - [local-agent-go/internal/positionrunner/pipeline.go:49-131](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L131)
 - [local-agent-go/internal/positionrunner/scan.go:351-374](file://goodhr5/local-agent-go/internal/positionrunner/scan.go#L351-L374)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [local-agent-go/internal/localai/client.go:164-256](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [cloud/backend/internal/httpapi/default_prompts.go:11-56](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L11-L56)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 - [cloud/frontend-next/app/admin/positions/page.tsx:1519-1545](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx#L1519-L1545)
@@ -91,10 +91,10 @@ I --> C
 
 **章节来源**
 - [local-agent-go/internal/localai/client.go:164-256](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [local-agent-go/internal/positionrunner/pipeline.go:49-131](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L131)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [cloud/backend/internal/httpapi/default_prompts.go:11-56](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L11-L56)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 - [cloud/frontend-next/app/admin/positions/page.tsx:1519-1545](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx#L1519-L1545)
@@ -132,9 +132,9 @@ end
 **图示来源**
 - [local-agent-go/internal/positionrunner/pipeline.go:49-131](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L131)
 - [local-agent-go/internal/positionrunner/scan.go:351-374](file://goodhr5/local-agent-go/internal/positionrunner/scan.go#L351-L374)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [local-agent-go/internal/localai/client.go:164-256](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 
 ## 详细组件分析
@@ -169,14 +169,14 @@ Next --> End
 
 **图示来源**
 - [local-agent-go/internal/localai/client.go:164-189](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L189)
-- [local-agent-go-new/internal/integration/ai/client.go:138-148](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L138-L148)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:138-148](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L138-L148)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [local-agent-go/internal/positionrunner/pipeline.go:49-89](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L89)
 
 **章节来源**
 - [local-agent-go/internal/localai/client.go:164-189](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L189)
-- [local-agent-go-new/internal/integration/ai/client.go:138-148](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L138-L148)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:138-148](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L138-L148)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [local-agent-go/internal/positionrunner/pipeline.go:49-89](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L89)
 
 ### 阶段二：问候评估（打招呼前复核）
@@ -214,14 +214,14 @@ end
 
 **图示来源**
 - [local-agent-go/internal/localai/client.go:191-256](file://goodhr5/local-agent-go/internal/localai/client.go#L191-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 
 **章节来源**
 - [local-agent-go/internal/localai/client.go:191-256](file://goodhr5/local-agent-go/internal/localai/client.go#L191-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 
 ### 阶段三：面试评审（边界复核）
@@ -266,7 +266,7 @@ Pass --> End(["结束"])
 
 **章节来源**
 - [cloud/backend/internal/httpapi/default_prompts.go:11-56](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L11-L56)
-- [local-agent-go-new/internal/integration/ai/client.go:35-46](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L35-L46)
+- [local-agent-go/internal/integration/ai/client.go:35-46](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L35-L46)
 - [local-agent-go/internal/localai/client.go:705-722](file://goodhr5/local-agent-go/internal/localai/client.go#L705-L722)
 
 ### 置信度计算方法
@@ -279,7 +279,7 @@ Pass --> End(["结束"])
   - 视觉模式结合长图识别，弥补文本缺失。
 
 **章节来源**
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [local-agent-go/internal/localai/client.go:541-554](file://goodhr5/local-agent-go/internal/localai/client.go#L541-L554)
 - [local-agent-go/internal/localai/client.go:604-651](file://goodhr5/local-agent-go/internal/localai/client.go#L604-L651)
 
@@ -296,8 +296,8 @@ Pass --> End(["结束"])
 
 **章节来源**
 - [local-agent-go/internal/localai/client.go:258-376](file://goodhr5/local-agent-go/internal/localai/client.go#L258-L376)
-- [local-agent-go-new/internal/integration/ai/client.go:235-352](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L235-L352)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:235-352](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L235-L352)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 
 ### 评分权重调整与阈值配置
 - 阈值来源：
@@ -311,8 +311,8 @@ Pass --> End(["结束"])
   - 结构化简历输出提升上下文质量，间接影响权重分配效果。
 
 **章节来源**
-- [local-agent-go-new/internal/flow/greeting/analysis.go:131-148](file://goodhr5/local-agent-go-new/internal/flow/greeting/analysis.go#L131-L148)
-- [local-agent-go-new/internal/flow/greeting/policy.go:40-54](file://goodhr5/local-agent-go-new/internal/flow/greeting/policy.go#L40-L54)
+- [local-agent-go/internal/flow/greeting/analysis.go:131-148](file://goodhr5/local-agent-go/internal/flow/greeting/analysis.go#L131-L148)
+- [local-agent-go/internal/flow/greeting/policy.go:40-54](file://goodhr5/local-agent-go/internal/flow/greeting/policy.go#L40-L54)
 - [cloud/frontend-next/app/admin/positions/page.tsx:1519-1545](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx#L1519-L1545)
 
 ## 依赖关系分析
@@ -330,20 +330,20 @@ AdminUI["管理界面阈值配置"] --> Greeting
 
 **图示来源**
 - [local-agent-go/internal/positionrunner/pipeline.go:49-131](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L131)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [local-agent-go/internal/localai/client.go:164-256](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [cloud/backend/internal/httpapi/default_prompts.go:11-56](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L11-L56)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 - [cloud/frontend-next/app/admin/positions/page.tsx:1519-1545](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx#L1519-L1545)
 
 **章节来源**
 - [local-agent-go/internal/positionrunner/pipeline.go:49-131](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L49-L131)
-- [local-agent-go-new/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go-new/internal/flow/greeting/flow.go#L49-L95)
+- [local-agent-go/internal/flow/greeting/flow.go:49-95](file://goodhr5/local-agent-go/internal/flow/greeting/flow.go#L49-L95)
 - [local-agent-go/internal/localai/client.go:164-256](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L256)
-- [local-agent-go-new/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L193)
-- [local-agent-go-new/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go-new/internal/integration/ai/stream_decision.go#L10-L24)
+- [local-agent-go/internal/integration/ai/client.go:108-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L193)
+- [local-agent-go/internal/integration/ai/stream_decision.go:10-24](file://goodhr5/local-agent-go/internal/integration/ai/stream_decision.go#L10-L24)
 - [cloud/backend/internal/httpapi/default_prompts.go:11-56](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L11-L56)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:231-262](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L231-L262)
 - [cloud/frontend-next/app/admin/positions/page.tsx:1519-1545](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx#L1519-L1545)
@@ -368,7 +368,7 @@ AdminUI["管理界面阈值配置"] --> Greeting
 **章节来源**
 - [local-agent-go/internal/positionrunner/pipeline.go:133-143](file://goodhr5/local-agent-go/internal/positionrunner/pipeline.go#L133-L143)
 - [local-agent-go/internal/localai/client.go:310-326](file://goodhr5/local-agent-go/internal/localai/client.go#L310-L326)
-- [local-agent-go-new/internal/integration/ai/client.go:235-268](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L235-L268)
+- [local-agent-go/internal/integration/ai/client.go:235-268](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L235-L268)
 
 ## 故障排查指南
 - 常见错误：
@@ -385,7 +385,7 @@ AdminUI["管理界面阈值配置"] --> Greeting
 
 **章节来源**
 - [local-agent-go/internal/localai/client.go:378-403](file://goodhr5/local-agent-go/internal/localai/client.go#L378-L403)
-- [local-agent-go-new/internal/integration/ai/client.go:354-402](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L354-L402)
+- [local-agent-go/internal/integration/ai/client.go:354-402](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L354-L402)
 - [cloud/backend/internal/httpapi/local_candidate_ingest.go:126-132](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L126-L132)
 
 ## 结论
@@ -407,4 +407,4 @@ AdminUI["管理界面阈值配置"] --> Greeting
 **章节来源**
 - [cloud/frontend-next/app/admin/positions/page.tsx:1519-1545](file://goodhr5/cloud/frontend-next/app/admin/positions/page.tsx#L1519-L1545)
 - [cloud/backend/internal/httpapi/default_prompts.go:11-56](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L11-L56)
-- [local-agent-go-new/internal/integration/ai/client.go:35-46](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L35-L46)
+- [local-agent-go/internal/integration/ai/client.go:35-46](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L35-L46)

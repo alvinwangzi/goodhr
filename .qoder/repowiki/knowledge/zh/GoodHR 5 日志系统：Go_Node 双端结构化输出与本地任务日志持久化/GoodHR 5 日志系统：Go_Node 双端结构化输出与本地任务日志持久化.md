@@ -10,11 +10,11 @@ source_files:
     - goodhr5/cloud/backend/internal/httpapi/ai_config.go
     - goodhr5/cloud/backend/internal/httpapi/ai_wallet.go
     - goodhr5/cloud/backend/internal/httpapi/auth.go
-    - goodhr5/local-agent-go-new/worker/src/logging/logger.ts
-    - goodhr5/local-agent-go-new/worker/src/main.ts
-    - goodhr5/local-agent-go-new/internal/flow/lifecycle/logger.go
-    - goodhr5/local-agent-go-new/internal/storage/task_log.go
-    - goodhr5/local-agent-go-new/internal/bootstrap/application.go
+    - goodhr5/local-agent-go/worker/src/logging/logger.ts
+    - goodhr5/local-agent-go/worker/src/main.ts
+    - goodhr5/local-agent-go/internal/flow/lifecycle/logger.go
+    - goodhr5/local-agent-go/internal/storage/task_log.go
+    - goodhr5/local-agent-go/internal/bootstrap/application.go
 ---
 
 ## 1. 使用的系统与框架
@@ -30,11 +30,11 @@ source_files:
 |---|---|---|
 | 云端后端启动与日志初始化 | `goodhr5/cloud/backend/cmd/server/main.go` | 创建 `logs/backend.log`，`log.SetOutput(io.MultiWriter(os.Stdout, file))` |
 | 云端业务日志（示例） | `goodhr5/cloud/backend/internal/httpapi/agent_ws.go`、`ai_config.go`、`ai_wallet.go`、`auth.go` | 用 `log.Printf("[模块] ...")` 记录请求、连接、扣费等 |
-| Worker 结构化日志器 | `goodhr5/local-agent-go-new/worker/src/logging/logger.ts` | `WorkerLogger` 输出统一 JSON 行，过滤敏感字段 |
-| Worker 入口 | `goodhr5/local-agent-go-new/worker/src/main.ts` | 启动时输出一条 `action=worker.start` 的结构化日志 |
-| Go 侧 Worker 日志消费 | `goodhr5/local-agent-go-new/internal/flow/lifecycle/logger.go` | `TaskLogger` 解析 JSON 行、去重、转中文用户文案、落库 |
-| 任务日志存储 | `goodhr5/local-agent-go-new/internal/storage/task_log.go` | `task_logs` 表读写、按岗位裁剪至最近 1000 条 |
-| 应用组装（注入 Logger） | `goodhr5/local-agent-go-new/internal/bootstrap/application.go` | 创建 `TaskLogger`，并通过 `workerProcess.SetLogSink(logger.WorkerLine)` 接入 |
+| Worker 结构化日志器 | `goodhr5/local-agent-go/worker/src/logging/logger.ts` | `WorkerLogger` 输出统一 JSON 行，过滤敏感字段 |
+| Worker 入口 | `goodhr5/local-agent-go/worker/src/main.ts` | 启动时输出一条 `action=worker.start` 的结构化日志 |
+| Go 侧 Worker 日志消费 | `goodhr5/local-agent-go/internal/flow/lifecycle/logger.go` | `TaskLogger` 解析 JSON 行、去重、转中文用户文案、落库 |
+| 任务日志存储 | `goodhr5/local-agent-go/internal/storage/task_log.go` | `task_logs` 表读写、按岗位裁剪至最近 1000 条 |
+| 应用组装（注入 Logger） | `goodhr5/local-agent-go/internal/bootstrap/application.go` | 创建 `TaskLogger`，并通过 `workerProcess.SetLogSink(logger.WorkerLine)` 接入 |
 
 ## 3. 架构与约定
 

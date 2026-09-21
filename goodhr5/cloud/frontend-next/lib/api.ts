@@ -1,4 +1,4 @@
-/** 本文件负责新版前端访问 GoodHR 云端 API 和统一错误处理。 */
+/** 本文件负责新版前端访问 HR Radar 云端 API 和统一错误处理。 */
 
 export const TOKEN_KEY = "goodhr5_access_token";
 export const SESSION_EMAIL_KEY = "goodhr5_session_email";
@@ -7,7 +7,7 @@ export const INVITE_CACHE_KEY = "goodhr5_invite_id";
 /** cloudAPIBase 返回浏览器应访问的云端 API 地址。 */
 export function cloudAPIBase() {
   const fallback = process.env.NODE_ENV === "production"
-    ? "https://goodhr5.58it.cn"
+    ? ""
     : "http://127.0.0.1:8084";
   return (process.env.NEXT_PUBLIC_CLOUD_API_BASE || fallback).replace(/\/$/, "");
 }

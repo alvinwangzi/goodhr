@@ -28,7 +28,7 @@ export default function InvitationsPage() {
   const config = data.config || {};
   const invitees = Array.isArray(data.invitees) ? data.invitees : [];
   const inviteURL = useMemo(() => {
-    const currentOrigin = "https://goodhr5.58it.cn";
+    const currentOrigin = process.env.NEXT_PUBLIC_SITE_URL || "";
     const url = new URL(process.env.NEXT_PUBLIC_SITE_URL || currentOrigin);
     if (data.invite_id) url.searchParams.set("invite", data.invite_id);
     return url.toString();
@@ -67,7 +67,7 @@ export default function InvitationsPage() {
     <>
       <PageHeader
         title='邀请奖励'
-        description='把 GoodHR 分享给朋友，注册和订阅都能为你增加会员时间。'
+        description='把 HR Radar 分享给朋友，注册和订阅都能为你增加会员时间。'
         actions={
           <RefreshButton loading={loading} onClick={() => void load()} />
         }

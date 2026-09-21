@@ -86,7 +86,7 @@ export default function AdminSystemDialogs({ appConfig, onboardingConfig, agentB
 
   const progressPercent = clampPercent(updateProgress.percent);
   return <>
-    <AdminDialog open={!updateOpen && visibleAnnouncements.length > 0} title="系统公告" description="请留意 GoodHR 的最新通知和功能变化。" cancelText="我知道了" onClose={closeAnnouncements}>
+    <AdminDialog open={!updateOpen && visibleAnnouncements.length > 0} title="系统公告" description="请留意 HR Radar 的最新通知和功能变化。" cancelText="我知道了" onClose={closeAnnouncements}>
       <Stack spacing={1.5}>{visibleAnnouncements.map((item: any) => <Box key={item.id} onClick={() => openExternalURL(item.url)} sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: "8px", bgcolor: "action.hover", cursor: item.url ? "pointer" : "default" }}><Stack direction="row" spacing={1} sx={{ alignItems: "center", justifyContent: "space-between" }}><Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><CampaignRoundedIcon color="primary" /><Typography sx={{ fontWeight: 780 }}>{item.title || "公告"}</Typography></Stack>{item.created_at ? <Typography sx={{ color: "text.secondary", fontSize: 12 }}>{item.created_at}</Typography> : null}</Stack><Typography sx={{ mt: 1.25, color: "text.secondary", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{item.content}</Typography></Box>)}</Stack>
     </AdminDialog>
 

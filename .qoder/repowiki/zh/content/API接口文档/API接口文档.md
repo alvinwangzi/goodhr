@@ -12,9 +12,9 @@
 - [payment.go](file://goodhr5/cloud/backend/internal/httpapi/payment.go)
 - [ai_wallet.go](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go)
 - [platform_account.go](file://goodhr5/cloud/backend/internal/httpapi/platform_account.go)
-- [local_server.go](file://goodhr5/local-agent-go-new/internal/api/server.go)
-- [agent_binding.go](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go)
-- [diagnostics.go](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go)
+- [local_server.go](file://goodhr5/local-agent-go/internal/api/server.go)
+- [agent_binding.go](file://goodhr5/local-agent-go/internal/api/agent_binding.go)
+- [diagnostics.go](file://goodhr5/local-agent-go/internal/api/diagnostics.go)
 </cite>
 
 ## 目录
@@ -50,11 +50,11 @@ LocalAgent --> Storage["本地存储/日志"]
 
 图表来源
 - [server.go:124-211](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L211)
-- [local_server.go:77-118](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L118)
+- [local_server.go:77-118](file://goodhr5/local-agent-go/internal/api/server.go#L77-L118)
 
 章节来源
 - [server.go:124-211](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L211)
-- [local_server.go:77-118](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L118)
+- [local_server.go:77-118](file://goodhr5/local-agent-go/internal/api/server.go#L77-L118)
 
 ## 核心组件
 - 认证与会话：邮箱验证码登录、会话校验、角色判断、协议同意记录。
@@ -75,7 +75,7 @@ LocalAgent --> Storage["本地存储/日志"]
 - [payment.go:67-362](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L67-L362)
 - [ai_wallet.go:99-307](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L99-L307)
 - [platform_account.go:29-134](file://goodhr5/cloud/backend/internal/httpapi/platform_account.go#L29-L134)
-- [local_server.go:137-321](file://goodhr5/local-agent-go-new/internal/api/server.go#L137-L321)
+- [local_server.go:137-321](file://goodhr5/local-agent-go/internal/api/server.go#L137-L321)
 
 ## 架构总览
 云端通过统一路由注册所有REST端点，使用CORS中间件和writeJSON/writeError统一响应格式；认证服务提供SessionFromRequest解析Bearer token；WebSocket Hub维护每个用户的唯一在线Local Agent连接，支持命令发送与重试；本地Agent通过HTTP与云端交互，并通过WebSocket进行实时指令与状态上报。
@@ -118,7 +118,7 @@ W-->>S : 返回结果
 
 章节来源
 - [server.go:261-277](file://goodhr5/cloud/backend/internal/httpapi/server.go#L261-L277)
-- [local_server.go:304-321](file://goodhr5/local-agent-go-new/internal/api/server.go#L304-L321)
+- [local_server.go:304-321](file://goodhr5/local-agent-go/internal/api/server.go#L304-L321)
 
 ### 认证与会话
 - POST /api/auth/send-code
@@ -351,9 +351,9 @@ Resolve --> End(["完成"])
   - POST /api/v1/files/reveal
 
 章节来源
-- [local_server.go:137-321](file://goodhr5/local-agent-go-new/internal/api/server.go#L137-L321)
-- [agent_binding.go:18-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L18-L54)
-- [diagnostics.go:84-104](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go#L84-L104)
+- [local_server.go:137-321](file://goodhr5/local-agent-go/internal/api/server.go#L137-L321)
+- [agent_binding.go:18-54](file://goodhr5/local-agent-go/internal/api/agent_binding.go#L18-L54)
+- [diagnostics.go:84-104](file://goodhr5/local-agent-go/internal/api/diagnostics.go#L84-L104)
 
 ## 依赖与关系分析
 - 云端路由集中注册，各业务模块以Service形式注入，便于测试与替换实现。
@@ -401,7 +401,7 @@ Server --> PlatformAccountService : "依赖"
 - [auth.go:17-19](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L17-L19)
 - [agent.go:59-80](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L59-L80)
 - [platform_account.go:11-13](file://goodhr5/cloud/backend/internal/httpapi/platform_account.go#L11-L13)
-- [local_server.go:304-340](file://goodhr5/local-agent-go-new/internal/api/server.go#L304-L340)
+- [local_server.go:304-340](file://goodhr5/local-agent-go/internal/api/server.go#L304-L340)
 - [ai_wallet.go:233-237](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L233-L237)
 
 ## 故障排查指南
@@ -427,8 +427,8 @@ Server --> PlatformAccountService : "依赖"
 章节来源
 - [position_execution.go:215-275](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L215-L275)
 - [payment.go:341-362](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L362)
-- [local_server.go:220-278](file://goodhr5/local-agent-go-new/internal/api/server.go#L220-L278)
-- [diagnostics.go:84-104](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go#L84-L104)
+- [local_server.go:220-278](file://goodhr5/local-agent-go/internal/api/server.go#L220-L278)
+- [diagnostics.go:84-104](file://goodhr5/local-agent-go/internal/api/diagnostics.go#L84-L104)
 
 ## 结论
 GoodHR5 提供了完整的云端与本地协同API体系：云端负责认证、业务编排与持久化，本地Agent负责浏览器自动化与任务执行。通过WebSocket实现可靠指令通道，结合严格的设备绑定与权限控制，保障运行安全。建议客户端遵循统一响应格式、正确携带认证头、合理重试与超时策略，并在集成前充分测试健康检查与诊断接口。
@@ -446,4 +446,4 @@ GoodHR5 提供了完整的云端与本地协同API体系：云端负责认证、
 
 章节来源
 - [server.go:247-259](file://goodhr5/cloud/backend/internal/httpapi/server.go#L247-L259)
-- [local_server.go:137-161](file://goodhr5/local-agent-go-new/internal/api/server.go#L137-L161)
+- [local_server.go:137-161](file://goodhr5/local-agent-go/internal/api/server.go#L137-L161)

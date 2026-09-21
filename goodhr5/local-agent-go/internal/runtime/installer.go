@@ -1,131 +1,214 @@
-// Package runtime 负责下载、校验和解压本地运行组件。
+// Package runtime 文件作用：下载、校验并安装 Node、CloakBrowser 和 OCR 运行组件。
 package runtime
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
+	goruntime "runtime"
 	"strings"
 	"time"
 )
 
-// Manifest 是本地运行组件下载清单。
-type Manifest struct {
-	NodeRuntime  map[string]Asset `json:"node_runtime"`
-	CloakBrowser map[string]Asset `json:"cloakbrowser"`
-	OCR          map[string]Asset `json:"ocr"`
-}
-
-// Asset 是单个运行组件资源。
-type Asset struct {
-	Version string `json:"version"`
-	URL     string `json:"url"`
-	SHA256  string `json:"sha256"`
-	Note    string `json:"note,omitempty"`
-}
-
-// InstallResult 表示运行组件安装结果。
-type InstallResult struct {
-	Platform  string   `json:"platform"`
-	Installed []string `json:"installed"`
-	Skipped   []string `json:"skipped"`
-	Status    Status   `json:"status"`
-}
-
-// StartInstall 在后台启动运行组件安装。
-// manifest 为前端从 system.onboarding_config 整理后的运行组件配置。
+// StartInstall 校验清单并在后台安装当前平台的运行组件。
 func (m *Manager) StartInstall(manifest Manifest) (Status, error) {
 	if !m.installMu.TryLock() {
-		return m.Status(), fmt.Errorf("运行组件正在更新中，请等待完成")
+		return m.Status(), fmt.Errorf("运行组件正在更新中，请等它忙完这一轮")
 	}
-	if !manifestHasRuntimeAssets(manifest) {
+	if !manifestHasAssets(manifest) {
 		m.installMu.Unlock()
-		return m.Status(), fmt.Errorf("运行组件下载配置为空，请先在系统配置里填写运行组件下载地址")
+		return m.Status(), fmt.Errorf("运行组件下载配置为空")
 	}
-	m.setProgress(Progress{Running: true, Stage: "queued", Message: "运行组件更新已开始", Percent: 1})
+	m.setInstallProgress(InstallProgress{
+		Running: true, Stage: "queued", Message: "运行组件更新已开始", Percent: 1,
+	})
 	go func() {
 		defer m.installMu.Unlock()
-		_, _ = m.installLocked(context.Background(), manifest)
+		if err := m.install(context.Background(), manifest); err != nil {
+			m.setInstallProgress(InstallProgress{
+				Running: false, Stage: "failed", Message: err.Error(),
+			})
+			return
+		}
+		m.configureWorkerEnvironment()
+		m.setInstallProgress(InstallProgress{
+			Running: false, Stage: "installed", Message: "运行组件安装完成", Percent: 100,
+		})
 	}()
 	return m.Status(), nil
 }
 
-// Install 根据运行组件配置安装运行组件。
-// ctx 为请求上下文，manifest 为运行组件下载配置。
-func (m *Manager) Install(ctx context.Context, manifest Manifest) (InstallResult, error) {
-	if !m.installMu.TryLock() {
-		return InstallResult{}, fmt.Errorf("运行组件正在更新中，请等待完成")
-	}
-	defer m.installMu.Unlock()
-	if !manifestHasRuntimeAssets(manifest) {
-		return InstallResult{}, fmt.Errorf("运行组件下载配置为空，请先在系统配置里填写运行组件下载地址")
-	}
-	return m.installLocked(ctx, manifest)
-}
-
-// installLocked 根据传入配置安装运行组件。
-// 调用前必须持有安装锁，ctx 为安装上下文。
-func (m *Manager) installLocked(ctx context.Context, manifest Manifest) (InstallResult, error) {
-	m.setProgress(Progress{Running: true, Stage: "manifest", Message: "正在读取运行组件配置", Percent: 1})
-	defer func() {
-		progress := m.Progress()
-		if progress.Running {
-			progress.Running = false
-			progress.Stage = "idle"
-			progress.Message = "运行组件安装结束"
-			progress.Percent = 100
-			m.setProgress(progress)
-		}
-	}()
+// install 按 Node、CloakBrowser、OCR 的顺序安装当前平台资源。
+func (m *Manager) install(ctx context.Context, manifest Manifest) error {
 	platform := platformKey()
-	installed := []string{}
-	skipped := []string{}
-	if m.bundledNodePath() == "" && systemNodePath() != "" {
-		m.setProgress(Progress{Running: true, Component: "node_runtime", Stage: "skipped", Message: "已检测到系统 Node，跳过下载", Percent: 20})
-		skipped = append(skipped, "node_runtime")
-	} else {
-		if didInstall, err := m.installAsset(ctx, manifest.NodeRuntime[platform], "node", "Node 运行组件", "node_runtime"); err != nil {
-			m.setProgress(Progress{Running: false, Component: "node_runtime", Stage: "failed", Message: err.Error()})
-			return InstallResult{}, err
-		} else if didInstall {
-			installed = append(installed, "node_runtime")
-		} else {
-			skipped = append(skipped, "node_runtime")
+	steps := []struct {
+		component string
+		label     string
+		target    string
+		asset     Asset
+		optional  bool
+	}{
+		{component: "node_runtime", label: "Node 运行环境", target: "node", asset: manifest.NodeRuntime[platform]},
+		{component: "cloakbrowser", label: "CloakBrowser", target: "cloakbrowser", asset: manifest.CloakBrowser[platform]},
+		{component: "ocr", label: "OCR 组件", target: "ocr", asset: manifest.OCR[platform], optional: true},
+	}
+	for index, step := range steps {
+		if step.component == "node_runtime" && m.CheckNode() == nil {
+			m.setInstallProgress(InstallProgress{
+				Running: true, Component: step.component, Stage: "skipped",
+				Message: "本机 Node.js 已可用，跳过重复下载", Percent: (index + 1) * 30,
+			})
+			continue
+		}
+		if strings.TrimSpace(step.asset.URL) == "" {
+			if step.optional {
+				continue
+			}
+			return fmt.Errorf("%s没有当前系统 %s 的下载地址", step.label, platform)
+		}
+		if err := m.installAsset(ctx, step.component, step.label, step.target, step.asset); err != nil {
+			return err
 		}
 	}
-	if didInstall, err := m.installAsset(ctx, manifest.CloakBrowser[platform], "cloakbrowser", "CloakBrowser", "cloakbrowser"); err != nil {
-		m.setProgress(Progress{Running: false, Component: "cloakbrowser", Stage: "failed", Message: err.Error()})
-		return InstallResult{}, err
-	} else if didInstall {
-		installed = append(installed, "cloakbrowser")
-	} else {
-		skipped = append(skipped, "cloakbrowser")
-	}
-	if asset := manifest.OCR[platform]; strings.TrimSpace(asset.URL) != "" {
-		if didInstall, err := m.installAsset(ctx, asset, "ocr", "OCR 组件", "ocr"); err != nil {
-			m.setProgress(Progress{Running: false, Component: "ocr", Stage: "failed", Message: err.Error()})
-			return InstallResult{}, err
-		} else if didInstall {
-			installed = append(installed, "ocr")
-		} else {
-			skipped = append(skipped, "ocr")
-		}
-	}
-	return InstallResult{Platform: platform, Installed: installed, Skipped: skipped, Status: m.Status()}, nil
+	return nil
 }
 
-// manifestHasRuntimeAssets 判断配置里是否至少包含一个运行组件下载地址。
-// manifest 为前端整理后的运行组件配置。
-func manifestHasRuntimeAssets(manifest Manifest) bool {
+// installAsset 下载、SHA256 校验、安全解压并替换一个组件目录。
+func (m *Manager) installAsset(ctx context.Context, component string, label string, targetName string, asset Asset) error {
+	if current, ok := m.loadVersions()[component]; ok &&
+		strings.TrimSpace(current.Version) == strings.TrimSpace(asset.Version) &&
+		m.componentInstalled(component) {
+		m.setInstallProgress(InstallProgress{
+			Running: true, Component: component, Stage: "skipped",
+			Message: label + "已经是当前版本", Percent: 95,
+		})
+		return nil
+	}
+	if err := validateAssetURL(asset.URL); err != nil {
+		return fmt.Errorf("%s下载地址不正确：%w", label, err)
+	}
+	if err := validateSHA256(asset.SHA256); err != nil {
+		return fmt.Errorf("%s校验值不正确：%w", label, err)
+	}
+	downloadsDir := filepath.Join(m.runtimeDir, "downloads")
+	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
+		return fmt.Errorf("创建运行组件下载目录失败：%w", err)
+	}
+	archivePath := filepath.Join(downloadsDir, archiveName(asset.URL, targetName))
+	m.setInstallProgress(InstallProgress{
+		Running: true, Component: component, Stage: "download",
+		Message: "正在下载" + label, Percent: 5,
+	})
+	if err := m.downloadAsset(ctx, component, label, asset.URL, archivePath); err != nil {
+		return err
+	}
+	defer os.Remove(archivePath)
+	m.setInstallProgress(InstallProgress{
+		Running: true, Component: component, Stage: "verify",
+		Message: "正在校验" + label, Percent: 65,
+	})
+	if err := verifySHA256(archivePath, asset.SHA256); err != nil {
+		return fmt.Errorf("%s校验失败：%w", label, err)
+	}
+	m.setInstallProgress(InstallProgress{
+		Running: true, Component: component, Stage: "extract",
+		Message: "正在解压" + label, Percent: 75,
+	})
+	stagingDir, err := os.MkdirTemp(m.runtimeDir, "."+targetName+"-install-*")
+	if err != nil {
+		return fmt.Errorf("创建%s临时目录失败：%w", label, err)
+	}
+	defer os.RemoveAll(stagingDir)
+	if err = extractArchive(archivePath, stagingDir); err != nil {
+		return fmt.Errorf("解压%s失败：%w", label, err)
+	}
+	sourceDir := installRoot(stagingDir, component)
+	targetDir := filepath.Join(m.runtimeDir, targetName)
+	if err = replaceDirectory(sourceDir, targetDir); err != nil {
+		return fmt.Errorf("安装%s失败：%w", label, err)
+	}
+	if err = m.saveVersion(component, asset); err != nil {
+		return fmt.Errorf("保存%s版本记录失败：%w", label, err)
+	}
+	m.setInstallProgress(InstallProgress{
+		Running: true, Component: component, Stage: "installed",
+		Message: label + "安装完成", Percent: 95,
+	})
+	return nil
+}
+
+// downloadAsset 下载单个运行组件并保存到临时文件后原子替换。
+func (m *Manager) downloadAsset(ctx context.Context, component string, label string, sourceURL string, targetPath string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建%s下载请求失败：%w", label, err)
+	}
+	client := &http.Client{Timeout: 30 * time.Minute}
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("下载%s失败：%w", label, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("下载%s失败，状态码：%d", label, response.StatusCode)
+	}
+	tempPath := targetPath + ".tmp"
+	file, err := os.Create(tempPath)
+	if err != nil {
+		return fmt.Errorf("创建%s下载文件失败：%w", label, err)
+	}
+	reader := &installProgressReader{
+		reader: response.Body, total: response.ContentLength,
+		onProgress: func(received int64, total int64) {
+			percent := 10
+			if total > 0 {
+				percent = min(60, 10+int(received*50/total))
+			}
+			m.setInstallProgress(InstallProgress{
+				Running: true, Component: component, Stage: "download",
+				Message: "正在下载" + label, Percent: percent, Received: received, Total: total,
+			})
+		},
+	}
+	_, copyErr := io.Copy(file, reader)
+	closeErr := file.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(tempPath)
+		if copyErr != nil {
+			return fmt.Errorf("保存%s失败：%w", label, copyErr)
+		}
+		return fmt.Errorf("关闭%s下载文件失败：%w", label, closeErr)
+	}
+	_ = os.Remove(targetPath)
+	if err = os.Rename(tempPath, targetPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("完成%s下载失败：%w", label, err)
+	}
+	return nil
+}
+
+// componentInstalled 判断一个组件的关键文件是否已经存在。
+func (m *Manager) componentInstalled(component string) bool {
+	switch component {
+	case "node_runtime":
+		return m.CheckNode() == nil
+	case "cloakbrowser":
+		return fileExists(m.CloakBrowserPath())
+	case "ocr":
+		return m.OCRInstalled()
+	default:
+		return false
+	}
+}
+
+// manifestHasAssets 判断清单是否至少配置了一个下载资源。
+func manifestHasAssets(manifest Manifest) bool {
 	for _, group := range []map[string]Asset{manifest.NodeRuntime, manifest.CloakBrowser, manifest.OCR} {
 		for _, asset := range group {
 			if strings.TrimSpace(asset.URL) != "" {
@@ -136,177 +219,54 @@ func manifestHasRuntimeAssets(manifest Manifest) bool {
 	return false
 }
 
-// InstallLocalWorker 从仓库源码安装 Node Browser Worker。
-// sourceDir 为 worker-node 目录，主要用于本地开发阶段。
-func (m *Manager) InstallLocalWorker(sourceDir string) (InstallResult, error) {
-	if !m.installMu.TryLock() {
-		return InstallResult{}, fmt.Errorf("运行组件正在更新中，请等待完成")
-	}
-	defer m.installMu.Unlock()
-	sourceDir = strings.TrimSpace(sourceDir)
-	if sourceDir == "" {
-		return InstallResult{}, fmt.Errorf("Node Worker 源码目录不能为空")
-	}
-	info, err := os.Stat(sourceDir)
-	if err != nil || !info.IsDir() {
-		return InstallResult{}, fmt.Errorf("Node Worker 源码目录不存在：%s", sourceDir)
-	}
-	targetDir := filepath.Join(m.cfg.RuntimeDir, "browser-worker")
-	if err := os.RemoveAll(targetDir); err != nil {
-		return InstallResult{}, fmt.Errorf("清理旧 Node Worker 失败：%w", err)
-	}
-	if err := copyDir(sourceDir, targetDir); err != nil {
-		return InstallResult{}, fmt.Errorf("安装 Node Worker 失败：%w", err)
-	}
-	_ = m.saveVersion("node_worker", Asset{Version: "local", URL: sourceDir})
-	return InstallResult{Platform: platformKey(), Installed: []string{"node_worker"}, Status: m.Status()}, nil
-}
-
-// installAsset 下载并解压单个运行组件。
-// ctx 为请求上下文，asset 为资源配置，targetName 为目标目录名，label 为中文组件名，component 为组件键名。
-func (m *Manager) installAsset(ctx context.Context, asset Asset, targetName string, label string, component string) (bool, error) {
-	if strings.TrimSpace(asset.URL) == "" {
-		return false, fmt.Errorf("%s 下载地址为空", label)
-	}
-	if m.assetIsCurrent(component, asset) {
-		m.setProgress(Progress{Running: true, Component: component, Stage: "skipped", Message: label + "已是最新版本，跳过下载", Percent: 95})
-		return false, nil
-	}
-	m.setProgress(Progress{Running: true, Component: component, Stage: "download", Message: "正在下载" + label, Percent: 5})
-	downloadsDir := filepath.Join(m.cfg.RuntimeDir, "downloads")
-	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
-		return false, fmt.Errorf("创建下载目录失败：%w", err)
-	}
-	archivePath := filepath.Join(downloadsDir, archiveName(asset.URL, targetName))
-	if err := downloadFile(ctx, asset.URL, archivePath, func(received int64, total int64) {
-		percent := 10
-		if total > 0 {
-			percent = 10 + int(received*50/total)
-		}
-		m.setProgress(Progress{Running: true, Component: component, Stage: "download", Message: "正在下载" + label, Percent: percent, Received: received, Total: total})
-	}); err != nil {
-		return false, fmt.Errorf("下载%s失败：%w", label, err)
-	}
-	m.setProgress(Progress{Running: true, Component: component, Stage: "verify", Message: "正在校验" + label, Percent: 65})
-	if err := verifySHA256(archivePath, asset.SHA256); err != nil {
-		return false, fmt.Errorf("%s校验失败：%w", label, err)
-	}
-	m.setProgress(Progress{Running: true, Component: component, Stage: "extract", Message: "正在解压" + label, Percent: 75})
-	targetDir := filepath.Join(m.cfg.RuntimeDir, targetName)
-	if err := os.RemoveAll(targetDir); err != nil {
-		return false, fmt.Errorf("清理旧%s失败：%w", label, err)
-	}
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
-		return false, fmt.Errorf("创建%s目录失败：%w", label, err)
-	}
-	if err := extractArchive(archivePath, targetDir); err != nil {
-		return false, fmt.Errorf("解压%s失败：%w", label, err)
-	}
-	if err := m.saveVersion(component, asset); err != nil {
-		return false, fmt.Errorf("保存%s版本记录失败：%w", label, err)
-	}
-	m.setProgress(Progress{Running: true, Component: component, Stage: "installed", Message: label + "安装完成", Percent: 95})
-	return true, nil
-}
-
-// assetIsCurrent 判断组件文件和版本记录是否与清单一致。
-// component 为组件键名，asset 为清单中的组件版本。
-func (m *Manager) assetIsCurrent(component string, asset Asset) bool {
-	if !m.componentFileExists(component) {
-		return false
-	}
-	installed, ok := m.loadVersions()[component]
-	if !ok {
-		return false
-	}
-	if strings.TrimSpace(installed.Version) != strings.TrimSpace(asset.Version) {
-		return false
-	}
-	expectedSHA := strings.TrimSpace(strings.ToLower(asset.SHA256))
-	if expectedSHA != "" && strings.TrimSpace(strings.ToLower(installed.SHA256)) != expectedSHA {
-		return false
-	}
-	return true
-}
-
-// componentFileExists 判断组件关键文件是否存在。
-// component 为组件键名。
-func (m *Manager) componentFileExists(component string) bool {
-	switch component {
-	case "node_runtime":
-		return fileExists(m.bundledNodePath())
-	case "node_worker":
-		return fileExists(m.WorkerEntry()) && fileExists(m.WorkerDependencyPath())
-	case "cloakbrowser":
-		return fileExists(m.CloakBrowserPath())
-	case "ocr":
-		return m.ocrInstalled()
+// platformKey 返回运行组件清单使用的平台编号。
+func platformKey() string {
+	switch {
+	case goruntime.GOOS == "windows" && goruntime.GOARCH == "amd64":
+		return "win-x64"
+	case goruntime.GOOS == "darwin" && goruntime.GOARCH == "arm64":
+		return "darwin-arm64"
+	case goruntime.GOOS == "darwin" && goruntime.GOARCH == "amd64":
+		return "darwin-x64"
 	default:
-		return false
+		return goruntime.GOOS + "-" + goruntime.GOARCH
 	}
 }
 
-// downloadFile 下载文件到指定路径。
-// ctx 为请求上下文，url 为下载地址，targetPath 为保存路径，onProgress 为进度回调。
-func downloadFile(ctx context.Context, url string, targetPath string, onProgress func(received int64, total int64)) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
+// validateAssetURL 校验组件下载地址必须使用 HTTPS；本机开发地址（localhost/127.0.0.1/::1）允许 HTTP，方便本地联调。
+func validateAssetURL(value string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("地址格式不正确")
 	}
-	client := &http.Client{Timeout: 30 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
+	if parsed.Scheme == "https" {
+		return nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("下载失败，状态码：%d", resp.StatusCode)
+	host := parsed.Hostname()
+	if parsed.Scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+		return nil
 	}
-	tmpPath := targetPath + ".tmp"
-	out, err := os.Create(tmpPath)
-	if err != nil {
-		return err
-	}
-	reader := &progressReader{reader: resp.Body, total: resp.ContentLength, onProgress: onProgress}
-	if _, err := io.Copy(out, reader); err != nil {
-		_ = out.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	return os.Rename(tmpPath, targetPath)
+	return fmt.Errorf("只支持 HTTPS 地址")
 }
 
-// progressReader 在读取下载内容时回调进度。
-type progressReader struct {
-	reader     io.Reader
-	received   int64
-	total      int64
-	onProgress func(received int64, total int64)
-}
-
-// Read 读取下载内容并更新进度。
-// p 为目标缓冲区。
-func (r *progressReader) Read(p []byte) (int, error) {
-	n, err := r.reader.Read(p)
-	if n > 0 {
-		r.received += int64(n)
-		if r.onProgress != nil {
-			r.onProgress(r.received, r.total)
+// archiveName 根据下载地址保留支持的压缩包后缀。
+func archiveName(sourceURL string, fallback string) string {
+	parsed, _ := url.Parse(sourceURL)
+	name := filepath.Base(parsed.Path)
+	lower := strings.ToLower(name)
+	for _, suffix := range []string{".tar.gz", ".tgz", ".zip"} {
+		if strings.HasSuffix(lower, suffix) {
+			return fallback + suffix
 		}
 	}
-	return n, err
+	return fallback + ".zip"
 }
 
-// verifySHA256 校验文件 sha256。
-// expected 为空时跳过校验。
+// verifySHA256 强制校验下载文件的 SHA256。
 func verifySHA256(path string, expected string) error {
-	expected = strings.TrimSpace(strings.ToLower(expected))
-	if expected == "" {
-		return nil
+	expected = strings.ToLower(strings.TrimSpace(expected))
+	if err := validateSHA256(expected); err != nil {
+		return err
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -314,203 +274,44 @@ func verifySHA256(path string, expected string) error {
 	}
 	defer file.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	if _, err = io.Copy(hash, file); err != nil {
 		return err
 	}
 	actual := hex.EncodeToString(hash.Sum(nil))
 	if actual != expected {
-		return fmt.Errorf("sha256 不一致，期望 %s，实际 %s", expected, actual)
+		return fmt.Errorf("SHA256 不一致，期望 %s，实际 %s", expected, actual)
 	}
 	return nil
 }
 
-// extractArchive 解压 zip 或 tar.gz 压缩包。
-// archivePath 为压缩包路径，targetDir 为目标目录。
-func extractArchive(archivePath string, targetDir string) error {
-	lower := strings.ToLower(archivePath)
-	switch {
-	case strings.HasSuffix(lower, ".zip"):
-		return extractZip(archivePath, targetDir)
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		return extractTarGZ(archivePath, targetDir)
-	default:
-		return fmt.Errorf("暂不支持的压缩包格式：%s", filepath.Base(archivePath))
+// validateSHA256 检查 SHA256 是否为完整的 64 位十六进制字符串。
+func validateSHA256(value string) error {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) != sha256.Size*2 {
+		return fmt.Errorf("必须提供完整 SHA256")
 	}
-}
-
-// extractZip 解压 zip 压缩包。
-// archivePath 为压缩包路径，targetDir 为目标目录。
-func extractZip(archivePath string, targetDir string) error {
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-	for _, file := range reader.File {
-		targetPath, err := safeJoin(targetDir, file.Name)
-		if err != nil {
-			return err
-		}
-		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(targetPath, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			return err
-		}
-		src, err := file.Open()
-		if err != nil {
-			return err
-		}
-		mode := file.FileInfo().Mode()
-		if mode == 0 {
-			mode = 0o644
-		}
-		dst, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-		if err != nil {
-			_ = src.Close()
-			return err
-		}
-		_, copyErr := io.Copy(dst, src)
-		_ = src.Close()
-		_ = dst.Close()
-		if copyErr != nil {
-			return copyErr
-		}
+	if _, err := hex.DecodeString(value); err != nil {
+		return fmt.Errorf("SHA256 必须是十六进制字符串")
 	}
 	return nil
 }
 
-// extractTarGZ 解压 tar.gz 压缩包。
-// archivePath 为压缩包路径，targetDir 为目标目录。
-func extractTarGZ(archivePath string, targetDir string) error {
-	file, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	gz, err := gzip.NewReader(file)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	reader := tar.NewReader(gz)
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		targetPath, err := safeJoin(targetDir, header.Name)
-		if err != nil {
-			return err
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-				return err
-			}
-			mode := os.FileMode(header.Mode)
-			if mode == 0 {
-				mode = 0o644
-			}
-			dst, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-			if err != nil {
-				return err
-			}
-			_, copyErr := io.Copy(dst, reader)
-			_ = dst.Close()
-			if copyErr != nil {
-				return copyErr
-			}
-		}
-	}
-	return nil
+// installProgressReader 在读取下载内容时回调累计进度。
+type installProgressReader struct {
+	reader     io.Reader
+	received   int64
+	total      int64
+	onProgress func(int64, int64)
 }
 
-// safeJoin 安全拼接解压目标路径。
-// targetDir 为目标目录，name 为压缩包内路径。
-func safeJoin(targetDir string, name string) (string, error) {
-	targetPath := filepath.Join(targetDir, filepath.Clean(name))
-	cleanTarget := filepath.Clean(targetDir) + string(os.PathSeparator)
-	if !strings.HasPrefix(filepath.Clean(targetPath)+string(os.PathSeparator), cleanTarget) {
-		return "", fmt.Errorf("压缩包包含不安全路径：%s", name)
+// Read 读取组件下载内容并报告进度。
+func (r *installProgressReader) Read(buffer []byte) (int, error) {
+	count, err := r.reader.Read(buffer)
+	if count > 0 {
+		r.received += int64(count)
+		if r.onProgress != nil {
+			r.onProgress(r.received, r.total)
+		}
 	}
-	return targetPath, nil
-}
-
-// platformKey 返回当前系统对应的 manifest 平台键。
-// 返回值示例：win-x64、darwin-arm64、linux-x64。
-func platformKey() string {
-	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "x64"
-	}
-	if runtime.GOOS == "windows" {
-		return "win-" + arch
-	}
-	return runtime.GOOS + "-" + arch
-}
-
-// archiveName 根据 URL 生成下载文件名。
-// rawURL 为下载地址，fallback 为兜底文件名。
-func archiveName(rawURL string, fallback string) string {
-	name := filepath.Base(strings.Split(rawURL, "?")[0])
-	if name == "" || name == "." || name == "/" {
-		return fallback + ".zip"
-	}
-	return name
-}
-
-// copyDir 递归复制目录。
-// sourceDir 为源目录，targetDir 为目标目录。
-func copyDir(sourceDir string, targetDir string) error {
-	return filepath.WalkDir(sourceDir, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(sourceDir, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.MkdirAll(targetDir, 0o755)
-		}
-		targetPath := filepath.Join(targetDir, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(targetPath, 0o755)
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		src, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			_ = src.Close()
-			return err
-		}
-		dst, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
-		if err != nil {
-			_ = src.Close()
-			return err
-		}
-		_, copyErr := io.Copy(dst, src)
-		_ = src.Close()
-		closeErr := dst.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		return closeErr
-	})
+	return count, err
 }

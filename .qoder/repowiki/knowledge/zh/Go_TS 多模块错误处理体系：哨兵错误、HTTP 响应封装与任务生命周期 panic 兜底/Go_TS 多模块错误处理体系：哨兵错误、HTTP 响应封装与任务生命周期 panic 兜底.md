@@ -11,13 +11,13 @@ source_files:
     - goodhr5/local-agent-go/internal/positionrunner/error_policy.go
     - goodhr5/local-agent-go/internal/positionrunner/pipeline.go
     - goodhr5/local-agent-go/internal/localdb/positions.go
-    - goodhr5/local-agent-go-new/internal/flow/lifecycle/runner.go
-    - goodhr5/local-agent-go-new/internal/integration/cloud/types.go
+    - goodhr5/local-agent-go/internal/flow/lifecycle/runner.go
+    - goodhr5/local-agent-go/internal/integration/cloud/types.go
 ---
 
 ## 1. 整体方案
 
-GoodHR5 仓库包含三个主要 Go 子项目（云端后端 `cloud/backend`、本地 Agent v1 `local-agent-go`、本地 Agent v2 `local-agent-go-new`）以及一个 Next.js 前端，每个部分采用不同的错误处理策略，但共享“业务错误用哨兵值 + HTTP 层统一写响应”的约定。
+GoodHR5 仓库包含三个主要 Go 子项目（云端后端 `cloud/backend`、本地 Agent v1 `local-agent-go`、本地 Agent v2 `local-agent-go`）以及一个 Next.js 前端，每个部分采用不同的错误处理策略，但共享“业务错误用哨兵值 + HTTP 层统一写响应”的约定。
 
 - **云端后端**：使用包级哨兵错误 `ErrNotFound`，配合 `errors.Is` 在 handler/service/store 之间传递；所有 HTTP 响应通过 `writeError` / `writeJSON` 两个 helper 统一写出，避免分散的 `json.NewEncoder`。外部依赖错误（如 `sql.ErrNoRows`）被转换为业务哨兵错误再向上传播。
 - **本地 Agent v1 (`positionrunner`)**：定义自定义错误类型 `candidateOperationError`（实现 `Error()` 和 `Unwrap()`），并通过 `consecutiveOperationErrorTracker` 统计同一平台环节连续出现的相同错误，达到阈值后自动停止岗位运行；同时集中判断哪些错误属于“必须立即停止整个岗位运行”的致命错误（AI 停止信号、浏览器关闭、OCR 组件损坏等）。
@@ -34,8 +34,8 @@ GoodHR5 仓库包含三个主要 Go 子项目（云端后端 `cloud/backend`、�
 | 本地 Agent v1 | `goodhr5/local-agent-go/internal/positionrunner/error_policy.go` | 定义 `candidateOperationError`、`consecutiveOperationErrorTracker`、`shouldStopPositionImmediately` |
 | 本地 Agent v1 | `goodhr5/local-agent-go/internal/positionrunner/pipeline.go` | `withOperationTimeout` 中用 `recover()` 包裹单个候选人操作，超时/panic 都转为 error |
 | 本地 Agent v1 | `goodhr5/local-agent-go/internal/localdb/positions.go` | 对底层 DB 操作加 `recover()` 防止单条记录崩溃影响整批 |
-| 本地 Agent v2 | `goodhr5/local-agent-go-new/internal/flow/lifecycle/runner.go` | 主流程 `run` 中 `defer recover()` 兜住 panic，`finish` 统一落盘最终状态 |
-| 本地 Agent v2 | `goodhr5/local-agent-go-new/internal/integration/cloud/types.go` | 定义 `APIError` 强类型表示云端 HTTP 错误，支持 `errors.As` 匹配 |
+| 本地 Agent v2 | `goodhr5/local-agent-go/internal/flow/lifecycle/runner.go` | 主流程 `run` 中 `defer recover()` 兜住 panic，`finish` 统一落盘最终状态 |
+| 本地 Agent v2 | `goodhr5/local-agent-go/internal/integration/cloud/types.go` | 定义 `APIError` 强类型表示云端 HTTP 错误，支持 `errors.As` 匹配 |
 
 ## 3. 架构与约定
 

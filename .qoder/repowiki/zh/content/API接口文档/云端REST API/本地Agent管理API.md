@@ -2,12 +2,12 @@
 
 <cite>
 **本文引用的文件**
-- [server.go](file://goodhr5/local-agent-go-new/internal/api/server.go)
-- [agent_binding.go](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go)
+- [server.go](file://goodhr5/local-agent-go/internal/api/server.go)
+- [agent_binding.go](file://goodhr5/local-agent-go/internal/api/agent_binding.go)
 - [agent.go](file://goodhr5/cloud/backend/internal/httpapi/agent.go)
 - [agent_ws.go](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go)
 - [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
-- [client.go](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go)
+- [client.go](file://goodhr5/local-agent-go/internal/integration/cloud/client.go)
 - [cloud-control-local-agent-architecture.md](file://docs/cloud-control-local-agent-architecture.md)
 </cite>
 
@@ -61,12 +61,12 @@ C < --> D
 - [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
 - [agent.go:35-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L35-L135)
 - [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
+- [server.go:77-119](file://goodhr5/local-agent-go/internal/api/server.go#L77-L119)
+- [client.go:63-85](file://goodhr5/local-agent-go/internal/integration/cloud/client.go#L63-L85)
 
 章节来源
 - [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
+- [server.go:77-119](file://goodhr5/local-agent-go/internal/api/server.go#L77-L119)
 
 ## 核心组件
 - 云端Agent服务
@@ -84,8 +84,8 @@ C < --> D
 章节来源
 - [agent.go:11-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L11-L135)
 - [agent_ws.go:21-170](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L21-L170)
-- [server.go:35-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L35-L119)
-- [client.go:17-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L17-L85)
+- [server.go:35-119](file://goodhr5/local-agent-go/internal/api/server.go#L35-L119)
+- [client.go:17-85](file://goodhr5/local-agent-go/internal/integration/cloud/client.go#L17-L85)
 
 ## 架构总览
 本地Agent通过HTTP将浏览器登录凭证转发给云端完成设备绑定；随后云端与本地Agent之间通过WebSocket进行双向通信，云端可下发命令并等待本地回复，本地也可上报状态或结果。
@@ -107,8 +107,8 @@ Local-->>WS : 回复 {reply_to, ok, error, payload}
 ```
 
 图表来源
-- [agent_binding.go:18-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L18-L54)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
+- [agent_binding.go:18-54](file://goodhr5/local-agent-go/internal/api/agent_binding.go#L18-L54)
+- [client.go:63-85](file://goodhr5/local-agent-go/internal/integration/cloud/client.go#L63-L85)
 - [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
 - [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
 
@@ -125,7 +125,7 @@ Local-->>WS : 回复 {reply_to, ok, error, payload}
 - 云端HTTP在部分场景直接返回{ ok, agent }等结构，但错误通常以{ ok:false, error:"..." }形式返回。
 
 章节来源
-- [server.go:357-384](file://goodhr5/local-agent-go-new/internal/api/server.go#L357-L384)
+- [server.go:357-384](file://goodhr5/local-agent-go/internal/api/server.go#L357-L384)
 - [agent.go:70-93](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L70-L93)
 
 ### POST /api/agents/bind（云端：Agent绑定）
@@ -187,8 +187,8 @@ Local-->>WS : 回复 {reply_to, ok, error, payload}
   - 502：DEVICE_BIND_FAILED（云端返回绑定失败）
 
 章节来源
-- [agent_binding.go:18-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L18-L54)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
+- [agent_binding.go:18-54](file://goodhr5/local-agent-go/internal/api/agent_binding.go#L18-L54)
+- [client.go:63-85](file://goodhr5/local-agent-go/internal/integration/cloud/client.go#L63-L85)
 
 ### GET /health（本地：健康检查）
 - 用途：检查本地Agent进程是否存活及基础信息。
@@ -196,7 +196,7 @@ Local-->>WS : 回复 {reply_to, ok, error, payload}
   - { ok: true, data: { status, version, agent_version, port, dataDir, logsDir, profilesDir, extensionsDir, extensionPaths, downloadsDir, screenshotsDir, dbPath } }
 
 章节来源
-- [server.go:137-161](file://goodhr5/local-agent-go-new/internal/api/server.go#L137-L161)
+- [server.go:137-161](file://goodhr5/local-agent-go/internal/api/server.go#L137-L161)
 
 ## WebSocket协议与事件
 
@@ -264,7 +264,7 @@ Local-->>WS : 回复 {reply_to, ok, error, payload}
 - 云端保存machine_id、agent_version、local_port、public_key等信息，并记录last_seen_at。
 
 章节来源
-- [agent_binding.go:33-40](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L33-L40)
+- [agent_binding.go:33-40](file://goodhr5/local-agent-go/internal/api/agent_binding.go#L33-L40)
 - [agent.go:53-66](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L53-L66)
 - [cloud-control-local-agent-architecture.md:200-244](file://docs/cloud-control-local-agent-architecture.md#L200-L244)
 
@@ -312,14 +312,14 @@ G --> H["本地Agent (WebSocket)"]
 ```
 
 图表来源
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
+- [server.go:77-119](file://goodhr5/local-agent-go/internal/api/server.go#L77-L119)
+- [client.go:63-85](file://goodhr5/local-agent-go/internal/integration/cloud/client.go#L63-L85)
 - [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
 - [agent.go:35-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L35-L135)
 - [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
 
 章节来源
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
+- [server.go:77-119](file://goodhr5/local-agent-go/internal/api/server.go#L77-L119)
 - [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
 
 ## 性能与可靠性
@@ -334,8 +334,8 @@ G --> H["本地Agent (WebSocket)"]
 - [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
 - [agent_ws.go:143-169](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L143-L169)
 - [agent_ws.go:395-413](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L395-L413)
-- [server.go:342-355](file://goodhr5/local-agent-go-new/internal/api/server.go#L342-L355)
-- [server.go:304-340](file://goodhr5/local-agent-go-new/internal/api/server.go#L304-L340)
+- [server.go:342-355](file://goodhr5/local-agent-go/internal/api/server.go#L342-L355)
+- [server.go:304-340](file://goodhr5/local-agent-go/internal/api/server.go#L304-L340)
 
 ## 故障排查指南
 - 绑定失败
@@ -357,7 +357,7 @@ G --> H["本地Agent (WebSocket)"]
   - 500/502/503：服务端内部错误或不可用
 
 章节来源
-- [agent_binding.go:20-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L20-L54)
+- [agent_binding.go:20-54](file://goodhr5/local-agent-go/internal/api/agent_binding.go#L20-L54)
 - [agent.go:47-93](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L47-L93)
 - [agent_ws.go:54-80](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L80)
 - [agent_ws.go:219-230](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L219-L230)

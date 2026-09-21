@@ -4,14 +4,14 @@
 **本文引用的文件**
 - [worker.go](file://goodhr5/local-agent-go/internal/browser/worker.go)
 - [index.js](file://goodhr5/local-agent-go/worker-node/src/index.js)
-- [manager.go](file://goodhr5/local-agent-go-new/internal/browser/process/manager.go)
-- [command_windows.go](file://goodhr5/local-agent-go-new/internal/browser/process/command_windows.go)
-- [command_other.go](file://goodhr5/local-agent-go-new/internal/browser/process/command_other.go)
+- [manager.go](file://goodhr5/local-agent-go/internal/browser/process/manager.go)
+- [command_windows.go](file://goodhr5/local-agent-go/internal/browser/process/command_windows.go)
+- [command_other.go](file://goodhr5/local-agent-go/internal/browser/process/command_other.go)
 - [restart_windows.go](file://goodhr5/local-agent-go/internal/process/restart_windows.go)
 - [terminate_other.go](file://goodhr5/local-agent-go/internal/process/terminate_other.go)
 - [server.go](file://goodhr5/local-agent-go/internal/app/server.go)
-- [runner.go](file://goodhr5/local-agent-go-new/internal/flow/lifecycle/runner.go)
-- [diagnostics.go](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go)
+- [runner.go](file://goodhr5/local-agent-go/internal/flow/lifecycle/runner.go)
+- [diagnostics.go](file://goodhr5/local-agent-go/internal/api/diagnostics.go)
 </cite>
 
 ## 目录
@@ -61,10 +61,10 @@ B --> D
 
 章节来源
 - [worker.go:27-65](file://goodhr5/local-agent-go/internal/browser/worker.go#L27-L65)
-- [manager.go:20-65](file://goodhr5/local-agent-go-new/internal/browser/process/manager.go#L20-L65)
+- [manager.go:20-65](file://goodhr5/local-agent-go/internal/browser/process/manager.go#L20-L65)
 - [restart_windows.go:30-50](file://goodhr5/local-agent-go/internal/process/restart_windows.go#L30-L50)
 - [terminate_other.go:8-19](file://goodhr5/local-agent-go/internal/process/terminate_other.go#L8-L19)
-- [runner.go:80-110](file://goodhr5/local-agent-go-new/internal/flow/lifecycle/runner.go#L80-L110)
+- [runner.go:80-110](file://goodhr5/local-agent-go/internal/flow/lifecycle/runner.go#L80-L110)
 
 ## 架构总览
 下图展示从Go主进程到Node Worker再到浏览器的完整调用链，以及健康检查、日志与错误处理路径。
@@ -199,14 +199,14 @@ end
 ```
 
 图表来源
-- [manager.go:67-101](file://goodhr5/local-agent-go-new/internal/browser/process/manager.go#L67-L101)
-- [command_windows.go:14-36](file://goodhr5/local-agent-go-new/internal/browser/process/command_windows.go#L14-L36)
-- [command_other.go:11-20](file://goodhr5/local-agent-go-new/internal/browser/process/command_other.go#L11-L20)
+- [manager.go:67-101](file://goodhr5/local-agent-go/internal/browser/process/manager.go#L67-L101)
+- [command_windows.go:14-36](file://goodhr5/local-agent-go/internal/browser/process/command_windows.go#L14-L36)
+- [command_other.go:11-20](file://goodhr5/local-agent-go/internal/browser/process/command_other.go#L11-L20)
 
 章节来源
-- [manager.go:67-101](file://goodhr5/local-agent-go-new/internal/browser/process/manager.go#L67-L101)
-- [command_windows.go:14-36](file://goodhr5/local-agent-go-new/internal/browser/process/command_windows.go#L14-L36)
-- [command_other.go:11-20](file://goodhr5/local-agent-go-new/internal/browser/process/command_other.go#L11-L20)
+- [manager.go:67-101](file://goodhr5/local-agent-go/internal/browser/process/manager.go#L67-L101)
+- [command_windows.go:14-36](file://goodhr5/local-agent-go/internal/browser/process/command_windows.go#L14-L36)
+- [command_other.go:11-20](file://goodhr5/local-agent-go/internal/browser/process/command_other.go#L11-L20)
 
 ### 跨平台兼容性：进程终止与端口清理
 - Windows
@@ -242,11 +242,11 @@ Queue --> Monitor
 ```
 
 图表来源
-- [runner.go:80-110](file://goodhr5/local-agent-go-new/internal/flow/lifecycle/runner.go#L80-L110)
+- [runner.go:80-110](file://goodhr5/local-agent-go/internal/flow/lifecycle/runner.go#L80-L110)
 - [worker.go:618-649](file://goodhr5/local-agent-go/internal/browser/worker.go#L618-L649)
 
 章节来源
-- [runner.go:80-110](file://goodhr5/local-agent-go-new/internal/flow/lifecycle/runner.go#L80-L110)
+- [runner.go:80-110](file://goodhr5/local-agent-go/internal/flow/lifecycle/runner.go#L80-L110)
 - [worker.go:618-649](file://goodhr5/local-agent-go/internal/browser/worker.go#L618-L649)
 
 ### 进程监控、自动重启与错误隔离
@@ -264,7 +264,7 @@ Queue --> Monitor
 - [index.js:319-325](file://goodhr5/local-agent-go/worker-node/src/index.js#L319-L325)
 - [worker.go:254-332](file://goodhr5/local-agent-go/internal/browser/worker.go#L254-L332)
 - [worker.go:658-675](file://goodhr5/local-agent-go/internal/browser/worker.go#L658-L675)
-- [runner.go:221-273](file://goodhr5/local-agent-go-new/internal/flow/lifecycle/runner.go#L221-L273)
+- [runner.go:221-273](file://goodhr5/local-agent-go/internal/flow/lifecycle/runner.go#L221-L273)
 
 ### 与主进程的协作模式与数据同步
 - 协作模式
@@ -335,7 +335,7 @@ GoMain --> Log["日志/诊断"]
 
 章节来源
 - [worker.go:437-518](file://goodhr5/local-agent-go/internal/browser/worker.go#L437-L518)
-- [diagnostics.go:157-191](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go#L157-L191)
+- [diagnostics.go:157-191](file://goodhr5/local-agent-go/internal/api/diagnostics.go#L157-L191)
 - [worker.go:658-675](file://goodhr5/local-agent-go/internal/browser/worker.go#L658-L675)
 
 ## 结论

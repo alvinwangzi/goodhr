@@ -2,12 +2,12 @@
 
 <cite>
 **本文引用的文件**
-- [client.go](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go)
-- [client_test.go](file://goodhr5/local-agent-go-new/internal/integration/ai/client_test.go)
+- [client.go](file://goodhr5/local-agent-go/internal/integration/ai/client.go)
+- [client_test.go](file://goodhr5/local-agent-go/internal/integration/ai/client_test.go)
 - [client.go](file://goodhr5/local-agent-go/internal/localai/client.go)
 - [client.go](file://goodhr5/local-agent-go/internal/cloudapi/client.go)
 - [config.go](file://goodhr5/local-agent-go/internal/config/config.go)
-- [config.go](file://goodhr5/local-agent-go-new/internal/config/config.go)
+- [config.go](file://goodhr5/local-agent-go/internal/config/config.go)
 - [cloud-control-local-agent-architecture.md](file://docs/cloud-control-local-agent-architecture.md)
 </cite>
 
@@ -34,7 +34,7 @@
 
 ## 项目结构
 本地AI能力由两套Go实现共同支撑：
-- 新本地程序（local-agent-go-new）：提供OpenAI兼容客户端、流式解析、提前决策、结构化简历输出等能力。
+- 新本地程序（local-agent-go）：提供OpenAI兼容客户端、流式解析、提前决策、结构化简历输出等能力。
 - 旧本地程序（local-agent-go）：提供本地AI客户端封装、通用聊天接口、视觉打分、流式进度回调、思考模式显示等能力。
 - 云端通信：通过cloudapi访问云端配置、任务状态、订阅校验等。
 - 配置管理：新旧版本各自维护启动参数、数据目录、端口、云端地址等。
@@ -59,17 +59,17 @@ I --> C
 ```
 
 图表来源
-- [client.go:22-25](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L22-L25)
+- [client.go:22-25](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L22-L25)
 - [client.go:34-40](file://goodhr5/local-agent-go/internal/localai/client.go#L34-L40)
 - [client.go:17-21](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L17-L21)
-- [config.go:31-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L31-L50)
+- [config.go:31-50](file://goodhr5/local-agent-go/internal/config/config.go#L31-L50)
 - [config.go:27-41](file://goodhr5/local-agent-go/internal/config/config.go#L27-L41)
 
 章节来源
-- [client.go:22-25](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L22-L25)
+- [client.go:22-25](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L22-L25)
 - [client.go:34-40](file://goodhr5/local-agent-go/internal/localai/client.go#L34-L40)
 - [client.go:17-21](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L17-L21)
-- [config.go:31-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L31-L50)
+- [config.go:31-50](file://goodhr5/local-agent-go/internal/config/config.go#L31-L50)
 - [config.go:27-41](file://goodhr5/local-agent-go/internal/config/config.go#L27-L41)
 
 ## 核心组件
@@ -83,10 +83,10 @@ I --> C
   - 管理监听地址、端口、数据目录、云端地址、控制台地址、Worker入口等。
 
 章节来源
-- [client.go:22-25](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L22-L25)
+- [client.go:22-25](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L22-L25)
 - [client.go:34-40](file://goodhr5/local-agent-go/internal/localai/client.go#L34-L40)
 - [client.go:17-21](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L17-L21)
-- [config.go:31-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L31-L50)
+- [config.go:31-50](file://goodhr5/local-agent-go/internal/config/config.go#L31-L50)
 - [config.go:27-41](file://goodhr5/local-agent-go/internal/config/config.go#L27-L41)
 
 ## 架构总览
@@ -112,9 +112,9 @@ LegacyAI-->>Runner : ChatResult/Decision(含思考/进度)
 ```
 
 图表来源
-- [client.go:236-268](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L236-L268)
-- [client.go:271-303](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L271-L303)
-- [client.go:318-352](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L318-L352)
+- [client.go:236-268](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L236-L268)
+- [client.go:271-303](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L271-L303)
+- [client.go:318-352](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L318-L352)
 - [client.go:258-326](file://goodhr5/local-agent-go/internal/localai/client.go#L258-L326)
 - [client.go:328-376](file://goodhr5/local-agent-go/internal/localai/client.go#L328-L376)
 - [client.go:192-212](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L192-L212)
@@ -153,18 +153,18 @@ ParseJSON --> End
 ```
 
 图表来源
-- [client.go:236-268](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L236-L268)
-- [client.go:271-303](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L271-L303)
-- [client.go:318-352](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L318-L352)
+- [client.go:236-268](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L236-L268)
+- [client.go:271-303](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L271-L303)
+- [client.go:318-352](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L318-L352)
 
 章节来源
-- [client.go:236-268](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L236-L268)
-- [client.go:271-303](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L271-L303)
-- [client.go:318-352](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L318-L352)
-- [client.go:404-495](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L404-L495)
-- [client_test.go:19-47](file://goodhr5/local-agent-go-new/internal/integration/ai/client_test.go#L19-L47)
-- [client_test.go:150-195](file://goodhr5/local-agent-go-new/internal/integration/ai/client_test.go#L150-L195)
-- [client_test.go:197-233](file://goodhr5/local-agent-go-new/internal/integration/ai/client_test.go#L197-L233)
+- [client.go:236-268](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L236-L268)
+- [client.go:271-303](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L271-L303)
+- [client.go:318-352](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L318-L352)
+- [client.go:404-495](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L404-L495)
+- [client_test.go:19-47](file://goodhr5/local-agent-go/internal/integration/ai/client_test.go#L19-L47)
+- [client_test.go:150-195](file://goodhr5/local-agent-go/internal/integration/ai/client_test.go#L150-L195)
+- [client_test.go:197-233](file://goodhr5/local-agent-go/internal/integration/ai/client_test.go#L197-L233)
 
 ### 本地AI客户端（旧版本）
 - 通用聊天接口
@@ -249,9 +249,9 @@ Client --> Decision : "返回"
   - 自动创建必要目录，提供默认下载目录。
 
 章节来源
-- [config.go:31-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L31-L50)
-- [config.go:52-90](file://goodhr5/local-agent-go-new/internal/config/config.go#L52-L90)
-- [config.go:137-157](file://goodhr5/local-agent-go-new/internal/config/config.go#L137-L157)
+- [config.go:31-50](file://goodhr5/local-agent-go/internal/config/config.go#L31-L50)
+- [config.go:52-90](file://goodhr5/local-agent-go/internal/config/config.go#L52-L90)
+- [config.go:137-157](file://goodhr5/local-agent-go/internal/config/config.go#L137-L157)
 - [config.go:27-41](file://goodhr5/local-agent-go/internal/config/config.go#L27-L41)
 - [config.go:43-88](file://goodhr5/local-agent-go/internal/config/config.go#L43-L88)
 - [config.go:99-111](file://goodhr5/local-agent-go/internal/config/config.go#L99-L111)
@@ -274,17 +274,17 @@ ConfigLegacy["Legacy Config"] --> LegacyAI
 ```
 
 图表来源
-- [client.go:22-25](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L22-L25)
+- [client.go:22-25](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L22-L25)
 - [client.go:34-40](file://goodhr5/local-agent-go/internal/localai/client.go#L34-L40)
 - [client.go:17-21](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L17-L21)
-- [config.go:31-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L31-L50)
+- [config.go:31-50](file://goodhr5/local-agent-go/internal/config/config.go#L31-L50)
 - [config.go:27-41](file://goodhr5/local-agent-go/internal/config/config.go#L27-L41)
 
 章节来源
-- [client.go:22-25](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L22-L25)
+- [client.go:22-25](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L22-L25)
 - [client.go:34-40](file://goodhr5/local-agent-go/internal/localai/client.go#L34-L40)
 - [client.go:17-21](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L17-L21)
-- [config.go:31-50](file://goodhr5/local-agent-go-new/internal/config/config.go#L31-L50)
+- [config.go:31-50](file://goodhr5/local-agent-go/internal/config/config.go#L31-L50)
 - [config.go:27-41](file://goodhr5/local-agent-go/internal/config/config.go#L27-L41)
 
 ## 性能与可靠性
@@ -306,12 +306,12 @@ ConfigLegacy["Legacy Config"] --> LegacyAI
   - 每个请求独立http.Client实例，避免共享状态；注意连接复用与池化以提升吞吐。
 
 章节来源
-- [client.go:90-92](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L90-L92)
+- [client.go:90-92](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L90-L92)
 - [client.go:102-115](file://goodhr5/local-agent-go/internal/localai/client.go#L102-L115)
 - [client.go:46-55](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L46-L55)
-- [client.go:236-268](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L236-L268)
+- [client.go:236-268](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L236-L268)
 - [client.go:311-326](file://goodhr5/local-agent-go/internal/localai/client.go#L311-L326)
-- [client.go:318-352](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L318-L352)
+- [client.go:318-352](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L318-L352)
 - [client.go:470-539](file://goodhr5/local-agent-go/internal/localai/client.go#L470-L539)
 
 ## 故障排查指南
@@ -330,8 +330,8 @@ ConfigLegacy["Legacy Config"] --> LegacyAI
   - 致命错误：记录错误原因，停止岗位任务，提示用户修复配置。
 
 章节来源
-- [client.go:354-374](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L354-L374)
-- [client.go:376-402](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L376-L402)
+- [client.go:354-374](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L354-L374)
+- [client.go:376-402](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L376-L402)
 - [client.go:378-420](file://goodhr5/local-agent-go/internal/localai/client.go#L378-L420)
 - [client.go:150-164](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L150-L164)
 - [client.go:498-541](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L498-L541)
@@ -369,9 +369,9 @@ ConfigLegacy["Legacy Config"] --> LegacyAI
   - 监控usage与耗时，优化提示词与模型选择。
 
 章节来源
-- [client.go:108-148](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L108-L148)
-- [client.go:150-193](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L150-L193)
-- [client.go:195-217](file://goodhr5/local-agent-go-new/internal/integration/ai/client.go#L195-L217)
+- [client.go:108-148](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L108-L148)
+- [client.go:150-193](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L150-L193)
+- [client.go:195-217](file://goodhr5/local-agent-go/internal/integration/ai/client.go#L195-L217)
 - [client.go:164-256](file://goodhr5/local-agent-go/internal/localai/client.go#L164-L256)
 - [client.go:258-326](file://goodhr5/local-agent-go/internal/localai/client.go#L258-L326)
 - [client.go:192-212](file://goodhr5/local-agent-go/internal/cloudapi/client.go#L192-L212)

@@ -1,178 +1,144 @@
-# GoodHR 5 Local Agent Go
+<!-- 文件作用说明：向开发者介绍 local-agent-go 的重构目标、技术组成和文档阅读顺序。 -->
 
-这是 GoodHR 5 本地程序的 Go 版本目录。当前目录用于长期重构，不影响现有 `goodhr5/local-agent/` Python 版本。
+# GoodHR 新本地程序
 
-## 当前能力
+`local-agent-go` 是按清晰边界重构后的 GoodHR 本地程序。它保留 CloakBrowser 及其反检测增强，由严格 TypeScript Worker 调用浏览器，Go 负责任务流程和平台适配。
 
-- Go 主程序可启动本地 HTTP 服务。
-- 默认固定监听 `127.0.0.1:55271`，端口被占用时直接启动失败。
-- `/health` 返回统一 JSON。
-- `/api/v1/runtime/status` 返回 Node Worker 和 CloakBrowser 运行组件状态。
-- `/api/v1/runtime/install` 支持从前端传入配置下载 Node runtime、CloakBrowser 和 OCR；Node Worker 随本地程序安装包内置。
-- `/api/v1/runtime/install-local-worker` 支持开发阶段安装本地 `worker-node`。
-- `/api/v1/console/status` 和 `/api/v1/console/update` 支持检查并更新本地控制台前端包。
-- `/api/v1/local/ocr/status` 和 `/api/v1/local/ocr/recognize` 支持本地 OCR 组件状态和图片文字识别。
-- 已实现 Node Browser Worker 启动、停止和浏览器 API 转发入口。
-- `worker-node/` 已接入 CloakBrowser 官方 Node SDK。
-- 已提供基础浏览器 API：打开页面、点击、输入、滚动、提取文本、截图、Cookie、下载记录。
-- 已提供本地 SQLite 岗位运行、日志、候选人数据接口，支持简历库分页、筛选、详情和清空。
-- 已提供本地岗位模板、AI 配置、通用设置、下载记录和截图记录接口。
-- 已提供云端平台配置读取和会员状态校验接口，后续岗位运行启动流程直接复用。
-- 已接入本地岗位运行运行器骨架：启动时校验会员、拉取平台配置、写入运行日志和岗位运行状态。
-- 已接入 Boss 候选人第一轮扫描：打开云端配置的推荐页，提取可见候选人并保存到本地 SQLite。
-- 详情读取支持 DOM、OCR、AI 三种独立模式；选择哪种就只执行哪种，不做隐式兜底。
-- 已接入本地 AI 打招呼评分：AI 模式会保存分数和原因。
-- 已接入 Boss 打招呼动作，只有启动参数 `enable_greet=true` 时才会真实点击。
-- 已接入岗位运行停止信号、打招呼前随机等待和打招呼失败重试。
-- 多轮扫描会优先按云端平台配置滚动候选人列表容器，找不到容器时再滚动页面。
-- 已接入岗位运行后台异步运行，开始接口会快速返回，状态接口可查询 running。
-- 状态接口会返回进度阶段、轮次、岗位运行统计和最近日志，前端服务层已提供查询方法。
-- 前端岗位运行列表已接入本地岗位运行进度轮询和进度条展示。
-- 岗位运行启动支持配置扫描轮数、每轮提取数量、滚动距离、打招呼等待和重试次数。
-- 前端岗位运行列表已接入本地岗位运行运行参数表单。
-- 已接入本地浏览器 Profile 元数据接口，平台账号可按账号隔离浏览器目录。
-- 浏览器启动、打开页面和岗位运行运行会自动使用本机下载目录，并支持本地设置覆盖下载目录。
-- Node Worker 调用失败时会自动尝试重启一次，停止岗位运行时会主动关闭浏览器。
-- 截图默认保存到本地数据目录，并自动写入本地截图记录。
-- 本地控制台会优先代理 Vite 开发服务 `http://127.0.0.1:5173`，没有开发服务时再使用已更新或仓库内的构建目录。
-- 已补齐本地 AI 聊天、岗位默认提示词、岗位要求优化、规则状态等前端本地模式接口。
-- 运行组件状态会返回安装进度和已安装版本，便于排查下载卡住或版本不一致。
-- 已提供 `/api/v1/diagnostics` 本地诊断接口，可检查端口、目录、运行组件、Worker 和 Profile 锁文件。
+## 技术组成
 
-## 本地启动
+- Go：本地 HTTP 服务、任务流程、平台适配、本地数据、AI/OCR、运行组件和系统能力。
+- TypeScript：Browser Worker 和强类型浏览器封装能力。
+- CloakBrowser：浏览器运行和反检测增强。
+- SQLite：保存本地任务状态、统一步骤日志、候选人动作摘要、自动回复去重摘要和下载结果。
 
-Go 版本本地程序需要 Go 1.25 或以上。SQLite 使用纯 Go 驱动，不需要用户电脑安装 C 编译环境。
+## 唯一正式链路
+
+```text
+Go 主流程
+  -> Go 平台适配
+  -> Go Browser Client
+  -> TypeScript 封装能力
+  -> TypeScript 原子能力
+  -> CloakBrowser
+```
+
+## 开发前阅读顺序
+
+1. `AGENTS.md`
+2. `docs/architecture.md`
+3. `docs/directory-rules.md`
+4. `docs/browser-worker-design.md`
+5. `docs/runtime-flow.md`
+6. `docs/migration-plan.md`
+7. `docs/legacy-capability-matrix.md`
+
+## 已实现主流程
+
+```text
+StartTask
+  -> RunPreflightChecks
+  -> 获取任务和 Profile 锁
+  -> DispatchTaskFlow
+      -> GreetingFlow
+      -> AutoReplyFlow
+  -> 保存最终状态并同步云端摘要
+```
+
+启动前检查按顺序覆盖请求、本地目录、登录、岗位、按任务需要检查会员、个人运行配置、本地平台配置、Profile、冲突、Node、Worker、CloakBrowser、SQLite、AI/OCR 和系统防睡眠。任务运行期间每批候选人和每轮自动回复还会重新检查登录态。
+
+会员权限由云端统一返回：免费版可以运行关键词或 OCR 的基础打招呼任务；Plus 基础版和 Max 全能版都可以运行 AI 筛选与 AI 打招呼；只有 Max 全能版可以启动自动回复。本地程序必须同时校验 `active`、`allow_ai` 和 `allow_auto_reply`，不能只看会员名称或到期时间。
+
+## 本地接口
+
+- `POST /api/v1/tasks/start`：启动主动打招呼或自动回复。
+- `POST /api/v1/tasks/stop`：安全停止任务。
+- `GET /api/v1/tasks/{task_id}`：读取任务状态。
+- `GET /api/v1/runtime/status`：查看 Node 和 Worker 状态。
+- `POST /api/v1/runtime/ensure`：启动 Worker。
+- `POST /api/v1/runtime/install`：按云端清单异步安装 Node 22+、CloakBrowser 和可选 OCR，支持 SHA256、安全解压和失败回滚。
+- `GET /api/v1/diagnostics`：检查目录、端口、运行组件和 Profile 锁。
+- `GET|POST /api/v1/app-update/*`：读取程序更新进度并启动安装包更新。
+- `POST /api/v1/page/open`：唯一浏览器打开入口，统一启动或复用 Profile、打开页面，并支持 `new_tab=true` 新增标签页和旧版 `new_page=true` 兼容字段。
+- `GET /api/v1/browser/status`、`POST /api/v1/browser/stop`：读取或关闭当前浏览器，不提供第二个启动入口。
+- `GET /api/v1/downloads`：查看 Worker 监听到的下载成功、失败和处理中记录。
+- `GET /api/v1/downloads/history`：查看 SQLite 中已结束的下载历史；旧版 `/api/v1/local/downloads` 路径继续可用。
+- `POST /api/v1/downloads/configure`：切换后续下载目录。
+- `POST /api/v1/downloads/clear`：清空下载记录，不删除文件。
+- `POST /api/v1/files/open|reveal`：打开下载文件或在 Finder 中定位，路径必须是绝对路径，并位于默认目录或 Worker 已成功使用过的下载目录。
+
+Worker 的完整协议见 `contracts/browser-api.md`。
+
+页面打开会优先复用同域名、同目标路径的已有标签页，避免刷新掉用户手动设置的筛选条件；传入 `new_tab=true` 时会始终新增并切换到一个标签页，登录页即使带有回跳参数也不会被误复用。真实滚轮使用元素位置或截图变化验证结果，不读取页面内部滚动状态，也不向招聘页面注入或执行 JavaScript。
+
+CloakBrowser 启动默认启用 `humanize`。同一个持久化 Profile 会获得稳定指纹种子；配置代理时默认启用 GeoIP，让时区、语言和 WebRTC 出口信息跟随代理，调用方显式传入的时区、语言或指纹参数仍然优先。
+
+把解压后的 Chromium 扩展文件夹放入健康接口返回的 `extensionsDir` 即可。程序只扫描该目录的一级子目录和有效 `manifest.json`，并通过 CloakBrowser 官方 `extensionPaths` 参数加载；扩展列表变化后，下次打开页面会自动重启浏览器再应用新列表。
+
+每个 Profile 首次准备时会保留用户原有书签，并在书签栏前面补齐 GoodHR、BOSS直聘、猎聘猎头端、猎聘和智联招聘入口。书签栏会在所有页面显示；这只是手动导航入口，不参与平台自动化流程。
+
+Worker 会监听已有标签页和新标签页的下载事件。Go 每秒同步一次成功或失败终态，保存 SQLite 记录；首次成功时显示十秒下载提示，可直接打开文件或在 Finder 中定位。文件接口会检查真实路径并阻止软链接越过下载目录；切换目录只影响后续下载，清空记录不删除文件。Worker 不反向调用 Go 业务接口。
+
+四个平台都按 `entry.go`、`position.go`、`candidate.go`、`detail.go`、`greet.go`、`followup.go`、`reply.go` 和 `runtime.go` 分责。每个平台目录中的 `config.json` 是带中文属性说明的本地运行配置和能力核对表，通过 `go:embed` 随 Go 程序一起编译，也是平台 URL、行为和选择器的唯一来源；本地程序不会向云端读取或合并平台配置。配置中的 `pending_selectors` 表示旧版也没有可确认的配置，自动回复缺少真实页面地址或选择器时会在启动前明确拦截。
+
+本地程序启动后会打开前端控制台并附加实际 `local_port`。源码开发默认打开 `http://localhost:5173/admin/`，正式打包时才固定打开 `https://goodhr5.58it.cn/admin/`；云端 API 地址和前端地址互不混用。新版不托管、不下载第二份本地静态控制台。
+如果固定端口上已经是一个健康的 GoodHR 本地程序，新进程只会复用该实例、打开现有控制台后退出；不会结束不明端口占用者。
+本地 Go 服务默认监听 `127.0.0.1:43129`，启动参数传入其他端口时，控制台仍以 URL 中的实际 `local_port` 为准；前端没有收到端口时也默认探测 `43129`。内部 Browser Worker 继续使用 `39881`。
+
+AI 客户端支持普通 JSON 和 SSE 流式响应，遇到 429、5xx 或临时网络错误最多重试三次；`detail_mode=ai` 会把真实滚轮生成的分段截图交给多模态模型。OCR 使用常驻 JSON 行协议，运行组件压缩包多一层目录时也会递归找到可执行文件。
+
+Go 与 Worker 步骤日志统一写入岗位日志，每个岗位只保留最近 1000 条。主程序和 Worker 文件日志按 10MB 轮转，各保留 3 份历史文件。本地任务、候选人、会话、下载和步骤摘要保留 90 天；OCR/AI 临时截图读取后立即删除，启动时还会清理崩溃遗留截图、组件压缩包和旧更新包。
+
+程序启动时会把上次异常退出遗留的 `running` 任务改成明确失败状态。任务运行期间每 30 秒检测一次时间断层，电脑休眠后恢复且断层超过 2 分钟时会停止当前任务，避免在页面状态已经变化后继续点击。
+
+## 构建与运行
+
+依赖镜像确认后执行：
 
 ```bash
-cd goodhr5/local-agent-go
-go run ./cmd/goodhr-local-agent
+./scripts/prepare-runtime.sh
+./scripts/build.sh
+./bin/goodhr-local-agent
 ```
 
-启动成功后会自动使用默认浏览器打开 `http://127.0.0.1:55271/admin/`。
+`prepare-runtime.sh` 会通过当前锁定的 `cloakbrowser 0.5.2` 下载它自己的增强 Chromium。Go 不会改为普通 Chrome，也不会绕过 CloakBrowser。CloakBrowser 官方的 `146.0.7680.177.5` 当前只提供 Linux x64 和 Windows x64，macOS 官方最新可用增强内核仍是 `145.0.7632.109.2`，不得跨平台混装。
 
-关闭自动打开：
+开发环境可以执行：
 
 ```bash
-go run ./cmd/goodhr-local-agent --open-console=false
+./scripts/run-dev.sh
 ```
 
-指定端口：
+本地程序版本号默认是 `6`。需要临时覆盖时执行：
 
 ```bash
-go run ./cmd/goodhr-local-agent --port 55271
+./scripts/run-dev.sh --version 6.1
 ```
 
-健康检查：
+下载同步在 Browser Worker 第一次启动前会安静等待，不会把正常的未启动状态打印成错误；Worker 曾经连接成功后如果意外断开，仍会记录提醒。
+
+macOS 正式包只在 Mac 上生成：
 
 ```bash
-curl http://127.0.0.1:55271/health
+./scripts/package-release.sh 6
 ```
 
-诊断检查：
+Windows x64 正式包在 Windows 上生成，不能和 macOS 包混用：
 
-```bash
-curl http://127.0.0.1:55271/api/v1/diagnostics
+```bat
+scripts\package-windows.bat 6
 ```
 
-开发阶段安装本地 Worker：
+Windows 脚本会独立编译 `windows/amd64` GUI 主程序，打包 Worker 生产依赖，同时生成 ZIP 和 Inno Setup 安装器。Windows 运行时会使用 `node.exe`、`chrome.exe`、PowerShell 提示音、资源管理器和 `SetThreadExecutionState` 防睡眠；macOS 则使用对应的 `node`、Chromium.app、`afplay`、Finder 和 `caffeinate`。
 
-```bash
-curl -X POST http://127.0.0.1:55271/api/v1/runtime/install-local-worker
-```
+两种发布包都会包含带版本号的 Go 主程序、Worker 编译产物和 Worker 生产依赖，输出到已忽略提交的 `release/` 目录。运行组件和本地程序更新只接受 HTTPS 地址与完整 SHA256，校验不通过不会安装。
 
-安装运行组件：
+## 核心原则
 
-```bash
-curl -X POST http://127.0.0.1:55271/api/v1/runtime/install \
-  -H "Content-Type: application/json" \
-  -d '{"manifest":{"node_runtime":{"win-x64":{"version":"22.19.0","url":"https://oss.58it.cn/goodhr-node-runtime-win-x64.zip","sha256":""}},"cloakbrowser":{"win-x64":{"version":"146.0.7680.177.5","url":"https://oss.58it.cn/cloakbrowser-windows-x64.zip","sha256":""}},"ocr":{}}}'
-```
-
-实际产品里由前端从 `system.onboarding_config.runtime_components` 读取配置后传给本地程序，不再维护独立的 `goodhr-local-runtime-manifest.json`。
-
-更新控制台前端包：
-
-```bash
-curl -X POST http://127.0.0.1:55271/api/v1/console/update \
-  -H "Content-Type: application/json" \
-  -d '{"manifest_url":"https://oss.58it.cn/goodhr-console-manifest.json"}'
-```
-
-OCR 组件是可选运行组件。若使用 RapidOCR-json，压缩包解压后需包含 `RapidOCR-json.exe`、`RapidOCR_json.exe`、`RapidOCR-json` 或 `RapidOCR_json` 之一；也可以通过环境变量 `GOODHR_OCR_EXECUTABLE` 指定可执行文件路径。
-
-控制台前端包 manifest 示例：
-
-```json
-{
-  "console": {
-    "version": "0.1.0",
-    "url": "https://oss.58it.cn/goodhr-console.zip",
-    "sha256": ""
-  }
-}
-```
-
-## 后续重点
-
-- 将运行组件打包脚本接入正式 OSS 上传流程。
-- 继续补齐复杂浏览器 API：更完整的随机人类操作、详情页长截图。
-- 完善本地控制台前端包启动时自动检查更新和安装器发布流程。
-
-## 发布运行组件包
-
-编译 Go 本地程序：
-
-```bash
-cd goodhr5/local-agent-go
-./scripts/build_go_binary.sh
-```
-
-交叉编译 Windows x64：
-
-```bash
-cd goodhr5/local-agent-go
-TARGET_OS=windows TARGET_ARCH=amd64 ./scripts/build_go_binary.sh
-```
-
-Windows 本机编译：
-
-```powershell
-cd goodhr5/local-agent-go
-.\scripts\build_go_binary.ps1 -TargetOS windows -TargetArch amd64
-```
-
-Windows 生成安装器需要先安装 Inno Setup 6：
-
-```powershell
-cd goodhr5/local-agent-go
-.\packaging\build_windows_installer.ps1 -Version "0.1.0"
-```
-
-安装器默认安装到当前用户目录，并通过 `--data-dir "{app}\data"` 让本地数据跟随安装目录。
-
-打包 Node Worker 前先确认 `worker-node/node_modules` 已存在。若需要安装依赖，先确认 npm registry 使用国内镜像。
-
-```bash
-cd goodhr5/local-agent-go
-./scripts/package_worker.sh
-```
-
-打包当前系统的 Node runtime：
-
-```bash
-cd goodhr5/local-agent-go
-./scripts/package_node_runtime.sh
-```
-
-脚本会输出 zip 路径和 sha256，可填入 `system.onboarding_config.runtime_components`。
-
-## Windows 冒烟测试
-
-Windows 真机启动本地程序后，可在 PowerShell 里执行：
-
-```powershell
-cd goodhr5/local-agent-go
-.\scripts\windows_smoke_test.ps1 -BaseUrl "http://127.0.0.1:55271"
-```
-
-它会检查 `/health`、运行组件状态、Worker 状态和诊断信息。
+- 不整体复制旧目录。
+- 先固定边界和协议，再迁移能力。
+- Node 原子能力不对外暴露。
+- Go 只调用 TypeScript 封装能力。
+- TypeScript Worker 不包含任何招聘平台逻辑。
+- 招聘页面完全禁止 JavaScript 注入，只使用标准 Locator、鼠标、键盘、真实滚轮和截图。
+- 所有选择器操作使用统一选择器类型。
+- 主流程使用平铺步骤，不隐藏深层调用链。

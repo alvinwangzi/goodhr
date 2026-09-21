@@ -30,13 +30,13 @@ import {
 } from "@/lib/api";
 import { captureLocalAgentPortFromURL } from "@/lib/admin-api";
 
-const AGREEMENT_MARKDOWN = `## GoodHR 使用协议与隐私说明
+const AGREEMENT_MARKDOWN = `## HR Radar 使用协议与隐私说明
 
-**请先小声看完：GoodHR 是效率工具，不是平台安全保险。继续使用前，请确认你能接受下面这些边界。**
+**请先小声看完：HR Radar 是效率工具，不是平台安全保险。继续使用前，请确认你能接受下面这些边界。**
 
 ### **1. 招聘平台账号风险自担**
 
-GoodHR 会模拟人工操作招聘平台，但不保证账号永远安全、不被限制、不被封禁。
+HR Radar 会模拟人工操作招聘平台，但不保证账号永远安全、不被限制、不被封禁。
 
 如果你认为招聘平台账号被限制、封号、降权、风控的后果自己承担不起，请不要使用本软件。
 
@@ -44,7 +44,7 @@ GoodHR 会模拟人工操作招聘平台，但不保证账号永远安全、不�
 
 ### **2. 仅可用于合法招聘工作**
 
-GoodHR 只能用于合法、合规的招聘、候选人沟通和团队协作。
+HR Radar 只能用于合法、合规的招聘、候选人沟通和团队协作。
 
 不得用于诈骗、骚扰、倒卖简历、爬取数据、侵犯隐私、恶意营销、违法犯罪或其它不正当用途。
 
@@ -52,7 +52,7 @@ GoodHR 只能用于合法、合规的招聘、候选人沟通和团队协作。
 
 ### **3. 简历与候选人信息属于高度敏感信息**
 
-使用过程中，GoodHR 可能会读取或处理候选人的姓名、手机号、微信、工作经历、教育经历、求职意向、简历内容、沟通记录等信息。
+使用过程中，HR Radar 可能会读取或处理候选人的姓名、手机号、微信、工作经历、教育经历、求职意向、简历内容、沟通记录等信息。
 
 这些信息仅用于帮助你完成招聘筛选、AI 判断、AI 回复、候选人跟进和团队内协作。
 
@@ -72,7 +72,7 @@ GoodHR 只能用于合法、合规的招聘、候选人沟通和团队协作。
 
 ### **6. 请自行控制使用频率**
 
-GoodHR 提供了模拟休息、打开概率、操作间隔等配置，但这些配置不能保证完全规避招聘平台风控。
+HR Radar 提供了模拟休息、打开概率、操作间隔等配置，但这些配置不能保证完全规避招聘平台风控。
 
 请根据自己的账号情况谨慎设置，不要高频、异常、批量地使用。
 
@@ -86,7 +86,7 @@ GoodHR 提供了模拟休息、打开概率、操作间隔等配置，但这些�
 
 如果你勾选并继续登录，表示你已经阅读、理解并同意以上内容。
 
-如果你不同意，或者无法承担相关风险，请停止使用 GoodHR。`;
+如果你不同意，或者无法承担相关风险，请停止使用 HR Radar。`;
 
 /** LoginForm 提供验证码发送、倒计时、协议确认和登录状态保存。 */
 export default function LoginForm() {
@@ -312,7 +312,7 @@ export default function LoginForm() {
         </Button>
       </Stack>
       <Typography sx={{ mt: 2.5, color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>
-        未注册的邮箱首次登录后会自动创建账号。首次使用需要阅读并同意 GoodHR 使用协议。
+        未注册的邮箱首次登录后会自动创建账号。首次使用需要阅读并同意 HR Radar 使用协议。
       </Typography>
       <Dialog
         open={agreementOpen}
@@ -320,7 +320,7 @@ export default function LoginForm() {
         fullWidth
         maxWidth="md"
       >
-        <DialogTitle>GoodHR 使用协议与隐私说明</DialogTitle>
+        <DialogTitle>HR Radar 使用协议与隐私说明</DialogTitle>
         <DialogContent
           dividers
           onScroll={handleAgreementScroll}
