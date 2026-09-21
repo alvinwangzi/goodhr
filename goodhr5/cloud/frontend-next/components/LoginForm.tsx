@@ -577,7 +577,7 @@ export default function LoginForm() {
             <Stack
               direction="row"
               spacing={1}
-              sx={{ justifyContent: "space-between", alignItems: "center" }}
+              sx={{ alignItems: "center" }}
             >
               <Button
                 size="small"
@@ -598,13 +598,6 @@ export default function LoginForm() {
                 }}
               >
                 请先阅读协议
-              </Button>
-              <Button
-                size="small"
-                onClick={handleOpenSetPassword}
-                disabled={!normalizedEmail}
-              >
-                {hasPassword ? "忘记密码？" : "设置密码"}
               </Button>
             </Stack>
 
