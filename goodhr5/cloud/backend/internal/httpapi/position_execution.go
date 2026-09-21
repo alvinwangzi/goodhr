@@ -63,7 +63,7 @@ func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request)
 		MachineID string `json:"machine_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writePositionStartError(w, http.StatusBadRequest, "INVALID_REQUEST", "启动参数没读明白，请重新试一次")
+		writePositionStartError(w, http.StatusBadRequest, "INVALID_REQUEST", "启动参数无效，请重新操作")
 		return
 	}
 	positionID := positionSubresourceID(r.URL.Path, "start")
@@ -239,11 +239,11 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 	if usesAI {
 		subscription, err := s.subscriptions.UserSubscription(email)
 		if err != nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "SUBSCRIPTION_CHECK_FAILED", message: "会员状态暂时没查清楚，这次我先不乱启动，请稍后再试"}
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "SUBSCRIPTION_CHECK_FAILED", message: "会员状态查询失败，请稍后重试"}
 		}
 		access, err := subscriptionAccess(s.systemConfigs, subscription, time.Now())
 		if err != nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "SUBSCRIPTION_CHECK_FAILED", message: "会员套餐配置暂时没读明白，这次我先不乱启动，请稍后再试"}
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "SUBSCRIPTION_CHECK_FAILED", message: "会员套餐配置读取失败，请稍后重试"}
 		}
 		if !access.AllowAI {
 			return &positionStartError{status: http.StatusForbidden, code: "SUBSCRIPTION_REQUIRED", message: "这个岗位用了 AI 功能，会员到期后暂时不能启动，请先续费"}
@@ -252,11 +252,11 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "自动回复属于 Max 全能版，当前套餐暂时不能使用"}
 		}
 		if s.aiWallet == nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
 		}
 		balance, err := s.aiWallet.BalanceUnits(email)
 		if err != nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额暂时没查出来，这次我先不乱启动，请稍后再试"}
+			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
 		}
 		if balance < minimumPositionAIBalanceUnits {
 			return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}

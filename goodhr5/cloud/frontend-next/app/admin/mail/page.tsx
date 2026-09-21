@@ -167,15 +167,15 @@ export default function AdminMailPage() {
   async function adjustBatch() {
     const days = Number(adjustDays || 0);
     const amount = Number(adjustAmount || 0);
-    if (!Number.isInteger(days)) return notify("天数要填整数，我先没敢动", "warning");
-    if (!Number.isFinite(amount)) return notify("余额金额不太对，我先没敢动", "warning");
-    if (days === 0 && amount === 0) return notify("天数和余额至少填一个，我才能开工", "warning");
+    if (!Number.isInteger(days)) return notify("天数必须为整数", "warning");
+    if (!Number.isFinite(amount)) return notify("余额金额格式不正确", "warning");
+    if (days === 0 && amount === 0) return notify("天数和余额至少填一个", "warning");
     const emailItems = adjustEmails.split(/[\n,，;；\s]+/).map((item) => item.trim()).filter(Boolean);
     if (!emailItems.length) return notify("请填写用户邮箱，输入 all 可以调整全部用户", "warning");
     const isAll = emailItems.some((item) => item.toLowerCase() === "all");
     const targetText = isAll ? "系统内全部用户" : `${emailItems.length} 个指定用户`;
     const changeText = [days ? `会员天数 ${days > 0 ? "+" : ""}${days}` : "", amount ? `AI 余额 ${amount > 0 ? "+" : ""}${amount} 元` : ""].filter(Boolean).join("，");
-    const ok = await confirm("公主请确认批量调整", `将为${targetText}调整：${changeText}。每位用户都会收到通知邮件，确认继续吗？`);
+    const ok = await confirm("确认批量调整", `将为${targetText}调整：${changeText}。每位用户都会收到通知邮件，确认继续吗？`);
     if (!ok) return;
     setAdjusting(true);
     setAdjustResults([]);

@@ -130,7 +130,7 @@ export default function AIRecordsPage() {
             text={
               loading
                 ? "正在读取 AI 使用记录"
-                : "这里暂时空空的，等你开始使用内置 AI 后我再认真记账。"
+                : "暂无数据，使用内置 AI 后将在此记录。"
             }
           />
         )}

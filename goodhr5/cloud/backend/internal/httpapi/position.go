@@ -207,17 +207,17 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 // requireAIMembership 统一检查用户是否可以使用岗位 AI 功能。
 func (s *PositionService) requireAIMembership(w http.ResponseWriter, email string) bool {
 	if s.subscriptions == nil {
-		writeError(w, http.StatusServiceUnavailable, "会员状态暂时没查清楚，请稍后再试")
+		writeError(w, http.StatusServiceUnavailable, "会员状态查询失败，请稍后重试")
 		return false
 	}
 	subscription, err := s.subscriptions.UserSubscription(email)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "会员状态暂时没查清楚，请稍后再试")
+		writeError(w, http.StatusServiceUnavailable, "会员状态查询失败，请稍后重试")
 		return false
 	}
 	access, err := subscriptionAccess(s.systemConfigs, subscription, time.Now())
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "会员套餐配置暂时没读明白，请稍后再试")
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置读取失败，请稍后重试")
 		return false
 	}
 	if !access.AllowAI {

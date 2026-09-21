@@ -883,5 +883,5 @@ function formatCountdown(totalSec: number) {
 
 /** errorMessage 从未知异常中提取可展示的信息。 */
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "没处理成功，问题不大，我们再试一次";
+  return error instanceof Error ? error.message : "操作失败，请重试";
 }

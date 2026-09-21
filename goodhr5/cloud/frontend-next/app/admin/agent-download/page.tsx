@@ -123,12 +123,12 @@ export default function AgentDownloadPage() {
       await localRequest(agentBase, "/api/v1/extensions/open-directory", {
         method: "POST",
       });
-      notify("扩展目录已经打开，公主请放文件", "success");
+      notify("扩展目录已打开，请放入文件", "success");
     } catch (error) {
       notify(
         error instanceof Error
           ? error.message
-          : "扩展目录没打开成功，我们再试一次",
+          : "扩展目录打开失败，请重试",
         "error",
       );
     } finally {
@@ -262,7 +262,7 @@ export default function AgentDownloadPage() {
                     lineHeight: 1.7,
                   }}
                 >
-                  放好后请关闭并重新打开 CloakBrowser。只刷新招聘页面不会加载新扩展，我先小声提醒一下。
+                  放好后请关闭并重新打开 CloakBrowser。仅刷新招聘页面不会加载新扩展。
                 </Typography>
               </Box>
               <Button

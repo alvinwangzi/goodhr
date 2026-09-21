@@ -79,7 +79,7 @@ export default function TeamStatsPage() {
           <Typography>员工</Typography>{metricFields.map(([, label]) => <Typography key={label} sx={{ textAlign: "right" }}>{label}</Typography>)}
         </Box>
         <Stack>{members.map((member: any) => <MemberRow key={member.email} member={member} />)}</Stack>
-      </> : <EmptyState text={loading ? "正在统计，打工小助手正在扒拉算盘" : "这里暂时空空的，等团队跑起来我再认真记账"} />}
+      </> : <EmptyState text={loading ? "正在统计…" : "暂无数据，团队开始运行后将显示统计。"} />}
     </SectionPanel>
   </>;
 }

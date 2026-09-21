@@ -362,12 +362,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         ...browserPayload,
         url: "https://www.bing.com",
       });
-      notify("浏览器已打开，我已经把它带到必应了。", "success");
+      notify("浏览器已打开。", "success");
     } catch (error) {
       notify(
         error instanceof Error
           ? error.message
-          : "浏览器没打开成功，我再小声努力一次也行。",
+          : "浏览器打开失败，请重试。",
         "error",
       );
     }
@@ -413,10 +413,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       setTeamInvitations((items) => items.slice(1));
       await refreshSession();
       router.refresh();
-      notify("已经加入团队，岗位和简历也搬好了。我这次没敢偷懒。", "success");
+      notify("已加入团队，岗位和简历已同步。", "success");
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "团队暂时没加入成功，请稍后再试",
+        error instanceof Error ? error.message : "加入团队失败，请稍后重试",
         "error",
       );
     } finally {
@@ -435,10 +435,10 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         { method: "POST" },
       );
       setTeamInvitations((items) => items.slice(1));
-      notify("这次先不加入也没关系，我已经替你婉拒了。", "info");
+      notify("已拒绝邀请。", "info");
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "邀请暂时没处理成功，请稍后再试",
+        error instanceof Error ? error.message : "邀请处理失败，请稍后重试",
         "error",
       );
     } finally {

@@ -218,7 +218,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	}
 	email, err := s.wallet.UserEmailByAIKey(apiKey)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "AI Key 不太对，我先不敢乱花钱。")
+		writeError(w, http.StatusUnauthorized, "AI Key 无效，请检查配置")
 		return
 	}
 	balance, err := s.wallet.BalanceUnits(email)

@@ -432,8 +432,8 @@ export default function PositionsPage() {
       return true;
     } catch (error) {
       const message = error instanceof Error
-        ? `启动条件检查没跑完：${error.message}。这次我先不乱启动，你刷新后再试一次。`
-        : "启动条件检查没跑完，这次我先不乱启动，你刷新后再试一次。";
+        ? `启动条件检查未完成：${error.message}。请刷新后重试。`
+        : "启动条件检查未完成，请刷新后重试。";
       setStartStatus(message);
       setStartError(message);
       setStartRequiresUpdate(false);
@@ -478,7 +478,7 @@ export default function PositionsPage() {
         subscriptionData.subscription,
       );
       if (!isPlatformOpen(platformConfigs, item.platform_id)) {
-        const message = "这个招聘平台暂时还没开放，我先不乱跑，请联系作者看看。";
+        const message = "该招聘平台暂未开放，请联系管理员。";
         setStartStatus(message);
         setStartError(message);
         return;
@@ -692,7 +692,7 @@ export default function PositionsPage() {
     if (!agentBase) return notify("本地程序还没连上", "warning");
     const approved = await confirm(
       "清空岗位日志",
-      "公主请确认要清空这个岗位的全部本地日志吗？清空后我也找不回来了。",
+      "确认清空该岗位的全部本地日志吗？清空后无法恢复。",
     );
     if (!approved) return;
     try {
@@ -701,9 +701,9 @@ export default function PositionsPage() {
       });
       setLogs((current) => ({ ...current, [item.id]: [] }));
       if (allLogPosition?.id === item.id) setAllLogs([]);
-      notify("岗位日志已经清空，我把小本本翻到新的一页了。", "success");
+      notify("岗位日志已清空。", "success");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "日志没清空成功，我们再试一次。", "error");
+      notify(error instanceof Error ? error.message : "日志清空失败，请重试。", "error");
     }
   }
 
@@ -1003,7 +1003,7 @@ export default function PositionsPage() {
               {startError}
             </Typography>
             <Typography sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.7 }}>
-              岗位没有偷偷开跑。按上面的提示处理好后，再点一次开始就行。
+              岗位未启动。请按上方提示处理后重新点击开始。
             </Typography>
           </Alert>
         ) : (
@@ -1524,7 +1524,7 @@ export default function PositionsPage() {
                         }}
                       >
                         这里是增加 AI
-                        准确率的各项设置。如果不理解，先别改它，问题不大。也可以点右上角“视频教程”，看完再回来慢慢调。
+                        准确率的各项设置。如不了解请勿修改，或查看视频教程后再调整。
                       </Typography>
                     </Box>
                     <Collapse in={advancedOpen} unmountOnExit>
@@ -2338,7 +2338,7 @@ function PositionLogList(props: { logs: any[]; maxHeight: number | string }) {
         />
       )) : (
         <Typography sx={{ py: 4, color: "text.secondary", fontSize: 13, textAlign: "center" }}>
-          这里暂时空空的，开始运行后我再认真记账。
+          暂无数据，开始运行后将自动记录。
         </Typography>
       )}
     </Stack>

@@ -209,7 +209,7 @@ func (s *AdminEmailService) PublicJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.validJobToken(r) {
-		writeError(w, http.StatusUnauthorized, "token 不对，我先不敢发邮件")
+		writeError(w, http.StatusUnauthorized, "token 无效，无法发送邮件")
 		return
 	}
 	job := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/public/email-jobs/"), "/")

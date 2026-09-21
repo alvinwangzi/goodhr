@@ -87,8 +87,8 @@ export default function TeamPage() {
       setInviteOpen(false);
       notify(
         data.resent
-          ? "邀请重新发出去了，这次我再认真敲一次门。"
-          : "邀请已经发出，等对方本人点头就能加入。",
+          ? "邀请已重新发送。"
+          : "邀请已发出，等待对方确认加入。",
         "success",
       );
       await load();
@@ -197,7 +197,7 @@ export default function TeamPage() {
     <>
       <PageHeader
         title="团队管理"
-        description="成员加入需要本人确认，谁都不会被我偷偷搬进来。"
+        description="成员加入需要本人确认。"
         actions={
           <>
             {canManage ? (
@@ -269,7 +269,7 @@ export default function TeamPage() {
           </>
         ) : (
           <EmptyState
-            text={loading ? "正在读团队名单，我尽量不把人看漏" : "这里暂时只有你，邀请同事后我再认真排队"}
+            text={loading ? "正在加载团队名单" : "暂无成员，邀请同事后将在此显示。"}
           />
         )}
       </SectionPanel>

@@ -100,12 +100,12 @@ func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	current, err := s.subscriptions.UserSubscription(session.Email)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "会员状态暂时没查清楚，这次我先不乱下单")
+		writeError(w, http.StatusServiceUnavailable, "会员状态查询失败，请稍后重试")
 		return
 	}
 	plans, err := loadSubscriptionPlans(s.systemConfigs)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "会员套餐配置暂时没读明白，请稍后再试")
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置读取失败，请稍后重试")
 		return
 	}
 	quote, err := buildSubscriptionPaymentQuote(plans, current, plan, time.Now())
@@ -208,7 +208,7 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 	if amountCents <= 0 && strings.TrimSpace(req.AmountYuan) != "" {
 		amountCents, err = yuanTextToCents(req.AmountYuan)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "充值金额不太对，我没敢收。")
+			writeError(w, http.StatusBadRequest, "充值金额无效")
 			return
 		}
 	}

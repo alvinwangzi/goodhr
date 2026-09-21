@@ -209,7 +209,7 @@ export default function DashboardPage() {
       notify(
         error instanceof Error
           ? error.message
-          : "充值订单没创建成功，我们再试一次。",
+          : "充值订单创建失败，请重试。",
         "error",
       );
     } finally {
@@ -250,7 +250,7 @@ export default function DashboardPage() {
       setModelDialogOpen(false);
       notify("模型已切好，接下来就让它干活。", "success");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "模型没保存成功，我们再来一次。", "error");
+      notify(error instanceof Error ? error.message : "模型保存失败，请重试。", "error");
     } finally {
       setSavingModel(false);
     }
@@ -384,7 +384,7 @@ export default function DashboardPage() {
             <Typography
               sx={{ color: "#7a4d00", fontSize: 13, lineHeight: 1.65 }}
             >
-              我小声提醒一下：由于浏览器限制，在浏览器内下载的文件请到“我的电脑
+              提示：由于浏览器限制，在浏览器内下载的文件请到“我的电脑
               - 下载”里查看。如果没有，请在以下目录内查看：
             </Typography>
             <Typography

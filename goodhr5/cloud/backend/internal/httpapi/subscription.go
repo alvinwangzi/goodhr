@@ -82,7 +82,7 @@ func (s *SubscriptionService) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	access, err := subscriptionAccess(s.systemConfigs, subscription, time.Now())
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "会员套餐配置暂时没读明白，请稍后再试")
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置读取失败，请稍后重试")
 		return
 	}
 

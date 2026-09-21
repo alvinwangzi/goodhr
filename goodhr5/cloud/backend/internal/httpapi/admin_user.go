@@ -292,7 +292,7 @@ func (s *AdminUserService) AdjustAIBalance(w http.ResponseWriter, r *http.Reques
 	if amountCents == 0 && strings.TrimSpace(req.AmountYuan) != "" {
 		amountCents, err = yuanTextToCents(req.AmountYuan)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "余额金额不太对，我没敢动。")
+			writeError(w, http.StatusBadRequest, "余额金额无效")
 			return
 		}
 	}
@@ -332,11 +332,11 @@ func (s *AdminUserService) BatchAdjust(w http.ResponseWriter, r *http.Request) {
 	}
 	amountCents, err := batchAdjustmentAmountCents(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "余额金额不太对，我没敢动。")
+		writeError(w, http.StatusBadRequest, "余额金额无效")
 		return
 	}
 	if req.Days == 0 && amountCents == 0 {
-		writeError(w, http.StatusBadRequest, "天数和余额至少填一个，我才能开工。")
+		writeError(w, http.StatusBadRequest, "天数和余额至少填一个")
 		return
 	}
 	emails, err := s.batchAdjustmentEmails(req)

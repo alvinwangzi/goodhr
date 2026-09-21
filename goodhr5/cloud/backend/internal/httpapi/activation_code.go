@@ -166,7 +166,7 @@ func (s *ActivationCodeService) Redeem(w http.ResponseWriter, r *http.Request) {
 	}
 	access, accessErr := subscriptionAccess(s.systemConfigs, subscription, time.Now())
 	if accessErr != nil {
-		writeError(w, http.StatusServiceUnavailable, "会员套餐配置暂时没读明白，请刷新后再看")
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置读取失败，请刷新后重试")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "code": code, "subscription": publicSubscriptionAccess(access)})

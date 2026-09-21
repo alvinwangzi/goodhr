@@ -205,7 +205,7 @@ export default function SubscriptionPage() {
       notify(
         error instanceof Error
           ? error.message
-          : "订单没创建成功，我们再来一次。",
+          : "订单创建失败，请重试。",
         "error",
       );
     } finally {
@@ -225,7 +225,7 @@ export default function SubscriptionPage() {
   async function rechargeAI() {
     const amount = Number(rechargeAmount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
-      notify("充值金额得大于 0，我先小声拦一下。", "warning");
+      notify("充值金额必须大于 0", "warning");
       return;
     }
     setRecharging(true);
@@ -242,7 +242,7 @@ export default function SubscriptionPage() {
       notify(
         error instanceof Error
           ? error.message
-          : "充值订单没创建成功，我们再试一次。",
+          : "充值订单创建失败，请重试。",
         "error",
       );
     } finally {
@@ -254,7 +254,7 @@ export default function SubscriptionPage() {
   function requestAIRecharge() {
     const amount = Number(rechargeAmount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
-      notify("充值金额得大于 0，我先小声拦一下。", "warning");
+      notify("充值金额必须大于 0", "warning");
       return;
     }
     setRechargeDialogOpen(false);
@@ -286,7 +286,7 @@ export default function SubscriptionPage() {
   async function saveAIModel() {
     const model = selectedModel.trim();
     if (!model) {
-      notify("先选个模型，我才知道该让谁上工。", "warning");
+      notify("请先选择模型", "warning");
       return;
     }
     setSavingModel(true);
@@ -311,7 +311,7 @@ export default function SubscriptionPage() {
       notify(
         error instanceof Error
           ? error.message
-          : "模型没保存成功，我们再来一次。",
+          : "模型保存失败，请重试。",
         "error",
       );
     } finally {
@@ -932,7 +932,7 @@ function AIRecordList({
       text={
         loading
           ? "正在读取 AI 使用记录"
-          : "这里暂时空空的，等你开始使用内置 AI 后我再认真记账。"
+          : "暂无数据，使用内置 AI 后将在此记录。"
       }
     />
   );
