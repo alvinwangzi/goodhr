@@ -43,11 +43,27 @@ if ($Attempt -ge $MaxAttempts) {
 # 2. 启动后端
 Write-Host "`n[2/3] 启动后端 Go 服务..." -ForegroundColor Yellow
 Set-Location $BackendDir
+
+# 从 .env 文件加载环境变量，新增变量只需改 .env，不用动这个脚本
+$EnvFile = Join-Path $BackendDir ".env"
+if (Test-Path $EnvFile) {
+    foreach ($line in Get-Content $EnvFile) {
+        $line = $line.Trim()
+        if ($line -eq "" -or $line.StartsWith("#")) { continue }
+        $eqIdx = $line.IndexOf("=")
+        if ($eqIdx -le 0) { continue }
+        $key = $line.Substring(0, $eqIdx).Trim()
+        $val = $line.Substring($eqIdx + 1).Trim()
+        [System.Environment]::SetEnvironmentVariable($key, $val)
+    }
+    Write-Host "已从 .env 加载环境变量" -ForegroundColor Gray
+} else {
+    Write-Host ".env 文件不存在：$EnvFile" -ForegroundColor Red
+    exit 1
+}
+
 $BackendJob = Start-Job -ScriptBlock {
     Set-Location $using:BackendDir
-    $env:GOODHR_APP_ENV = "dev"
-    $env:GOODHR_CLOUD_ADDR = ":8084"
-    $env:GOODHR_PG_DSN = "postgres://goodhr5_dev:goodhr5_dev@localhost:25432/goodhr5_dev?sslmode=disable"
     go run ./cmd/server
 }
 Write-Host "后端启动中（端口 8084）..." -ForegroundColor Gray
