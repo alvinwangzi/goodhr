@@ -1712,6 +1712,53 @@ async function greetBossCandidate(payload) {
 }
 
 /**
+ * 打开指定 Boss 候选人的聊天框。
+ * 未沟通候选人点打招呼按钮，已沟通候选人点继续沟通按钮，任一可见即点击；
+ * 点打招呼按钮后沿用打招呼流程的后续弹窗确认。
+ * @param {Record<string, any>} payload - 打开聊天框参数。
+ * @returns {Promise<Record<string, any>>} 打开结果。
+ */
+async function openBossConversation(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const platformID = String(payload.platform_id || platformConfig.id || "boss");
+  const rules = bossRules(platformConfig);
+  const cardIndex = Math.max(0, Number(payload.card_index || 0));
+  const cardInfo = await bossCardByIndex(
+    currentPage,
+    rules,
+    cardIndex,
+    payload,
+  );
+  const card = cardInfo.card;
+  const entrySelectors = [
+    ...selectorList(rules.greet_buttons),
+    ...selectorList(rules.continue_buttons),
+  ];
+  const clicked = await clickFirstVisible(card, entrySelectors, 1500);
+  if (!clicked) throw new Error("未找到可点击的打招呼或继续沟通按钮");
+  const followupsEnabled = shouldClickGreetFollowups(platformID);
+  if (followupsEnabled) {
+    await clickFirstVisible(
+      currentPage,
+      selectorList(rules.continue_buttons),
+      800,
+    );
+    await clickFirstVisible(
+      currentPage,
+      selectorList(rules.confirm_buttons),
+      800,
+    );
+  }
+  return {
+    opened: true,
+    followups_enabled: followupsEnabled,
+    card_index: cardIndex,
+    scroll_attempts: cardInfo.attempts,
+  };
+}
+
+/**
  * 打开并提取指定 Boss 候选人的详情文本。
  * @param {Record<string, any>} payload - 详情提取参数。
  * @returns {Promise<Record<string, any>>} 详情文本结果。
@@ -6690,6 +6737,7 @@ const routes = {
   "/api/v1/boss/candidates/scroll": scrollBossCandidates,
   "/api/v1/boss/candidates/visible": ensureBossCandidateVisible,
   "/api/v1/boss/candidates/greet": greetBossCandidate,
+  "/api/v1/boss/candidates/open-chat": openBossConversation,
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
   "/api/v1/boss/candidates/detail/close": closeBossCandidateDetail,
   "/api/v1/hliepin/stable-click": hliepinStableClick,

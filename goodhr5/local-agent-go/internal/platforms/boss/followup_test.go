@@ -51,7 +51,7 @@ func (e *conversationExecutor) Post(_ context.Context, path string, payload any)
 		if selector == bossConversationFlow.ChatClose {
 			e.chatVisible = false
 		}
-	case "/api/v1/boss/candidates/greet":
+	case "/api/v1/boss/candidates/open-chat":
 		e.chatVisible = true
 		if name := stringFromMap(data, "diagnostic_candidate_name"); name != "" && !e.chatNameSticky {
 			e.chatName = name
@@ -157,7 +157,7 @@ func TestRequestCandidateInfoOpensChatWhenClosed(t *testing.T) {
 			if intFromMap(call.payload, "card_index") != 2 {
 				t.Fatal("候选人定位没有使用当前卡片的序号")
 			}
-		case "/api/v1/boss/candidates/greet":
+		case "/api/v1/boss/candidates/open-chat":
 			if !visibleCalled {
 				t.Fatal("应先定位候选人再打开聊天框")
 			}

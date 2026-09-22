@@ -31,8 +31,8 @@ var bossConversationRequestButtons = chatflow.RequestButtons{
 }
 
 const (
-	bossConversationReusePollCount    = 15   // 复用打招呼已打开聊天框的短轮询轮数
-	bossConversationReusePollInterval = 0.1  // 复用短轮询的间隔秒数
+	bossConversationReusePollCount    = 30   // 复用打招呼已打开聊天框的短轮询轮数；Boss 聊天框姓名渲染较慢，需留足等待
+	bossConversationReusePollInterval = 0.2  // 复用短轮询的间隔秒数
 	bossConversationOpenPollCount     = 50   // 主动打开聊天框后的等待轮数
 	bossConversationOpenPollInterval  = 0.2  // 主动打开等待的间隔秒数
 )
@@ -101,6 +101,7 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 }
 
 // openConversation 通过候选人定位接口把当前候选人卡片滚动到可见，并点击打招呼或继续沟通入口打开聊天框。
+// 已打过招呼的候选人卡片上没有打招呼按钮，必须兼容继续沟通入口。
 // ctx 为运行上下文，exec 为执行器，cfg 为平台配置，candidate 为候选人。
 func (r *Runtime) openConversation(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) error {
 	payload := bossCandidateVisiblePayload(cfg, candidate)
@@ -108,7 +109,7 @@ func (r *Runtime) openConversation(ctx context.Context, exec platformcore.Execut
 	if _, err := exec.Post(ctx, "/api/v1/boss/candidates/visible", payload); err != nil {
 		return fmt.Errorf("定位 Boss 候选人失败：%w", err)
 	}
-	if _, err := exec.Post(ctx, "/api/v1/boss/candidates/greet", payload); err != nil {
+	if _, err := exec.Post(ctx, "/api/v1/boss/candidates/open-chat", payload); err != nil {
 		return fmt.Errorf("打开 Boss 候选人聊天框失败：%w", err)
 	}
 	return nil
