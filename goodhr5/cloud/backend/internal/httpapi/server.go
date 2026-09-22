@@ -23,10 +23,11 @@ type Server struct {
 	userPreferences     *UserPreferencesService
 	notificationProfile *NotificationProfileService
 	platformAccounts    *PlatformAccountService
-	positions           *PositionService
-	positionExecution   *PositionExecutionService
-	positionLogs        *PositionLogService
-	candidates          *CandidateService
+	positions         *PositionService
+	positionExecution *PositionExecutionService
+	positionLogs      *PositionLogService
+	taskRuns          *TaskRunService
+	candidates        *CandidateService
 	subscriptions       *SubscriptionService
 	payments            *PaymentService
 	runtimeConfig       *RuntimeConfigService
@@ -90,6 +91,7 @@ func NewServer() (*Server, error) {
 	emailCampaignStore := config.EmailCampaignStore(db)
 	paymentStore := config.PaymentStore(db)
 	positionLogs := NewPositionLogService(auth, positionStore, config.PositionLogStore(db), tenantStore)
+	taskRunStore := config.TaskRunStore(db)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	adminEmails.StartRecoveryScheduler()
@@ -104,8 +106,9 @@ func NewServer() (*Server, error) {
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore),
 		positionLogs:        positionLogs,
+		taskRuns:            NewTaskRunService(auth, taskRunStore, tenantStore),
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
@@ -185,6 +188,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/positions/optimize-requirement", s.positions.OptimizeRequirement)
 	mux.HandleFunc("/api/positions/", s.positionRoute)
 	mux.HandleFunc("/api/fail-notice", s.positionExecution.FailNotice)
+	// 注册执行任务接口，用于查看每次岗位运行的记录和候选人名单。
+	mux.HandleFunc("/api/task-runs", s.taskRuns.Collection)
+	mux.HandleFunc("/api/task-runs/", s.taskRuns.Collection)
 	// 注册简历库接口，用于查看当前团队或指定岗位运行下的候选人。
 	mux.HandleFunc("/api/candidates", s.candidates.Collection)
 	mux.HandleFunc("/api/candidates/", func(w http.ResponseWriter, r *http.Request) {

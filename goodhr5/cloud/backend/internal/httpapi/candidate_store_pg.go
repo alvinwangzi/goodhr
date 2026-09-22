@@ -244,17 +244,18 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		ctx,
 		`
 		INSERT INTO candidate_events (
-			tenant_id, candidate_id, engagement_id, position_id, platform_account_id,
+			tenant_id, candidate_id, engagement_id, task_id, position_id, platform_account_id,
 			platform_id, event_type, score, reason, input_text, output_text,
 			message_text, model, token_usage, metadata
 		)
-		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
-		RETURNING id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
+		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,NULLIF($6,'')::uuid,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+		RETURNING id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(task_id::text,''), COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
 			platform_id, event_type, score, reason, input_text, output_text, message_text, model, token_usage, metadata, created_at
 		`,
 		tenantID,
 		item.CandidateID,
 		item.EngagementID,
+		item.TaskID,
 		item.PositionID,
 		item.PlatformAccountID,
 		item.PlatformID,
@@ -271,6 +272,7 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		&saved.ID,
 		&saved.CandidateID,
 		&saved.EngagementID,
+		&saved.TaskID,
 		&saved.PositionID,
 		&saved.PlatformAccountID,
 		&saved.PlatformID,
@@ -294,7 +296,7 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 
 // UpdateCandidateEngagementStatus 更新触达上下文状态和关键时间。
 // engagementID 为触达 ID，status 为目标状态，时间字段为空时不覆盖。
-func (s *PostgresCandidateStore) UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error {
+func (s *PostgresCandidateStore) UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time, resumeRequestedAt *time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	result, err := s.db.ExecContext(
@@ -304,6 +306,7 @@ func (s *PostgresCandidateStore) UpdateCandidateEngagementStatus(engagementID st
 		SET status = COALESCE(NULLIF($2,''), status),
 			detail_fetched_at = COALESCE($3, detail_fetched_at),
 			greeted_at = COALESCE($4, greeted_at),
+			resume_requested_at = COALESCE($5, resume_requested_at),
 			last_event_at = now(),
 			updated_at = now()
 		WHERE id = $1
@@ -312,6 +315,7 @@ func (s *PostgresCandidateStore) UpdateCandidateEngagementStatus(engagementID st
 		status,
 		detailFetchedAt,
 		greetedAt,
+		resumeRequestedAt,
 	)
 	if err != nil {
 		return err
@@ -444,7 +448,7 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
-		SELECT id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(position_id::text,''),
+		SELECT id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(task_id::text,''), COALESCE(position_id::text,''),
 			COALESCE(platform_account_id::text,''), platform_id, event_type, score, reason, input_text, output_text,
 			message_text, model, token_usage, metadata, created_at
 		FROM candidate_events
@@ -465,6 +469,7 @@ func (s *PostgresCandidateStore) listCandidateEvents(ctx context.Context, tenant
 			&event.ID,
 			&event.CandidateID,
 			&event.EngagementID,
+			&event.TaskID,
 			&event.PositionID,
 			&event.PlatformAccountID,
 			&event.PlatformID,

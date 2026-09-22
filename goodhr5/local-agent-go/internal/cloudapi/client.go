@@ -21,10 +21,12 @@ type Client struct {
 }
 
 // PositionStatusSyncResult 表示云端岗位状态同步结果。
-// Status 为云端确认的状态，NoticeSent 表示岗位完成邮件已经发送或此前已经确认发送。
+// Status 为云端确认的状态，NoticeSent 表示岗位完成邮件已经发送或此前已经确认发送，
+// RunID 为本次岗位运行对应的云端执行任务记录 ID（旧版云端可能为空）。
 type PositionStatusSyncResult struct {
 	Status     string
 	NoticeSent bool
+	RunID      string
 }
 
 // AuthExpiredError 表示云端登录态已经失效。
@@ -336,6 +338,7 @@ func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string,
 	return PositionStatusSyncResult{
 		Status:     stringFromMap(payload, "status"),
 		NoticeSent: noticeSent,
+		RunID:      stringFromMap(payload, "run_id"),
 	}, nil
 }
 

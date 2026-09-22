@@ -109,6 +109,7 @@ type CandidateEngagement struct {
 	FirstSeenAt       *time.Time
 	DetailFetchedAt   *time.Time
 	GreetedAt         *time.Time
+	ResumeRequestedAt *time.Time
 	LastEventAt       *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -119,6 +120,7 @@ type CandidateEvent struct {
 	ID                string         `json:"id"`
 	EngagementID      string         `json:"engagement_id"`
 	CandidateID       string         `json:"candidate_id"`
+	TaskID            string         `json:"task_id"`
 	PositionID        string         `json:"position_id"`
 	PlatformAccountID string         `json:"platform_account_id"`
 	PlatformID        string         `json:"platform_id"`
@@ -148,7 +150,7 @@ type CandidateStore interface {
 	SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error)
 	UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error)
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
-	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error
+	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time, resumeRequestedAt *time.Time) error
 	ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error)
 	GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error)
 	ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error)
@@ -300,7 +302,7 @@ func (s *MemoryCandidateStore) ListCandidateNotes(tenantID string, candidateID s
 
 // UpdateCandidateEngagementStatus 更新触达上下文状态。
 // engagementID 为触达ID，status 为目标状态，时间字段为空时不覆盖。
-func (s *MemoryCandidateStore) UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time) error {
+func (s *MemoryCandidateStore) UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time, resumeRequestedAt *time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -316,6 +318,9 @@ func (s *MemoryCandidateStore) UpdateCandidateEngagementStatus(engagementID stri
 	}
 	if greetedAt != nil {
 		item.GreetedAt = greetedAt
+	}
+	if resumeRequestedAt != nil {
+		item.ResumeRequestedAt = resumeRequestedAt
 	}
 	now := s.now()
 	item.LastEventAt = &now

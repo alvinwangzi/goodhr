@@ -157,6 +157,10 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, position
 // ctx 为请求上下文，position 为岗位运行记录，payload 为候选人 JSON，options 为启动参数。
 func (r *Runner) saveCandidatePayload(ctx context.Context, position localdb.Position, payload map[string]any, options StartOptions) {
 	name := candidateLogName(payload)
+	// 云端执行任务记录 ID 随候选人结果透传，云端按它把本次动作事件归组到对应执行任务；为空时云端自动回退当前运行中的执行任务。
+	if runID := strings.TrimSpace(options.CloudRunID); runID != "" {
+		payload["run_id"] = runID
+	}
 	r.positionLog(position.ID, "info", "结果保存：准备同步云端，候选人="+name)
 	err := r.withOperationTimeout(ctx, position.ID, name, "同步候选人到云端", cloudCandidateSyncTimeout, func(syncCtx context.Context) error {
 		return cloudapi.New(options.CloudAPIBase).SavePositionCandidate(syncCtx, options.Token, position.ID, payload)

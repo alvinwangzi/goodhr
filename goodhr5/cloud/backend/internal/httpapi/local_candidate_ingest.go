@@ -108,8 +108,11 @@ func (s *PositionExecutionService) SaveLocalCandidate(w http.ResponseWriter, r *
 		writeError(w, http.StatusInternalServerError, "failed to save candidate engagement")
 		return
 	}
-	s.saveLocalCandidateScoreEvents(position, profile.ID, engagement.ID, payload)
-	_ = s.candidateStore.UpdateCandidateEngagementStatus(engagement.ID, localCandidateStatus(payload), localDetailFetchedAt(payload, now), localGreetedAt(payload, now))
+	runID := s.resolveCandidateRunID(tenantID, position, payload)
+	s.saveLocalCandidateScoreEvents(position, profile.ID, engagement.ID, runID, payload)
+	s.saveLocalCandidateActionEvents(position, profile.ID, engagement.ID, runID, payload)
+	resumeRequestedAt := localResumeRequestedAt(payload, now)
+	_ = s.candidateStore.UpdateCandidateEngagementStatus(engagement.ID, localCandidateStatus(payload), localDetailFetchedAt(payload, now), localGreetedAt(payload, now), resumeRequestedAt)
 	_ = s.store.IncrementPositionCounts(position.ID, 1, localCountIfSkipped(payload), localCountIfStatus(payload, "failed"))
 	s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstResumeProcessed, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	if localCandidateStatus(payload) == "greeted" {
@@ -229,8 +232,8 @@ func (s *PositionExecutionService) SyncPositionCounts(w http.ResponseWriter, r *
 }
 
 // saveLocalCandidateScoreEvents 保存本地程序产生的 AI 评分事件。
-// position 为云端岗位，candidateID 和 engagementID 为候选人关系 ID，payload 为本地候选人 JSON。
-func (s *PositionExecutionService) saveLocalCandidateScoreEvents(position Position, candidateID string, engagementID string, payload map[string]any) {
+// position 为云端岗位，candidateID 和 engagementID 为候选人关系 ID，runID 为执行任务 ID，payload 为本地候选人 JSON。
+func (s *PositionExecutionService) saveLocalCandidateScoreEvents(position Position, candidateID string, engagementID string, runID string, payload map[string]any) {
 	events := []struct {
 		Type      string
 		ScoreKey  string
@@ -248,6 +251,7 @@ func (s *PositionExecutionService) saveLocalCandidateScoreEvents(position Positi
 		_, _ = s.candidateStore.SaveCandidateEvent(CandidateEvent{
 			CandidateID:       candidateID,
 			EngagementID:      engagementID,
+			TaskID:            runID,
 			PositionID:        position.ID,
 			PlatformAccountID: "",
 			PlatformID:        position.PlatformID,
@@ -259,6 +263,67 @@ func (s *PositionExecutionService) saveLocalCandidateScoreEvents(position Positi
 			Metadata:          map[string]any{"source": "local-agent-go"},
 		})
 	}
+}
+
+// saveLocalCandidateActionEvents 保存本地程序产生的打招呼和索要信息事件。
+// position 为云端岗位，candidateID 和 engagementID 为候选人关系 ID，runID 为执行任务 ID，payload 为本地候选人 JSON。
+func (s *PositionExecutionService) saveLocalCandidateActionEvents(position Position, candidateID string, engagementID string, runID string, payload map[string]any) {
+	// 打招呼成功时记录实际发送的打招呼语，用于执行任务的名单展示。
+	if localCandidateStatus(payload) == "greeted" {
+		_, _ = s.candidateStore.SaveCandidateEvent(CandidateEvent{
+			CandidateID:       candidateID,
+			EngagementID:      engagementID,
+			TaskID:            runID,
+			PositionID:        position.ID,
+			PlatformAccountID: "",
+			PlatformID:        position.PlatformID,
+			EventType:         "greeted_sent",
+			MessageText:       localCandidateString(payload, "greet_message_sent"),
+			Metadata:          map[string]any{"source": "local-agent-go"},
+		})
+	}
+	// 索要手机、微信和简历的结果分别落一条事件，供执行任务名单筛选。
+	requests := []struct {
+		FlagKey string
+		Type    string
+	}{
+		{FlagKey: "requested_phone", Type: "phone_requested"},
+		{FlagKey: "requested_wechat", Type: "wechat_requested"},
+		{FlagKey: "requested_resume", Type: "resume_requested"},
+	}
+	for _, item := range requests {
+		if !localCandidateBool(payload, item.FlagKey) {
+			continue
+		}
+		_, _ = s.candidateStore.SaveCandidateEvent(CandidateEvent{
+			CandidateID:       candidateID,
+			EngagementID:      engagementID,
+			TaskID:            runID,
+			PositionID:        position.ID,
+			PlatformAccountID: "",
+			PlatformID:        position.PlatformID,
+			EventType:         item.Type,
+			Metadata:          map[string]any{"source": "local-agent-go"},
+		})
+	}
+}
+
+// resolveCandidateRunID 返回候选人归属的执行任务 ID。
+// tenantID 为团队 ID，position 为岗位快照，payload 为本地候选人 JSON。
+// 本地程序未回传 run_id 时，回退到岗位当前运行中的执行任务，保证旧版本仍能归组。
+func (s *PositionExecutionService) resolveCandidateRunID(tenantID string, position Position, payload map[string]any) string {
+	runID := strings.TrimSpace(localCandidateString(payload, "run_id"))
+	if runID != "" {
+		return runID
+	}
+	if s.runStore == nil {
+		return ""
+	}
+	run, err := s.runStore.ActiveTaskRunByPosition(position.ID)
+	if err != nil {
+		return ""
+	}
+	return run.ID
 }
 
 // localCandidatePositionID 从岗位候选人路径中提取岗位 ID。
@@ -386,6 +451,25 @@ func localGreetedAt(item map[string]any, now time.Time) *time.Time {
 		return &now
 	}
 	return nil
+}
+
+// localResumeRequestedAt 判断候选人是否索要了简历并返回请求时间。
+// item 为候选人 JSON，now 为当前时间。
+func localResumeRequestedAt(item map[string]any, now time.Time) *time.Time {
+	if localCandidateBool(item, "requested_resume") {
+		return &now
+	}
+	return nil
+}
+
+// localCandidateBool 从候选人 JSON 中读取布尔值。
+// item 为候选人 JSON，key 为字段名。
+func localCandidateBool(item map[string]any, key string) bool {
+	if item == nil {
+		return false
+	}
+	value, ok := item[key].(bool)
+	return ok && value
 }
 
 // localCountIfStatus 判断候选人状态是否命中并返回计数。

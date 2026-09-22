@@ -33,16 +33,18 @@ type PositionExecutionService struct {
 	dailyStats     SystemDailyStatsStore
 	userFlow       UserFlowStore
 	agents         AgentStore
+	runStore       TaskRunStore
 }
 
 // NewPositionExecutionService 创建岗位运行服务。
-// 所有运行状态直接归属于岗位，不再创建独立岗位运行记录。
-func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore) *PositionExecutionService {
+// 运行状态归属岗位展示，同时每次启动在 task_runs 记录一条执行任务。
+func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore, runStore TaskRunStore) *PositionExecutionService {
 	return &PositionExecutionService{
 		auth: auth, store: store, positionLogs: positionLogs, tenantStore: tenantStore,
 		accounts: accounts, candidateStore: candidateStore, subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
 		aiWallet:      aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
+		runStore: runStore,
 	}
 }
 
@@ -85,9 +87,48 @@ func (s *PositionExecutionService) Start(w http.ResponseWriter, r *http.Request)
 		writePositionStartError(w, failure.status, failure.code, failure.message)
 		return
 	}
+	runID := s.startTaskRun(tenantID, position, payload.TaskType, payload.MachineID)
 	s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowPositionStarted, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "info", "岗位启动检查通过，已经开始运行")
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "running"})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "running", "run_id": runID})
+}
+
+// startTaskRun 创建本次启动的执行任务记录。
+// tenantID 为团队 ID，position 为岗位快照，taskType 为本地主流程类型，machineID 为设备机器码。
+// 创建失败只写日志不阻塞岗位启动，返回空字符串表示本次没有执行任务记录。
+func (s *PositionExecutionService) startTaskRun(tenantID string, position Position, taskType string, machineID string) string {
+	if s.runStore == nil {
+		return ""
+	}
+	run, err := s.runStore.CreateTaskRun(TaskRun{
+		TenantID:   tenantID,
+		UserEmail:  position.UserEmail,
+		PositionID: position.ID,
+		PlatformID: position.PlatformID,
+		TaskType:   firstNonEmpty(strings.TrimSpace(taskType), "greeting"),
+		MachineID:  machineID,
+	})
+	if err != nil {
+		stdlog.Printf("[执行任务] 创建运行记录失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
+		return ""
+	}
+	return run.ID
+}
+
+// finishTaskRun 收尾岗位当前运行中的执行任务记录。
+// position 为岗位快照，status 为结束状态，skipped 和 failed 为本地同步的计数。
+func (s *PositionExecutionService) finishTaskRun(position Position, status string, errorMessage string, skipped int, failed int) {
+	if s.runStore == nil {
+		return
+	}
+	run, err := s.runStore.ActiveTaskRunByPosition(position.ID)
+	if err != nil {
+		// 没有运行中的执行任务（旧版本地程序或已经收尾）时直接忽略。
+		return
+	}
+	if err := s.runStore.FinishTaskRun(run.ID, status, errorMessage, skipped, failed); err != nil {
+		stdlog.Printf("[执行任务] 收尾运行记录失败 run=%s status=%s err=%v", run.ID, status, err)
+	}
 }
 
 // Stop 接收本地程序的停止请求，并把岗位状态和原有停止通知同步到云端。
@@ -115,6 +156,7 @@ func (s *PositionExecutionService) Stop(w http.ResponseWriter, r *http.Request) 
 	if position.Status != "stopped" {
 		_ = s.store.UpdatePositionStatus(position.ID, "stopped")
 		_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
+		s.finishTaskRun(position, "stopped", "", 0, 0)
 		if err := s.sendPositionStatusNotice(position, "stopped", "", 0, 0); err != nil {
 			stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
 		}
@@ -168,8 +210,16 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 			writePositionStartError(w, failure.status, failure.code, failure.message)
 			return
 		}
+		// 本地程序同步运行中状态时，如果还没有执行任务记录（旧版本地程序没有先调 Start），补建一条兜底；
+		// 同时把执行任务 ID 返回给本地程序，供候选人结果上报时归组到本次运行。
+		runID := ""
+		if active, activeErr := s.runStore.ActiveTaskRunByPosition(position.ID); activeErr == nil {
+			runID = active.ID
+		} else if errors.Is(activeErr, ErrNotFound) {
+			runID = s.startTaskRun(tenantID, position, payload.TaskType, payload.MachineID)
+		}
 		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowPositionStarted, Status: "completed", Source: "local_agent", PositionID: position.ID})
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": false})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": false, "run_id": runID})
 		return
 	}
 	noticeSent := false
@@ -190,6 +240,7 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 				return
 			}
 			_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "info", "岗位运行已完成")
+			s.finishTaskRun(position, status, "", 0, payload.RunSkippedCount)
 		} else {
 			// completed 状态只会在完成邮件发送成功后写入，因此重复同步可直接确认邮件已经发送。
 			noticeSent = true
@@ -199,6 +250,7 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusInternalServerError, "failed to update position status")
 			return
 		}
+		s.finishTaskRun(position, status, "", 0, payload.RunSkippedCount)
 		if status == "stopped" {
 			_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
 			if err := s.sendPositionStatusNotice(noticePosition, "stopped", "", payload.RunGreetedCount, payload.RunSkippedCount); err != nil {
@@ -356,6 +408,7 @@ func (s *PositionExecutionService) FailNotice(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "failed to update position status")
 		return
 	}
+	s.finishTaskRun(position, status, errorMessage, payload.RunSkippedCount, 0)
 	s.recordUserFlow(position.UserEmail, UserFlowUpdate{
 		Step: userFlowPositionStarted, Status: "blocked", Source: "local_agent", PositionID: position.ID,
 		ReasonCode: userFlowFailureReason(errorMessage), Message: errorMessage,

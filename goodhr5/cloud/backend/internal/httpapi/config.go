@@ -307,6 +307,14 @@ func (c Config) CandidateStore(db *sql.DB) CandidateStore {
 	return NewMemoryCandidateStore()
 }
 
+// TaskRunStore 创建执行任务存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) TaskRunStore(db *sql.DB) TaskRunStore {
+	if db != nil {
+		return NewPostgresTaskRunStore(db)
+	}
+	return NewMemoryTaskRunStore()
+}
+
 // envInt 从环境变量读取整数，读取失败时返回默认值。
 func envInt(key string, fallback int) int {
 	value := os.Getenv(key)

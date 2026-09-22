@@ -207,6 +207,8 @@ type StartOptions struct {
 	// 提示音和通知
 	EnableSound    bool   `json:"enable_sound"`     // 是否开启提示音
 	EmailForNotify string `json:"email_for_notify"` // 失败通知邮箱
+	// CloudRunID 为云端执行任务记录 ID，由启动状态同步返回，随候选人结果上报归组到本次执行任务。
+	CloudRunID string `json:"cloud_run_id,omitempty"`
 }
 
 // New 创建本地岗位运行运行器。

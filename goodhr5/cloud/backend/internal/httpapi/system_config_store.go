@@ -139,13 +139,11 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 						"mac": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "GoodHR Node 运行环境 macOS Apple Silicon"}
 					},
 					"cloakbrowser": {
-						// CloakBrowser 安装包体积大（约 562MB），默认从 OSS 下载；开发环境下由 runtime_config.go 自动覆盖为本地 /uploads/ 路径。
-						"win": {"version": "146.0.7680.177.5", "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip", "sha256": "b213795cb32c3169f766c74ce1d0275fc89d3df256de39c04da7fb4c23b7fdbe", "note": "CloakBrowser Windows x64"},
+						"win": {"version": "146.0.7680.177.5", "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip", "sha256": "b213795cb32c3169f766c74ce1d0275fc89d3df256de39c04da7fb4c23b7fdbe", "note": "CloakBrowser Windows x64，安装包约 562MB 默认从 OSS 下载，开发环境由 runtime_config.go 自动覆盖为本地 /uploads/ 路径"},
 						"mac": {"version": "145.0.7632.109.2", "url": "https://oss.58it.cn/cloakbrowser-darwin-arm64.tar.gz", "sha256": "505582aa1bd3971c577f70e0cbbe016431702bdb693529abfd943b5bd9120c1c", "note": "CloakBrowser macOS Apple Silicon"}
 					},
 					"ocr": {
-						// 原 oss.58it.cn 域名已失效，OCR 为可选组件，地址留空时本地安装流程自动跳过；待迁移 OSS 后再配置。
-						"win": {"version": "rapidocr-json-2.0.0", "url": "", "sha256": "", "note": "RapidOCR JSON Windows x64（待迁移 OSS 后配置下载地址）"},
+						"win": {"version": "rapidocr-json-2.0.0", "url": "", "sha256": "", "note": "RapidOCR JSON Windows x64，原 oss.58it.cn 域名已失效，OCR 为可选组件，地址留空时本地安装流程自动跳过，待迁移 OSS 后再配置"},
 						"mac": {"version": "", "url": "", "sha256": "", "note": "macOS OCR 组件待上传"}
 					}
 				},

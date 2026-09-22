@@ -69,8 +69,14 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		return nil, err
 	}
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if _, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running"); syncErr != nil {
+	if syncResult, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running"); syncErr != nil {
 		r.positionLog(positionID, "warning", "岗位运行启动：云端运行状态同步失败，错误="+syncErr.Error())
+	} else if strings.TrimSpace(syncResult.RunID) != "" {
+		// 云端本次运行对应的执行任务记录 ID 必须写回 snapshot.Options：
+		// runPosition 会用 snapshot.Options 覆盖启动参数，漏写会导致候选人结果丢失归组 ID。
+		snapshot.Options.CloudRunID = syncResult.RunID
+		options.CloudRunID = syncResult.RunID
+		r.positionLog(positionID, "info", "岗位运行启动：本次执行任务记录 ID="+syncResult.RunID)
 	}
 	syncCancel()
 	r.positionLog(positionID, "info", "岗位运行启动：已进入后台运行")

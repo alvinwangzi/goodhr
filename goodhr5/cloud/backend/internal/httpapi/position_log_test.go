@@ -110,7 +110,8 @@ func TestPositionStopUpdatesStatusAndKeepsLogs(t *testing.T) {
 	if err := json.NewDecoder(listResp.Body).Decode(&logPayload); err != nil {
 		t.Fatal(err)
 	}
-	if len(logPayload.Logs) != 2 || logPayload.Logs[0].Message != "原有日志" || logPayload.Logs[1].Message != "岗位运行已停止" {
+	// 日志接口按创建时间倒序返回，最新的停止日志在最前面。
+	if len(logPayload.Logs) != 2 || logPayload.Logs[0].Message != "岗位运行已停止" || logPayload.Logs[1].Message != "原有日志" {
 		t.Fatalf("unexpected logs: %+v", logPayload.Logs)
 	}
 }
