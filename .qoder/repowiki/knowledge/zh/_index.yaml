@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: dev
 nodes_managed: true
-exported_at: "2026-09-20T12:54:38Z"
+exported_at: "2026-09-22T03:18:08Z"
 modules:
     "":
         dir_name: 项目根目录与 AI 助手约定
