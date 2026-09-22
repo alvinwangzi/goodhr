@@ -11,7 +11,7 @@ VALUES (
         "id": "quick-start",
         "title": "第一次使用",
         "summary": "先启动本地程序，再创建平台账号、岗位模板和任务。",
-        "content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到个人配置里填写 MiniMax API 地址、模型和 Key；5. 到任务列表创建并开始任务。"
+        "content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到 AI 配置里填写 MiniMax API 地址、模型和 Key；5. 到任务列表创建并开始任务。"
       },
       {
         "id": "local-agent",
@@ -34,14 +34,14 @@ VALUES (
       {
         "id": "ai-config",
         "title": "AI 配置",
-        "summary": "个人配置里填写 AI 地址、模型和 Key。",
+        "summary": "AI 配置里填写 AI 地址、模型和 Key。",
         "content": "API 地址通常是 OpenAI 兼容的 chat/completions 地址，默认使用 MiniMax 的 https://api.minimaxi.com/v1/chat/completions。模型是实际调用的模型名，默认 MiniMax-M3。API Key 留空保存时会保留旧 Key。岗位模板里的 AI 提示会影响打分和筛选结果。"
       },
       {
         "id": "errors",
         "title": "常见异常",
         "summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
-        "content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查个人配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
+        "content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查 AI 配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
       }
     ],
     "sections": [

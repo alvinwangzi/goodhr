@@ -201,7 +201,7 @@ func defaultSystemGuideConfig() string {
 				"id": "quick-start",
 				"title": "第一次使用",
 				"summary": "先启动本地程序，再创建平台账号、岗位模板和岗位运行。",
-				"content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到个人配置里填写千问 API 地址、模型和 Key；5. 到岗位运行列表创建并开始岗位运行。"
+				"content": "推荐顺序：1. 打开控制台确认本地 Agent 已连接；2. 到平台账号里扫码登录招聘平台；3. 到岗位模板里填写岗位要求、关键词和 AI 提示；4. 到 AI 配置里填写千问 API 地址、模型和 Key；5. 到岗位运行列表创建并开始岗位运行。"
 			},
 			{
 				"id": "local-agent",
@@ -224,20 +224,14 @@ func defaultSystemGuideConfig() string {
 			{
 				"id": "ai-config",
 				"title": "AI 配置",
-				"summary": "个人配置里填写 AI 地址、模型和 Key。",
+				"summary": "AI 配置里填写 AI 地址、模型和 Key。",
 				"content": "API 地址通常是 OpenAI 兼容的 chat/completions 地址，默认使用千问的 https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions。模型是实际调用的模型名，默认 qwen3.7-plus。API Key 留空保存时会保留旧 Key。岗位模板里的 AI 提示会影响打分和筛选结果。"
-			},
-			{
-				"id": "subscription",
-				"title": "会员版本",
-				"summary": "免费版可做基础招聘，Plus 开放 AI，Max 再开放自动回复。",
-				"content": "新用户注册赠送 3 天 Max 全能版。免费版可使用关键词筛选和基础自动打招呼；Plus 基础包月版 40 元/30 天，支持 AI 筛选和 AI 自动打招呼，不支持自动回复；Max 全能包年版 340 元/365 天，开放自动回复。有效 Plus 升级 Max 时，剩余时间会按 40 元/30 天精确抵扣；有效 Max 也可以直接切换 Plus，原 Max 剩余时间不折算，新套餐从付款时间重新计算。"
 			},
 			{
 				"id": "errors",
 				"title": "常见异常",
 				"summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
-				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查个人配置或超管配置。岗位运行失败：展开岗位运行日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
+				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查 AI 配置或超管配置。岗位运行失败：展开岗位运行日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
 			}
 		],
 		"sections": [
