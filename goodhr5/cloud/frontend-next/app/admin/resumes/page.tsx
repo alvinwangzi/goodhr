@@ -7,6 +7,7 @@ import {
   Avatar,
   Box,
   Button,
+  Chip,
   InputAdornment,
   MenuItem,
   Pagination,
@@ -42,6 +43,7 @@ export default function ResumesPage() {
   const [keyword, setKeyword] = useState("");
   const [positions, setPositions] = useState<any[]>([]);
   const [selectedPosition, setSelectedPosition] = useState(params.get("position_id") || "");
+  const [selectedStatus, setSelectedStatus] = useState("");
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -63,6 +65,7 @@ export default function ResumesPage() {
         page_size: String(pageSize),
       });
       if (selectedPosition) query.set("position_id", selectedPosition);
+      if (selectedStatus) query.set("status", selectedStatus);
       if (keyword.trim()) query.set("q", keyword.trim());
       const data = await cloudRequest(`/api/candidates?${query}`);
       setItems(data.candidates || data.items || []);
@@ -89,12 +92,13 @@ export default function ResumesPage() {
   }, []);
   useEffect(() => {
     void load(1);
-  }, [selectedPosition, pageSize]);
+  }, [selectedPosition, selectedStatus, pageSize]);
 
   /** resetFilters 清空简历筛选条件。 */
   function resetFilters() {
     setKeyword("");
     setSelectedPosition("");
+    setSelectedStatus("");
     void load(1);
   }
 
@@ -185,7 +189,7 @@ export default function ResumesPage() {
           display: "grid",
           gridTemplateColumns: {
             xs: "1fr",
-            lg: "minmax(240px,1fr) 220px 220px 100px auto auto",
+            lg: "minmax(200px,1fr) 190px 190px 100px auto",
           },
           gap: 1.25,
           mb: 1.5,
@@ -223,6 +227,18 @@ export default function ResumesPage() {
             </MenuItem>
           ))}
         </TextField>
+        <TextField
+          select
+          size='small'
+          label='进度'
+          value={selectedStatus}
+          onChange={(event) => setSelectedStatus(event.target.value)}
+        >
+          <MenuItem value=''>全部进度</MenuItem>
+          <MenuItem value='detail'>已看详情</MenuItem>
+          <MenuItem value='greeted'>已打招呼</MenuItem>
+          <MenuItem value='resume'>已索要简历</MenuItem>
+        </TextField>
 
         <Button
           variant='contained'
@@ -241,7 +257,7 @@ export default function ResumesPage() {
             <Box
               sx={{
                 display: { xs: "none", md: "grid" },
-                gridTemplateColumns: "1.1fr 1.35fr .85fr .9fr",
+                gridTemplateColumns: "1.1fr 1.15fr .8fr .85fr .85fr",
                 px: 2,
                 py: 1.5,
                 bgcolor: "action.hover",
@@ -253,6 +269,7 @@ export default function ResumesPage() {
               <Typography>候选人</Typography>
               <Typography>经历</Typography>
               <Typography>AI分析</Typography>
+              <Typography>进度</Typography>
               <Typography>备注</Typography>
             </Box>
             <Stack>
@@ -330,7 +347,7 @@ function ResumeRow({
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "1.1fr 1.35fr .85fr .9fr" },
+        gridTemplateColumns: { xs: "1fr", md: "1.1fr 1.15fr .8fr .85fr .85fr" },
         gap: { xs: 1.25, md: 2 },
         alignItems: "center",
         width: "100%",
@@ -405,8 +422,39 @@ function ResumeRow({
           reason={item.aiSecondAnalysis.reason}
         />
       </Stack>
+      <ProgressMarks item={item} />
       <NotePreview notes={item.notes} onClick={() => onOpenNotes(item)} />
     </Box>
+  );
+}
+
+/** ProgressMarks 展示候选人的触达进度标记：已看详情、已打招呼、已索要简历。 */
+function ProgressMarks({ item }: { item: NormalizedCandidate }) {
+  const marks = [
+    { label: "已看详情", active: Boolean(item.detailFetchedAt) },
+    { label: "已打招呼", active: Boolean(item.greetedAt) },
+    { label: "已要简历", active: Boolean(item.resumeRequestedAt) },
+  ];
+  return (
+    <Stack direction='row' spacing={0.6} sx={{ flexWrap: "wrap", rowGap: 0.6 }}>
+      {marks.map((mark) => (
+        <Chip
+          key={mark.label}
+          size='small'
+          label={mark.label}
+          color={mark.active ? "primary" : "default"}
+          variant={mark.active ? "filled" : "outlined"}
+          sx={{
+            height: 24,
+            fontSize: 12,
+            "& .MuiChip-label": { px: 1 },
+            ...(mark.active
+              ? {}
+              : { color: "text.disabled", borderColor: "divider" }),
+          }}
+        />
+      ))}
+    </Stack>
   );
 }
 

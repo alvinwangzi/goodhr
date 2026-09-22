@@ -54,6 +54,7 @@ type PositionCandidate struct {
 	FirstSeenAt         *time.Time
 	DetailFetchedAt     *time.Time
 	GreetedAt           *time.Time
+	ResumeRequestedAt   *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	Notes               []CandidateNote
@@ -162,6 +163,7 @@ type PositionCandidateQuery struct {
 	PositionID string
 	Keyword    string
 	UserEmail  string
+	Status     string
 	Page       int
 	PageSize   int
 }

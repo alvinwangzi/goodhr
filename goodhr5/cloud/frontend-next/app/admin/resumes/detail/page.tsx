@@ -12,8 +12,8 @@ import { useEffect, useMemo, useState } from "react";
 import JsonTree from "@/components/admin/JsonTree";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
-import { cloudRequest, formatDate } from "@/lib/admin-api";
-import { experienceLine, normalizeCandidate, periodText, scoreText, statusText, type NormalizedCandidate, type NormalizedExperience } from "@/lib/candidate-normalize";
+import { cloudRequest, formatDate, formatDateTime } from "@/lib/admin-api";
+import { candidateEventLabel, experienceLine, normalizeCandidate, periodText, scoreText, statusText, type NormalizedCandidate, type NormalizedEvent, type NormalizedExperience } from "@/lib/candidate-normalize";
 
 /** ResumeDetailPage 展示候选人基本信息、经历和分析结果。 */
 export default function ResumeDetailPage() {
@@ -39,6 +39,7 @@ export default function ResumeDetailPage() {
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1fr) 290px" }, minHeight: 0 }}>
         <Box sx={{ p: { xs: 2, md: 3 } }}>
           <CandidateHeader candidate={candidate} />
+          <TimelineSection events={candidate.events} />
           <ResumeSection title="求职意向">
             <Typography>{[candidate.workRegion, candidate.expectedPosition, candidate.expectedSalary, candidate.workStatus, candidate.onlineStatus].filter(Boolean).join("  |  ") || "暂无求职意向"}</Typography>
           </ResumeSection>
@@ -91,6 +92,95 @@ function AIBlock({ title, score, reason }: { title: string; score: unknown; reas
     <Stack direction="row" sx={{ justifyContent: "space-between", gap: 1 }}><Typography sx={{ fontWeight: 760 }}>{title}</Typography><Typography sx={{ color: "primary.main", fontWeight: 820 }}>{scoreText(score)}</Typography></Stack>
     <Typography sx={{ mt: 0.7, color: "text.secondary", fontSize: 13, lineHeight: 1.6 }}>{reason || "暂时没有返回原因"}</Typography>
   </Box>;
+}
+
+/** TimelineSection 展示候选人触达进展时间线：AI 判断、打招呼、索要简历等。 */
+function TimelineSection({ events }: { events: NormalizedEvent[] }) {
+  if (!events.length) return null;
+  // 接口按最新在前返回，时间线按发生顺序从早到晚展示。
+  const ordered = [...events].reverse();
+  return (
+    <ResumeSection title='进展时间线'>
+      <Stack>
+        {ordered.map((event, index) => (
+          <TimelineItem
+            key={event.id || `${event.eventType}-${index}`}
+            event={event}
+            last={index === ordered.length - 1}
+          />
+        ))}
+      </Stack>
+    </ResumeSection>
+  );
+}
+
+/** TimelineItem 展示时间线里的一条事件。 */
+function TimelineItem({
+  event,
+  last,
+}: {
+  event: NormalizedEvent;
+  last: boolean;
+}) {
+  const detail = [event.reason, event.messageText].filter(Boolean).join("\n");
+  return (
+    <Stack direction='row' spacing={1.5} sx={{ alignItems: "stretch" }}>
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        <Box
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            bgcolor: "primary.main",
+            mt: "7px",
+            flexShrink: 0,
+          }}
+        />
+        {!last ? (
+          <Box sx={{ width: "2px", flex: 1, bgcolor: "divider" }} />
+        ) : null}
+      </Box>
+      <Box sx={{ pb: last ? 0 : 1.5, minWidth: 0 }}>
+        <Stack
+          direction='row'
+          spacing={1}
+          sx={{ alignItems: "center", flexWrap: "wrap", rowGap: 0.4 }}
+        >
+          <Typography sx={{ fontWeight: 780 }}>
+            {candidateEventLabel(event.eventType)}
+          </Typography>
+          {event.score != null ? (
+            <Typography sx={{ color: "primary.main", fontWeight: 820, fontSize: 13 }}>
+              {scoreText(event.score)}
+            </Typography>
+          ) : null}
+          <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+            {formatDateTime(event.createdAt)}
+          </Typography>
+        </Stack>
+        {detail ? (
+          <Typography
+            sx={{
+              mt: 0.4,
+              color: "text.secondary",
+              fontSize: 13,
+              lineHeight: 1.6,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {detail}
+          </Typography>
+        ) : null}
+      </Box>
+    </Stack>
+  );
 }
 
 /** ResumeSection 输出一个有内容的简历区块。 */

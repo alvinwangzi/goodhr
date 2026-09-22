@@ -115,6 +115,7 @@ const menuGroups: MenuGroup[] = [
     label: "招聘管理",
     items: [
       ["/admin/positions", "岗位管理", WorkRoundedIcon],
+      ["/admin/position-runs", "执行任务", PlayCircleRoundedIcon],
       ["/admin/resumes", "简历库", ArticleRoundedIcon],
     ],
   },

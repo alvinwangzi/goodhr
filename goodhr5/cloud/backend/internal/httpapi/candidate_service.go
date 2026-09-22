@@ -54,6 +54,7 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	query := PositionCandidateQuery{
 		PositionID: strings.TrimSpace(r.URL.Query().Get("position_id")),
 		Keyword:    firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("keyword")), strings.TrimSpace(r.URL.Query().Get("q"))),
+		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
 		Page:       parsePositiveInt(r.URL.Query().Get("page")),
 		PageSize:   parsePositiveInt(r.URL.Query().Get("page_size")),
 	}
@@ -284,14 +285,37 @@ func publicPositionCandidate(item PositionCandidate) map[string]any {
 			"detail": map[string]any{"score": item.AIDetailScore, "reason": item.AIDetailReason},
 			"greet":  map[string]any{"score": item.AIGreetScore, "reason": item.AIGreetReason},
 		},
-		"notes":             publicCandidateNotes(item.Notes),
-		"raw_text":          item.RawText,
-		"first_seen_at":     item.FirstSeenAt,
-		"detail_fetched_at": item.DetailFetchedAt,
-		"greeted_at":        item.GreetedAt,
-		"created_at":        item.CreatedAt,
-		"updated_at":        item.UpdatedAt,
+		"notes":               publicCandidateNotes(item.Notes),
+		"raw_text":            item.RawText,
+		"first_seen_at":       item.FirstSeenAt,
+		"detail_fetched_at":   item.DetailFetchedAt,
+		"greeted_at":          item.GreetedAt,
+		"resume_requested_at": item.ResumeRequestedAt,
+		"events":              publicCandidateEvents(item.Events),
+		"created_at":          item.CreatedAt,
+		"updated_at":          item.UpdatedAt,
 	}
+}
+
+// publicCandidateEvents 将候选人事件流水转换为前端响应结构。
+// items 为事件列表，返回安全数组，避免前端拿到 null。
+func publicCandidateEvents(items []CandidateEvent) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, map[string]any{
+			"id":           item.ID,
+			"task_id":      item.TaskID,
+			"event_type":   item.EventType,
+			"score":        item.Score,
+			"reason":       item.Reason,
+			"input_text":   item.InputText,
+			"output_text":  item.OutputText,
+			"message_text": item.MessageText,
+			"metadata":     safeMap(item.Metadata),
+			"created_at":   item.CreatedAt,
+		})
+	}
+	return result
 }
 
 // publicCandidateNotes 将备注列表转换为前端响应结构。

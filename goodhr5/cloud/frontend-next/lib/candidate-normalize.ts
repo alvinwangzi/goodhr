@@ -20,6 +20,19 @@ export type NormalizedNote = {
   createdAt: string;
 };
 
+export type NormalizedEvent = {
+  id: string;
+  taskId: string;
+  eventType: string;
+  score: unknown;
+  reason: string;
+  inputText: string;
+  outputText: string;
+  messageText: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
 export type NormalizedCandidate = {
   id: string;
   engagementId: string;
@@ -46,6 +59,10 @@ export type NormalizedCandidate = {
   aiFirstAnalysis: { score: unknown; reason: string };
   aiSecondAnalysis: { score: unknown; reason: string };
   notes: NormalizedNote[];
+  events: NormalizedEvent[];
+  detailFetchedAt: string;
+  greetedAt: string;
+  resumeRequestedAt: string;
   creatorEmail: string;
   createdAt: string;
   updatedAt: string;
@@ -104,11 +121,46 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
       authorEmail: stringValue(item.author_email),
       createdAt: stringValue(item.created_at),
     })),
+    events: arrayValue(source.events).map(normalizeEvent),
+    detailFetchedAt: stringValue(source.detail_fetched_at),
+    greetedAt: stringValue(source.greeted_at),
+    resumeRequestedAt: stringValue(source.resume_requested_at),
     creatorEmail: stringValue(source.user_email),
     createdAt: stringValue(source.created_at),
     updatedAt: stringValue(source.updated_at),
     raw: source,
   };
+}
+
+/** normalizeEvent 归一化候选人事件接口数据。 */
+export function normalizeEvent(input: any): NormalizedEvent {
+  return {
+    id: stringValue(input?.id),
+    taskId: stringValue(input?.task_id),
+    eventType: stringValue(input?.event_type),
+    score: input?.score ?? null,
+    reason: stringValue(input?.reason),
+    inputText: stringValue(input?.input_text),
+    outputText: stringValue(input?.output_text),
+    messageText: stringValue(input?.message_text),
+    metadata: input?.metadata && typeof input.metadata === "object" ? input.metadata : {},
+    createdAt: stringValue(input?.created_at),
+  };
+}
+
+/** candidateEventLabel 返回候选人事件的中文名称。 */
+export function candidateEventLabel(eventType: string) {
+  return (
+    ({
+      detail_analysis: "详情打分",
+      greet_analysis: "打招呼判断",
+      greeted_sent: "已打招呼",
+      phone_requested: "已索要手机号",
+      wechat_requested: "已索要微信",
+      resume_requested: "已索要简历",
+      manual_note: "人工备注",
+    } as Record<string, string>)[eventType] || eventType || "事件"
+  );
 }
 
 /** statusText 返回候选人状态中文文案。 */

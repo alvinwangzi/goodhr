@@ -522,6 +522,7 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		cp.raw_text, cp.work_experiences, cp.educations, cp.certificates, cp.honors, cp.project_experiences, cp.colleague_communications, cp.ai_detail_reason, cp.ai_detail_score, cp.ai_greet_reason, cp.ai_greet_score, cp.first_seen_at,
 		latest_engagement.detail_fetched_at,
 		latest_engagement.greeted_at,
+		latest_engagement.resume_requested_at,
 		cp.created_at,
 		cp.updated_at,
 		COALESCE(latest_notes.notes, '[]'::jsonb)
@@ -619,6 +620,7 @@ func scanCandidateRow(scanner candidateScanner) (PositionCandidate, error) {
 		&item.RawText, jsonScanner(&item.WorkExperiences), jsonScanner(&item.Educations), jsonScanner(&item.Certificates), jsonScanner(&item.Honors), jsonScanner(&item.ProjectExperiences), jsonScanner(&item.Communications), &item.AIDetailReason, &item.AIDetailScore, &item.AIGreetReason, &item.AIGreetScore, &item.FirstSeenAt,
 		&item.DetailFetchedAt,
 		&item.GreetedAt,
+		&item.ResumeRequestedAt,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		jsonScanner(&item.Notes),
@@ -638,6 +640,18 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 	if query.PositionID != "" {
 		args = append(args, query.PositionID)
 		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.position_id::text = $%d)", len(args)))
+	}
+	if query.Status != "" {
+		switch query.Status {
+		case "detail":
+			clauses = append(clauses, "EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.detail_fetched_at IS NOT NULL)")
+		case "greeted":
+			clauses = append(clauses, "EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.greeted_at IS NOT NULL)")
+		case "resume":
+			clauses = append(clauses, "EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.resume_requested_at IS NOT NULL)")
+		default:
+			// 未知状态值不参与筛选，避免误过滤。
+		}
 	}
 	if query.Keyword != "" {
 		args = append(args, "%"+query.Keyword+"%")

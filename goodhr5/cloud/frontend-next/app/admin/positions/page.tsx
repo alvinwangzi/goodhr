@@ -8,6 +8,7 @@ import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
+import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import WarningRoundedIcon from "@mui/icons-material/WarningRounded";
@@ -26,6 +27,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import ChoiceCards from "@/components/admin/ChoiceCards";
@@ -835,6 +837,14 @@ export default function PositionsPage() {
         description='岗位模板决定首次筛选、详情识别和最终打招呼判断。'
         actions={
           <>
+            <Button
+              component={Link}
+              href='/admin/position-runs'
+              startIcon={<PlayCircleRoundedIcon />}
+              disabled={loading}
+            >
+              执行任务
+            </Button>
             <Button
               variant='contained'
               startIcon={<AddRoundedIcon />}

@@ -374,3 +374,12 @@ export function formatDate(value: unknown) {
   const date = new Date(String(value));
   return Number.isNaN(date.getTime()) ? "--" : date.toLocaleDateString("zh-CN");
 }
+
+/** formatDateTime 将接口日期转换为带时分的本地时间。 */
+export function formatDateTime(value: unknown) {
+  if (!value) return "--";
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime())
+    ? "--"
+    : date.toLocaleString("zh-CN", { hour12: false });
+}
