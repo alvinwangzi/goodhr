@@ -63,7 +63,7 @@ func TestAdminPlatformConfigsRequiresSuperAdmin(t *testing.T) {
 
 	token := "token_admin_platform_config"
 	err := server.auth.store.SaveSession(token, Session{
-		Email:     "1224299352@qq.com",
+		Email:     "425942228@qq.com",
 		CreatedAt: time.Now(),
 	}, time.Hour)
 	if err != nil {
@@ -134,7 +134,7 @@ func TestAdminPlatformConfigsUpdate(t *testing.T) {
 
 	token := "token_admin_platform_config_update"
 	err := server.auth.store.SaveSession(token, Session{
-		Email:     "1224299352@qq.com",
+		Email:     "425942228@qq.com",
 		CreatedAt: time.Now(),
 	}, time.Hour)
 	if err != nil {

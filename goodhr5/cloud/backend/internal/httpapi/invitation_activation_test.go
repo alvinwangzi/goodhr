@@ -123,7 +123,7 @@ func TestInvitationBindExistingUserOnLogin(t *testing.T) {
 func TestActivationCodeCreateAndRedeem(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
-	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+	adminToken := loginForTest(t, routes, "425942228@qq.com")
 	userToken := loginForTest(t, routes, "activation-user@example.com")
 
 	createReq := httptest.NewRequest(http.MethodPost, "/api/admin/activation-codes", bytes.NewBufferString(`{"days":7,"remark":"测试","count":2}`))
