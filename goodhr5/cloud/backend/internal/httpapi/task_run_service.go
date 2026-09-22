@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"log"
 	"net/http"
 	"strings"
 )
@@ -51,6 +52,7 @@ func (s *TaskRunService) list(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.runs.ListTaskRuns(tenantID, session.Email, isAdmin, parsePositiveInt(r.URL.Query().Get("page")), parsePositiveInt(r.URL.Query().Get("page_size")))
 	if err != nil {
+		log.Printf("[执行任务] 列表查询失败 user=%s tenant=%s err=%v", session.Email, tenantID, err)
 		writeError(w, http.StatusInternalServerError, "failed to list task runs")
 		return
 	}
@@ -76,6 +78,7 @@ func (s *TaskRunService) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		log.Printf("[执行任务] 详情查询失败 user=%s run=%s err=%v", session.Email, runID, err)
 		writeError(w, http.StatusInternalServerError, "failed to load task run")
 		return
 	}
@@ -102,6 +105,7 @@ func (s *TaskRunService) candidates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		log.Printf("[执行任务] 名单查询失败 user=%s run=%s filter=%s err=%v", session.Email, runID, filter, err)
 		writeError(w, http.StatusInternalServerError, "failed to load task run candidates")
 		return
 	}

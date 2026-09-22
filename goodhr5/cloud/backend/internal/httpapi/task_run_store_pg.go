@@ -169,7 +169,8 @@ func (s *PostgresTaskRunStore) ListTaskRuns(tenantID string, userEmail string, i
 		return TaskRunListResult{}, err
 	}
 
-	query := taskRunSelectSQL + whereClause + ` ORDER BY tr.created_at DESC LIMIT ` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
+	// LIMIT 与 OFFSET 都用参数占位，避免参数编号出现空洞导致 PostgreSQL 报 42P18。
+	query := taskRunSelectSQL + whereClause + ` ORDER BY tr.created_at DESC LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
