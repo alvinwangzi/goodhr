@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -154,4 +155,52 @@ func (s *MemoryAgentStore) ActiveBindingCount() (int, error) {
 		}
 	}
 	return count, nil
+}
+
+// permissiveAgentStore 是开发期用的 AgentStore 包装层。
+// 关闭绑定冲突检测后，同一台设备可以绑定到多个账号，方便开发阶段多账号测试。
+type permissiveAgentStore struct {
+	inner AgentStore
+}
+
+// NewPermissiveAgentStore 创建不检测冲突的 AgentStore 包装。
+// inner 为实际存储实现。
+func NewPermissiveAgentStore(inner AgentStore) AgentStore {
+	return &permissiveAgentStore{inner: inner}
+}
+
+// SaveBinding 保存绑定记录，遇到设备冲突时用唯一编号重试，确保每个账号都能绑定成功。
+func (s *permissiveAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, error) {
+	result, err := s.inner.SaveBinding(binding)
+	if err == nil {
+		return result, nil
+	}
+	var conflict *AgentBindingConflictError
+	if errors.As(err, &conflict) {
+		// 冲突时追加唯一后缀绕过设备占用检测，让当前账号也能绑定成功。
+		unique := binding
+		unique.MachineID = fmt.Sprintf("%sdev-%d", stableAgentMachineIDPrefix, time.Now().UnixNano())
+		return s.inner.SaveBinding(unique)
+	}
+	return result, err
+}
+
+// HasActiveBinding 开发模式下始终返回 true，跳过岗位启动时的设备绑定检查。
+func (s *permissiveAgentStore) HasActiveBinding(userEmail string, machineID string) (bool, error) {
+	return true, nil
+}
+
+// CurrentBinding 透传到内层存储。
+func (s *permissiveAgentStore) CurrentBinding(userEmail string) (AgentBinding, error) {
+	return s.inner.CurrentBinding(userEmail)
+}
+
+// DisableBindings 透传到内层存储。
+func (s *permissiveAgentStore) DisableBindings(userEmail string) error {
+	return s.inner.DisableBindings(userEmail)
+}
+
+// ActiveBindingCount 透传到内层存储。
+func (s *permissiveAgentStore) ActiveBindingCount() (int, error) {
+	return s.inner.ActiveBindingCount()
 }

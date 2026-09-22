@@ -71,6 +71,10 @@ func NewServer() (*Server, error) {
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
 	agentStore := config.AgentStore(db)
+	if !config.AgentBindingEnabled {
+		log.Printf("[Agent] 设备绑定冲突检测已关闭（GOODHR_AGENT_BINDING_ENABLED=false），同一台电脑可以绑定多个账号")
+		agentStore = NewPermissiveAgentStore(agentStore)
+	}
 	userFlowStore := config.UserFlowStore(db)
 	cookieStore := config.CookieStore(db)
 	platformAccountStore := config.PlatformAccountStore(db)
@@ -105,7 +109,7 @@ func NewServer() (*Server, error) {
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
 		subscriptions:       NewSubscriptionService(auth, subscriptionStore, systemConfigStore),
 		payments:            paymentService,
-		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore),
+		runtimeConfig:       NewRuntimeConfigService(auth, systemConfigStore, config),
 		invitations:         NewInvitationService(auth, invitationStore, systemConfigStore),
 		activationCodes:     NewActivationCodeService(auth, activationCodeStore, subscriptionStore, systemConfigStore, mailer),
 		adminUsers:          NewAdminUserService(auth, adminUserStore, subscriptionStore, systemConfigStore, mailer, agentStore, aiWalletStore),
