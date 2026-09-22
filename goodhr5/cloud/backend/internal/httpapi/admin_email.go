@@ -151,7 +151,7 @@ func (s *AdminEmailService) UploadImage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "图片太大了，我先接不住")
+		writeError(w, http.StatusBadRequest, "图片太大，最大支持 8MB")
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -161,7 +161,7 @@ func (s *AdminEmailService) UploadImage(w http.ResponseWriter, r *http.Request) 
 	}
 	defer file.Close()
 	if header.Size > 8<<20 {
-		writeError(w, http.StatusBadRequest, "图片太大了，我先接不住")
+		writeError(w, http.StatusBadRequest, "图片太大，最大支持 8MB")
 		return
 	}
 	ext, ok := safeImageExt(header.Filename, header.Header.Get("Content-Type"))
@@ -684,9 +684,9 @@ func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
 		"position_started":        "需要帮助吗？招聘岗位还未成功启动",
 		"first_resume_processed":  "需要帮助吗？还未成功处理第一份简历",
 		"first_greet_success":     "需要帮助吗？还未成功向候选人打招呼",
-		"inactive_3_days":         "3 天没见你了，我先小声冒个泡",
-		"inactive_7_days":         "一周没见，GoodHR 还在原地等你",
-		"inactive_30_days":        "一个月没见，我来弱弱问候一下",
+		"inactive_3_days":         "3 天未登录提醒",
+		"inactive_7_days":         "一周未登录提醒",
+		"inactive_30_days":        "一个月未登录提醒",
 	}
 	return map[string]recoveryEmailTemplate{
 		"agent_detected":          {Subject: subjects["agent_detected"], HTML: automaticEmailTemplateHTML("agent_detected")},

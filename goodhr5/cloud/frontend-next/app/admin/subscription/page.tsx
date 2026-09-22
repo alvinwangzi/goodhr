@@ -143,7 +143,7 @@ export default function SubscriptionPage() {
       notify(
         error instanceof Error
           ? error.message
-          : "AI 使用记录读取失败，我小声记下了。",
+          : "AI 使用记录读取失败，请稍后重试。",
         "error",
       );
     } finally {
@@ -323,7 +323,7 @@ export default function SubscriptionPage() {
     <>
       <PageHeader
         title='订阅会员'
-        description='会员费就像您包月租了一个小汽车，AI余额 就是您小汽车油箱的余额。'
+        description='会员费用于订阅服务，AI 余额用于支付 AI 调用费用。'
         actions={
           <RefreshButton
             loading={loading || aiLoading}

@@ -59,7 +59,7 @@ export default function TeamStatsPage() {
   useEffect(() => { void load(); }, [period]);
 
   return <>
-    <PageHeader title="团队统计" description={`${data.start_date || ""} 至 ${data.end_date || ""}，我先把大家的关键数字摆齐。`} actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} disabled={loading} onClick={() => void load()}>{loading ? "刷新中" : "刷新"}</Button>} />
+    <PageHeader title="团队统计" description={`${data.start_date || ""} 至 ${data.end_date || ""} 的统计数据`} actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} disabled={loading} onClick={() => void load()}>{loading ? "刷新中" : "刷新"}</Button>} />
     <SectionPanel sx={{ mb: 1.5 }}>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: period === "custom" ? "180px 180px 180px auto" : "180px auto" }, gap: 1.25, alignItems: "center" }}>
         <TextField select size="small" label="时间周期" value={period} onChange={(event) => setPeriod(event.target.value)}>{periodOptions.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}</TextField>

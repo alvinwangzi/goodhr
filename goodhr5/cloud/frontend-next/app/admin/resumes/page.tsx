@@ -104,7 +104,7 @@ export default function ResumesPage() {
       if (
         !(await confirm(
           "清空简历库",
-          "我小声确认一下，清空后这些简历记录就找不回来了。继续吗？",
+          "确认清空简历库，清空后无法恢复。继续吗？",
         ))
       )
         return;
@@ -562,7 +562,7 @@ function NoteDialog({
               text={
                 loading
                   ? "正在读取备注"
-                  : "这里暂时没备注，先写一条也行，我不挑"
+                  : "暂无备注，可添加一条。"
               }
             />
           )}

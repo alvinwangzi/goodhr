@@ -137,7 +137,7 @@ export default function TeamPage() {
         `/api/tenants/invitations/${encodeURIComponent(editingMember.invitation_id)}/resend`,
         { method: "POST" },
       );
-      notify("邀请重新发出去了，我这次又礼貌敲了下门。", "success");
+      notify("邀请已重新发送。", "success");
     } catch (error) {
       notify(error instanceof Error ? error.message : "邀请重发失败", "error");
     } finally {
@@ -150,7 +150,7 @@ export default function TeamPage() {
     if (!editingMember?.invitation_id) return;
     const accepted = await confirm(
       "取消这次邀请",
-      `要取消发给 ${editingMember.email} 的邀请吗？以后想起来还能重新邀请，我不会把门焊死。`,
+      `要取消发给 ${editingMember.email} 的邀请吗？之后仍可重新邀请。`,
     );
     if (!accepted) return;
     setEditLoading(true);
@@ -173,7 +173,7 @@ export default function TeamPage() {
   async function removeMember() {
     if (!editingMember) return;
     const accepted = await confirm(
-      "我小声确认一下",
+      "确认移出成员",
       `真的要把 ${editingMember.email} 移出团队吗？账号不会删除，团队里已经产生的简历也会留下。`,
     );
     if (!accepted) return;

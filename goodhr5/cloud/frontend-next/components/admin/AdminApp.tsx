@@ -344,7 +344,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
       baseURL = await detectLocalAgent(agentBaseRef.current);
     }
     if (!baseURL) {
-      notify("我没叫醒本地程序，你先确认它开着，再点我一次。", "warning");
+      notify("本地程序未启动，请确认已打开后再试。", "warning");
       return;
     }
 
@@ -863,7 +863,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         <AdminDialog
           open={teamInvitations.length > 0}
           title="有人想拉你进团队"
-          description="这次得你亲自点头，我不敢擅自替你答应。"
+          description="需要您确认后才能加入。"
           confirmText="同意加入"
           showCancel={false}
           hideClose

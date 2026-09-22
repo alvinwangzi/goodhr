@@ -209,7 +209,7 @@ func (m SMTPMailer) SendPositionStatus(email string, notice PositionStatusNotice
 	}
 	subject := "GoodHR " + statusLabel + "提醒"
 	lines := []string{
-		"我小声汇报一下，岗位这轮已经结束。",
+		"岗位运行已结束，以下是本轮数据。",
 		"岗位名称：" + notice.PositionName,
 		"今日打招呼：" + intString(notice.TodayGreetedCount),
 		"本次打招呼：" + intString(notice.RunGreetedCount),
@@ -244,9 +244,9 @@ func (m SMTPMailer) SendTeamInvitation(email string, notice TeamInvitationNotice
 		"RoleLabel":    roleLabel,
 		"LoginURL":     strings.TrimSpace(notice.LoginURL),
 	}, []string{
-		"我小声递个邀请。",
+		"收到团队邀请。",
 		strings.TrimSpace(notice.InviterEmail) + " 邀请你加入 " + teamName + "。",
-		"登录 GoodHR 后确认加入，我才会开始搬数据。",
+		"登录 GoodHR 后确认加入，系统将同步岗位和简历数据。",
 		strings.TrimSpace(notice.LoginURL),
 	})
 }

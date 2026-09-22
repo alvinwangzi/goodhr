@@ -85,7 +85,7 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
       await cloudRequest("/api/config/notification-profile", { method: "PUT", body: { ...form, os: device.os, browser: device.browser, dismissed: true } });
       setOpen(false);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "我没记住这次跳过，稍后再试一下", "error");
+      notify(error instanceof Error ? error.message : "跳过设置失败，请稍后重试", "error");
     } finally {
       setLoading(false);
     }
@@ -101,13 +101,13 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
       setOpen(false);
       return;
     }
-    if (!form.user_type) return notify("你是哪路英雄，稍微选一下我才不乱发邮件", "warning");
+    if (!form.user_type) return notify("请选择用户类型", "warning");
     setLoading(true);
     try {
       await cloudRequest("/api/config/notification-profile", { method: "PUT", body: { ...form, os: device.os, browser: device.browser, completed: true } });
       setStep(2);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "保存失败了，我先尴尬一下", "error");
+      notify(error instanceof Error ? error.message : "保存失败，请稍后重试", "error");
     } finally {
       setLoading(false);
     }
@@ -134,8 +134,8 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
               {step === 2 ? <CheckCircleRoundedIcon /> : <NotificationsActiveRoundedIcon />}
             </Box>
             <Box>
-              <Typography component="h2" sx={{ fontSize: 22, fontWeight: 780 }}>小小打扰一下</Typography>
-              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>这事关系到以后少给你发废话邮件。</Typography>
+              <Typography component="h2" sx={{ fontSize: 22, fontWeight: 780 }}>通知偏好设置</Typography>
+              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>设置后可减少不必要的通知。</Typography>
             </Box>
           </Stack>
         </Box>
@@ -166,7 +166,7 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
 
 /** IntroStep 展示收集说明。 */
 function IntroStep() {
-  return <Stack spacing={2.5} sx={{ animation: "profilePulse 2.4s ease-in-out 1" }}><Typography sx={{ fontSize: 18, fontWeight: 760 }}>真的只要 10 秒，我先小声跪一下。</Typography><Typography sx={{ color: "text.secondary", lineHeight: 1.9 }}>我们想知道你大概是谁、常用哪些招聘平台。以后 BOSS 更新就别烦不用 BOSS 的人，Mac 版上线也别误伤 Windows 朋友。</Typography><Box sx={{ p: 2, borderRadius: "8px", bgcolor: "#fff8e8", border: "1px solid #f2dfb8" }}><Typography sx={{ fontWeight: 720 }}>你也可以不填。</Typography><Typography sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.8 }}>只是这样的话，我可能只能把所有系统更新都发给你。不是我想吵，是我真的不知道你用啥。</Typography></Box></Stack>;
+  return <Stack spacing={2.5} sx={{ animation: "profilePulse 2.4s ease-in-out 1" }}><Typography sx={{ fontSize: 18, fontWeight: 760 }}>只需 10 秒完成设置。</Typography><Typography sx={{ color: "text.secondary", lineHeight: 1.9 }}>我们需要了解您常用的招聘平台，以便精准推送相关更新，避免发送无关通知。</Typography><Box sx={{ p: 2, borderRadius: "8px", bgcolor: "#fff8e8", border: "1px solid #f2dfb8" }}><Typography sx={{ fontWeight: 720 }}>您也可以跳过此步骤。</Typography><Typography sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.8 }}>跳过将收到所有系统更新通知。</Typography></Box></Stack>;
 }
 
 /** FormStep 展示身份、性别和常用平台选择。 */

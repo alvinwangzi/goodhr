@@ -118,17 +118,17 @@ SET config_value = jsonb_set(
     config_value,
     '{templates}',
     '{
-      "agent_detected": {"subject":"GoodHR 本地程序还没启动","html":"<p>我还没检测到本地程序，任务暂时跑不起来。</p><p>启动 GoodHR 本地程序后，再回到后台刷新一下就行。</p>"},
-      "runtime_ready": {"subject":"GoodHR 运行组件还差一步","html":"<p>本地程序已经找到了，但浏览器运行组件还没准备好。</p><p>回到后台完成组件安装，我再继续开工。</p>"},
-      "position_created": {"subject":"GoodHR 岗位还没创建","html":"<p>岗位还没创建，我暂时不知道该帮你筛谁。</p><p>先建一个岗位，后面的任务就顺了。</p>"},
-      "task_created": {"subject":"GoodHR 招聘任务还没创建","html":"<p>岗位已经准备好了，还差一条招聘任务。</p><p>创建任务后就可以检查平台登录并开始运行。</p>"},
-      "platform_login_verified": {"subject":"GoodHR 招聘平台还没确认登录","html":"<p>任务已经有了，但招聘平台登录状态还没确认。</p><p>打开任务并完成平台登录，我再继续干活。</p>"},
-      "task_started": {"subject":"GoodHR 任务还没成功启动","html":"<p>任务还没有真正跑起来。</p><p>回到任务列表再启动一次，页面会告诉你具体卡在哪里。</p>"},
-      "first_resume_processed": {"subject":"GoodHR 还没处理到第一份简历","html":"<p>任务已经启动过，但还没成功处理到第一份简历。</p><p>可以看看任务日志里的最近一条提示。</p>"},
-      "first_greet_success": {"subject":"GoodHR 还差第一次成功打招呼","html":"<p>简历已经开始处理，但还没有第一次打招呼成功。</p><p>看看筛选结果和失败日志，通常很快就能定位。</p>"},
-      "inactive_3_days": {"subject":"3 天没见你了，我先小声冒个泡","html":"<p>3 天没见，我来看看招聘任务是不是遇到了小卡点。</p>"},
-      "inactive_7_days": {"subject":"一周没见，GoodHR 还在原地等你","html":"<p>一周没见，GoodHR 还在等你回来继续。</p>"},
-      "inactive_30_days": {"subject":"一个月没见，我来弱弱问候一下","html":"<p>一个月没见，我来问问是不是哪里不太顺手。</p>"}
+      "agent_detected": {"subject":"GoodHR 本地程序还没启动","html":"<p>本地程序未检测到，任务无法运行。</p><p>启动 GoodHR 本地程序后，再回到后台刷新。</p>"},
+      "runtime_ready": {"subject":"GoodHR 运行组件还差一步","html":"<p>本地程序已找到，但浏览器运行组件尚未准备好。</p><p>回到后台完成组件安装。</p>"},
+      "position_created": {"subject":"GoodHR 岗位还没创建","html":"<p>岗位尚未创建，无法开始筛选。</p><p>请先创建岗位。</p>"},
+      "task_created": {"subject":"GoodHR 招聘任务还没创建","html":"<p>岗位已准备好，还差一条招聘任务。</p><p>创建任务后即可检查平台登录并开始运行。</p>"},
+      "platform_login_verified": {"subject":"GoodHR 招聘平台还没确认登录","html":"<p>任务已创建，但招聘平台登录状态未确认。</p><p>打开任务并完成平台登录。</p>"},
+      "task_started": {"subject":"GoodHR 任务还没成功启动","html":"<p>任务尚未启动。</p><p>回到任务列表重新启动，页面会提示具体问题。</p>"},
+      "first_resume_processed": {"subject":"GoodHR 还没处理到第一份简历","html":"<p>任务已启动，但尚未成功处理第一份简历。</p><p>请查看任务日志中的最新提示。</p>"},
+      "first_greet_success": {"subject":"GoodHR 还差第一次成功打招呼","html":"<p>简历已开始处理，但尚未完成首次打招呼。</p><p>请查看筛选结果和失败日志。</p>"},
+      "inactive_3_days": {"subject":"3 天未登录提醒","html":"<p>3 天未登录，请检查招聘任务是否遇到问题。</p>"},
+      "inactive_7_days": {"subject":"一周未登录提醒","html":"<p>一周未登录，GoodHR 仍在运行。</p>"},
+      "inactive_30_days": {"subject":"一个月未登录提醒","html":"<p>一个月未登录，请检查是否遇到问题。</p>"}
     }'::jsonb,
     true
 )

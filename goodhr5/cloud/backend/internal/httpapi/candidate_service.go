@@ -195,7 +195,7 @@ func (s *CandidateService) Notes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len([]rune(content)) > 1000 {
-			writeError(w, http.StatusBadRequest, "备注有点长，我先小声拦一下，控制在1000字内")
+			writeError(w, http.StatusBadRequest, "备注过长，请控制在 1000 字以内")
 			return
 		}
 		noteEvent, err := s.store.SaveCandidateEvent(CandidateEvent{

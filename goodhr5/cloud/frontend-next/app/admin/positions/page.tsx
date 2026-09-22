@@ -484,7 +484,7 @@ export default function PositionsPage() {
         return;
       }
       const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
-      setStartStatus("正在打开招聘平台，我先看看账号有没有登录。");
+      setStartStatus("正在打开招聘平台，请确认账号已登录。");
       await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
       try {
         await confirmPlatformLoggedInForPosition(agentBase, auth, (message) =>
@@ -502,7 +502,7 @@ export default function PositionsPage() {
       }
       const usesAI = positionUsesAI(item);
       if (usesAI && !canUseAI(currentSubscription)) {
-        const message = "这个岗位用了会员 AI 功能，订阅后我才能继续开工。";
+        const message = "该岗位使用了会员 AI 功能，请订阅后重试。";
         setStartStatus(message);
         setStartError(message);
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);

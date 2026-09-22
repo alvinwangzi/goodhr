@@ -237,7 +237,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 	}
 	cfg := s.loadBuiltinAIConfig()
 	if strings.TrimSpace(cfg.UpstreamBaseURL) == "" || strings.TrimSpace(cfg.UpstreamAPIKey) == "" {
-		writeError(w, http.StatusServiceUnavailable, "内置 AI 还没接上线，我先小声罢工一下。")
+		writeError(w, http.StatusServiceUnavailable, "内置 AI 未配置，请检查设置")
 		return
 	}
 	modelID := aiModelFromBody(body, cfg.DefaultModel)
@@ -297,7 +297,7 @@ func (s *AIWalletService) CompatibleChat(w http.ResponseWriter, r *http.Request)
 		promptTokens, completionTokens := aiUsageFromResponse(respBody)
 		if err := s.chargeAIUsage(email, model, promptTokens, completionTokens); err != nil {
 			log.Printf("[内置AI] 扣费记录写入失败 user=%s model=%s prompt_tokens=%d completion_tokens=%d err=%v", email, model.ID, promptTokens, completionTokens, err)
-			writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录没写成功。我先拦一下，免得账本乱掉。")
+			writeError(w, http.StatusInternalServerError, "AI 已返回，但扣费记录写入失败，请稍后重试")
 			return
 		}
 	}
