@@ -1,5 +1,6 @@
-// Package version 文件作用：提供可在构建时注入的 GoodHR 本地程序版本号。
+// Package version 负责提供 GoodHR 本地程序版本信息。
 package version
 
-// Value 是当前本地程序版本号，正式构建可通过 go build -ldflags 注入。
-var Value = "6"
+// Value 是当前本地程序版本号。
+// 构建正式包时可通过 go build -ldflags "-X goodhr5/local-agent-go/internal/version.Value=版本号" 注入。
+var Value = "5.3.5"

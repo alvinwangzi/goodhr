@@ -1,68 +1,102 @@
-// Package runtime 文件作用：验证运行组件校验、平台选择和解压路径安全规则。
+// Package runtime 负责测试运行组件安装器的安全边界。
 package runtime
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"goodhr5/local-agent-go/internal/config"
 )
 
-// TestVerifySHA256 验证正确校验值通过、错误校验值失败。
-func TestVerifySHA256(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "asset.zip")
-	content := []byte("goodhr-runtime")
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+// TestSafeJoinRejectsTraversal 验证解压路径不能逃出目标目录。
+func TestSafeJoinRejectsTraversal(t *testing.T) {
+	if _, err := safeJoin("/tmp/goodhr-runtime", "../evil.txt"); err == nil {
+		t.Fatal("expected traversal path to be rejected")
+	}
+}
+
+// TestSafeJoinAcceptsNestedPath 验证正常嵌套路径可以解压。
+func TestSafeJoinAcceptsNestedPath(t *testing.T) {
+	path, err := safeJoin("/tmp/goodhr-runtime", "node/bin/node")
+	if err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(content)
-	if err := verifySHA256(path, hex.EncodeToString(sum[:])); err != nil {
-		t.Fatalf("verifySHA256() error = %v", err)
-	}
-	if err := verifySHA256(path, "bad"); err == nil {
-		t.Fatal("verifySHA256() accepted wrong digest")
-	}
-	if err := verifySHA256(path, ""); err == nil {
-		t.Fatal("verifySHA256() accepted empty digest")
+	if !strings.Contains(path, "node") {
+		t.Fatalf("unexpected path: %s", path)
 	}
 }
 
-// TestValidateAssetURLRequiresHTTPS 验证运行组件不能通过明文 HTTP 下载。
-func TestValidateAssetURLRequiresHTTPS(t *testing.T) {
-	if err := validateAssetURL("https://oss.example.com/runtime.zip"); err != nil {
-		t.Fatalf("HTTPS 下载地址被拒绝：%v", err)
-	}
-	if err := validateAssetURL("http://oss.example.com/runtime.zip"); err == nil {
-		t.Fatal("HTTP 下载地址不应被接受")
+// TestArchiveNameFromURL 验证下载文件名会忽略查询参数。
+func TestArchiveNameFromURL(t *testing.T) {
+	name := archiveName("https://oss.58it.cn/goodhr-node.zip?version=1", "node")
+	if name != "goodhr-node.zip" {
+		t.Fatalf("archive name = %s", name)
 	}
 }
 
-// TestSafeJoinRejectsTraversal 验证组件压缩包不能越界写文件。
-func TestSafeJoinRejectsTraversal(t *testing.T) {
-	if _, err := safeJoin(t.TempDir(), "../outside"); err == nil {
-		t.Fatal("safeJoin() accepted traversal path")
+// TestAssetIsCurrentWhenFileAndVersionMatch 验证文件存在且版本一致时会跳过下载。
+func TestAssetIsCurrentWhenFileAndVersionMatch(t *testing.T) {
+	manager := testRuntimeManager(t)
+	nodePath := filepath.Join(manager.cfg.RuntimeDir, "node", "bin", "node")
+	if err := os.MkdirAll(filepath.Dir(nodePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nodePath, []byte("node"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	asset := Asset{Version: "22.19.0", URL: "https://oss.58it.cn/node.tar.gz", SHA256: "abc"}
+	if err := manager.saveVersion("node_runtime", asset); err != nil {
+		t.Fatal(err)
+	}
+	if !manager.assetIsCurrent("node_runtime", asset) {
+		t.Fatal("expected node_runtime to be current")
 	}
 }
 
-// TestWorkerDependencyPathFindsParentNodeModules 验证 Worker 编译入口可以向父目录找到 CloakBrowser 依赖。
-func TestWorkerDependencyPathFindsParentNodeModules(t *testing.T) {
+// TestAssetIsCurrentRejectsVersionMismatch 验证版本不一致时不会跳过下载。
+func TestAssetIsCurrentRejectsVersionMismatch(t *testing.T) {
+	manager := testRuntimeManager(t)
+	nodePath := filepath.Join(manager.cfg.RuntimeDir, "node", "bin", "node")
+	if err := os.MkdirAll(filepath.Dir(nodePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nodePath, []byte("node"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.saveVersion("node_runtime", Asset{Version: "22.18.0", SHA256: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	asset := Asset{Version: "22.19.0", URL: "https://oss.58it.cn/node.tar.gz", SHA256: "abc"}
+	if manager.assetIsCurrent("node_runtime", asset) {
+		t.Fatal("expected node_runtime version mismatch to require download")
+	}
+}
+
+// TestAssetIsCurrentRejectsMissingFile 验证文件缺失时不会跳过下载。
+func TestAssetIsCurrentRejectsMissingFile(t *testing.T) {
+	manager := testRuntimeManager(t)
+	asset := Asset{Version: "22.19.0", URL: "https://oss.58it.cn/node.tar.gz", SHA256: "abc"}
+	if err := manager.saveVersion("node_runtime", asset); err != nil {
+		t.Fatal(err)
+	}
+	if manager.assetIsCurrent("node_runtime", asset) {
+		t.Fatal("expected missing node file to require download")
+	}
+}
+
+// testRuntimeManager 创建测试用运行组件管理器。
+// t 为测试对象。
+func testRuntimeManager(t *testing.T) *Manager {
+	t.Helper()
 	root := t.TempDir()
-	entry := filepath.Join(root, "worker", "dist", "main.js")
-	dependency := filepath.Join(root, "worker", "node_modules", "cloakbrowser", "package.json")
-	for _, path := range []string{entry, dependency} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	cfg := &config.Config{
+		RuntimeDir: filepath.Join(root, "runtime"),
+		OCRDir:     filepath.Join(root, "runtime", "ocr"),
 	}
-	manager := &Manager{entryPath: entry}
-	if got := manager.WorkerDependencyPath(); got != dependency {
-		t.Fatalf("WorkerDependencyPath() = %s, want %s", got, dependency)
+	if err := os.MkdirAll(cfg.RuntimeDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if err := manager.CheckWorkerBuild(); err != nil {
-		t.Fatalf("CheckWorkerBuild() error = %v", err)
-	}
+	return NewManager(cfg)
 }

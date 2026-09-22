@@ -1,63 +1,86 @@
-// Package main 是 GoodHR 新本地程序的唯一启动入口。
+// Package main 是 GoodHR 5 Go 版本本地程序入口。
 package main
 
 import (
-	"context"
 	"flag"
-	"fmt"
+	"io"
 	"log"
 	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
+	"path/filepath"
+	goruntime "runtime"
 
-	"goodhr5/local-agent-go/internal/bootstrap"
+	"goodhr5/local-agent-go/internal/app"
+	"goodhr5/local-agent-go/internal/browserprofile"
 	"goodhr5/local-agent-go/internal/config"
-	"goodhr5/local-agent-go/internal/system/console"
-	"goodhr5/local-agent-go/internal/version"
+	"goodhr5/local-agent-go/internal/process"
 )
 
-// main 解析启动参数、组装应用并等待退出信号。
+// main 解析启动参数并运行本地服务。
 func main() {
 	host := flag.String("host", config.DefaultHost, "本地监听地址")
-	port := flag.Int("port", config.DefaultPort, "本地监听端口")
+	port := flag.Int("port", config.DefaultPort, "本地优先监听端口")
 	dataDir := flag.String("data-dir", "", "本地数据目录")
-	agentVersion := flag.String("version", version.Value, "本地程序版本号")
+	openConsole := flag.Bool("open-console", os.Getenv("GOODHR_AUTO_OPEN_CONSOLE") != "false", "启动后自动打开控制台")
+	restart := flag.Bool("restart", false, "启动前先关闭旧的本地程序")
 	flag.Parse()
-	version.Value = strings.TrimSpace(*agentVersion)
-	if version.Value == "" {
-		log.Fatal("本地程序版本号不能为空")
+	log.Printf("本地程序进程启动：pid=%d args=%v host=%s port=%d data_dir=%s open_console=%v restart=%v",
+		os.Getpid(), os.Args, *host, *port, *dataDir, *openConsole, *restart)
+	if *restart {
+		log.Printf("收到 restart 参数，准备关闭旧本地程序：pid=%d", os.Getpid())
+		if err := process.StopOtherInstances("goodhr-local-agent.exe", os.Getpid()); err != nil {
+			log.Fatalf("按程序名关闭旧本地程序失败，已拒绝启动：%v", err)
+		}
+		if err := process.StopGoodHRPortOwner(*host, *port, os.Getpid()); err != nil {
+			log.Fatalf("清理本地程序端口失败，已拒绝启动：%v", err)
+		}
+		log.Printf("旧本地程序关闭流程完成，端口已释放")
 	}
 
-	cfg, err := config.Load(*host, *port, *dataDir)
+	cfg, err := config.NewWithDataDir(*host, *port, *dataDir)
 	if err != nil {
-		log.Fatalf("读取本地配置失败：%v", err)
+		log.Fatalf("初始化本地配置失败：%v", err)
 	}
-	healthURL := fmt.Sprintf("http://%s/health", cfg.Address())
-	existingCtx, cancelExisting := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	existing := console.ExistingAgent(existingCtx, healthURL, cfg.Port)
-	cancelExisting()
-	if existing {
-		log.Printf("GoodHR 本地程序已经在运行，本次只复用现有实例")
-		if cfg.AutoOpenConsole {
-			openCtx, cancelOpen := context.WithTimeout(context.Background(), 3*time.Second)
-			if err = console.OpenWhenReady(openCtx, healthURL, cfg.ConsolePageURL(), cfg.Port); err != nil {
-				log.Printf("打开现有 GoodHR 控制台失败：%v", err)
-			}
-			cancelOpen()
-		}
-		return
+	logFile, err := setupFileLogger(cfg)
+	if err != nil {
+		log.Fatalf("初始化日志文件失败：%v", err)
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
+	log.Printf("文件日志已启用：path=%s pid=%d args=%v", filepath.Join(cfg.LogsDir, "local-agent.log"), os.Getpid(), os.Args)
+	log.Printf("本地程序配置：host=%s port=%d data_dir=%s frontend_dir=%s cloud_api=%s auto_open_console=%v",
+		cfg.Host, cfg.Port, cfg.DataDir, cfg.FrontendDir, cfg.CloudAPIBase, *openConsole)
+	browserprofile.EnsureDefaultsAsync(cfg.ProfilesDir)
+	cfg.AutoOpenConsole = *openConsole
+	server, err := app.NewServer(cfg)
+	if err != nil {
+		log.Fatalf("初始化本地服务失败：%v", err)
+	}
+	if err := server.Run(); err != nil {
+		log.Fatalf("本地程序启动失败：%v", err)
+	}
+}
+
+// setupFileLogger 初始化本地程序文件日志。
+// cfg 为本地配置，返回打开的日志文件句柄。
+func setupFileLogger(cfg *config.Config) (*os.File, error) {
+	if cfg == nil || cfg.LogsDir == "" {
+		return nil, nil
+	}
+	if err := os.MkdirAll(cfg.LogsDir, 0o755); err != nil {
+		return nil, err
+	}
+	logPath := filepath.Join(cfg.LogsDir, "local-agent.log")
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, err
 	}
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.SetOutput(os.Stderr)
-	application, err := bootstrap.New(cfg)
-	if err != nil {
-		log.Fatalf("初始化本地程序失败：%v", err)
+	if goruntime.GOOS == "windows" {
+		log.SetOutput(file)
+	} else {
+		log.SetOutput(io.MultiWriter(os.Stderr, file))
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := application.Run(ctx); err != nil {
-		log.Fatalf("本地程序运行失败：%v", err)
-	}
+	log.Printf("本地程序日志已启用：%s", logPath)
+	return file, nil
 }
