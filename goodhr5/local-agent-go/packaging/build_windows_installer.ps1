@@ -1,6 +1,6 @@
 # Purpose: build GoodHR Go Local Agent and create the Windows installer.
 param(
-  [string]$Version = "0.1.0",
+  [string]$Version = "0.1.1",
   [string]$Environment = $env:GOODHR_APP_ENV,
   [string]$ConfigFile = ""
 )

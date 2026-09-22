@@ -105,7 +105,7 @@ OCR 组件是可选运行组件。若使用 RapidOCR-json，压缩包解压后�
 ```json
 {
   "console": {
-    "version": "0.1.0",
+    "version": "0.1.1",
     "url": "https://oss.58it.cn/goodhr-console.zip",
     "sha256": ""
   }
@@ -145,7 +145,7 @@ Windows 生成安装器需要先安装 Inno Setup 6：
 
 ```powershell
 cd goodhr5/local-agent-go
-.\packaging\build_windows_installer.ps1 -Version "0.1.0"
+.\packaging\build_windows_installer.ps1 -Version "0.1.1"
 ```
 
 安装器默认安装到当前用户目录；本地数据固定存放在 `%APPDATA%\HRPlus`，不随安装目录或版本升级变化。

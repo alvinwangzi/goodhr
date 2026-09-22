@@ -10,7 +10,7 @@ if not "%BUILD_ENV%"=="dev" if not "%BUILD_ENV%"=="prod" (
   exit /b 1
 )
 set "VERSION=%~2"
-if "%VERSION%"=="" set "VERSION=0.1.0"
+if "%VERSION%"=="" set "VERSION=0.1.1"
 
 echo [GoodHR] Start Windows installer build. Environment: %BUILD_ENV% Version: %VERSION%
 echo [GoodHR] Project dir: %ROOT_DIR%
