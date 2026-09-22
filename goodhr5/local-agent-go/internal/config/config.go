@@ -15,8 +15,9 @@ const (
 	DefaultPort = 55271
 	// MaxPort 是本地程序端口自动探测的最大端口。
 	MaxPort = 55279
-	// AppName 是本地数据目录名称。
-	AppName = "HR+"
+	// AppName 是本地数据目录名称，固定为不含特殊字符的 HRPlus，
+	// 保证默认数据目录不随安装目录或品牌展示名变化而漂移。
+	AppName = "HRPlus"
 )
 
 // Config 保存本地程序运行配置。

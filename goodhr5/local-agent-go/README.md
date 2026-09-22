@@ -148,7 +148,7 @@ cd goodhr5/local-agent-go
 .\packaging\build_windows_installer.ps1 -Version "0.1.0"
 ```
 
-安装器默认安装到当前用户目录，并通过 `--data-dir "{app}\data"` 让本地数据跟随安装目录。
+安装器默认安装到当前用户目录；本地数据固定存放在 `%APPDATA%\HRPlus`，不随安装目录或版本升级变化。
 
 打包 Node Worker 前先确认 `worker-node/node_modules` 已存在。若需要安装依赖，先确认 npm registry 使用国内镜像。
 

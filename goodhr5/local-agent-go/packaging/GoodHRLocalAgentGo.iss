@@ -36,14 +36,11 @@ RestartApplications=no
 [Languages]
 Name: "chinesesimplified"; MessagesFile: ".\ChineseSimplified.isl"
 
-[Dirs]
-Name: "{app}\data"
-
 [InstallDelete]
 ; 升级安装时彻底删除旧 Worker，防止旧文件与新主程序混用。
 Type: filesandordirs; Name: "{app}\worker-node"
 Type: filesandordirs; Name: "{app}\resources\worker-node"
-Type: filesandordirs; Name: "{app}\data\runtime\browser-worker"
+Type: filesandordirs; Name: "{userappdata}\HRPlus\runtime\browser-worker"
 ; 清理历史版本残留的旧 exe，防止升级后安装目录同时存在新旧两个主程序。
 Type: files; Name: "{app}\goodhr-local-agent.exe"
 
@@ -53,17 +50,17 @@ Source: "..\assets\icons\goodhr-logo.ico"; DestDir: "{app}"; Flags: ignoreversio
 Source: "..\audio\*"; DestDir: "{app}\audio"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\installer-input\{#BuildEnvironment}\worker-node\*"; DestDir: "{app}\worker-node"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 暂时不把 frontend-next 打进本地程序安装包，避免前端包影响本地程序打包。
-; Source: "..\dist\installer-input\console\*"; DestDir: "{app}\data\console"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Source: "..\dist\installer-input\console\*"; DestDir: "{userappdata}\HRPlus\console"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\HR+"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"
-Name: "{autodesktop}\HR+"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
+Name: "{autoprograms}\HR+"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"
+Name: "{autodesktop}\HR+"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式（请务必勾选）"; GroupDescription: "快捷方式："
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"" --restart"; Description: "启动 HR+"; Flags: nowait postinstall
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--restart"; Description: "启动 HR+"; Flags: nowait postinstall
 ; 刷新 Windows 图标缓存，确保桌面快捷方式立即显示新图标。
 Filename: "ie4uinit.exe"; Parameters: "-show"; Flags: runhidden postinstall skipifsilent
 
