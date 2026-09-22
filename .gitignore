@@ -1,1 +1,6 @@
 goodhr5/cloud/backend/logs/
+
+# AI 会话临时 worktree 检出目录
+.worktrees/
+# 本地程序构建产物
+goodhr5/local-agent-go/bin/
