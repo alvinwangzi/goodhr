@@ -53,14 +53,24 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 	var requestErr error
 	requestAttempted := false
 	if requestConfigured && requestAllowed {
-		requester, ok := platformRuntime.(platformcore.CandidateInfoRequester)
-		if !ok {
-			r.positionLog(position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
+		if hasRequestItems := request.RequestPhone || request.RequestWechat || request.RequestResume; hasRequestItems {
+			// Boss 等平台的索要按钮需要候选人先回复才会解锁，打招呼后立即索要必然失败，
+			// 因此改为把候选人记入待索要名单，岗位收尾时统一检查回复后再执行索要。
+			if enqueueErr := r.enqueueResumeRequest(position, candidate); enqueueErr != nil {
+				r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：写入待索要名单失败，本轮跳过索要，候选人=%s，错误=%s", candidateLogName(candidate), enqueueErr.Error()))
+			} else {
+				r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：已记入待索要名单，候选人=%s，岗位结束后自动检查回复并索要%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
+			}
 		} else {
-			requestAttempted = true
-			requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
-				return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
-			})
+			requester, ok := platformRuntime.(platformcore.CandidateInfoRequester)
+			if !ok {
+				r.positionLog(position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
+			} else {
+				requestAttempted = true
+				requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
+					return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
+				})
+			}
 		}
 	}
 	if requestErr != nil {

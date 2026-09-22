@@ -43,6 +43,14 @@ type CandidateInfoRequest struct {
 	GreetMessage  string
 }
 
+// ResumeRequestOutcome 表示单个候选人回复检查与索要执行的结果。
+type ResumeRequestOutcome struct {
+	// Status 为处理结果：requested 已完成索要；pending 候选人尚未回复；not_found 会话列表中未找到；failed 执行失败。
+	Status string
+	// Reason 为未执行或失败的原因，成功时为空。
+	Reason string
+}
+
 // Runtime 定义主流程调用的平台能力。
 type Runtime interface {
 	// OpenEntryPage 打开平台入口页面。
@@ -83,6 +91,14 @@ type BasicFilterApplier interface {
 type CandidateInfoRequester interface {
 	// RequestCandidateInfo 在打招呼成功后索要候选人信息并发送追加消息。
 	RequestCandidateInfo(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidate Candidate, request CandidateInfoRequest) error
+}
+
+// ResumeRequestChecker 是平台可选实现的"检查候选人回复并索要简历"能力。
+// 用于岗位收尾阶段：切到平台消息页，确认候选人已回复后再执行索要动作。
+type ResumeRequestChecker interface {
+	// CheckResumeRequests 检查名单候选人是否已回复，对已回复者执行索要动作。
+	// candidateNames 为候选人姓名列表，返回以姓名为键的结果表；未出现在结果表中的姓名视为 pending。
+	CheckResumeRequests(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidateNames []string) (map[string]ResumeRequestOutcome, error)
 }
 
 // PositionSearchPreparer 是平台可选实现的岗位运行搜索准备能力。

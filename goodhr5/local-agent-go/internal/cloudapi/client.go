@@ -343,6 +343,35 @@ func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string,
 	}, nil
 }
 
+// NotifyResumeRequested 把岗位收尾时完成的"求简历"结果补报到云端，供简历库时间线和执行任务名单展示。
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位 ID，runID 为执行任务记录 ID，names 为本轮完成索要的候选人姓名。
+func (c *Client) NotifyResumeRequested(ctx context.Context, token string, positionID string, runID string, names []string) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位 ID 不能为空")
+	}
+	cleaned := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			cleaned = append(cleaned, name)
+		}
+	}
+	if len(cleaned) == 0 {
+		return fmt.Errorf("候选人名单不能为空")
+	}
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/resume-requests", map[string]any{
+		"run_id": strings.TrimSpace(runID), "names": cleaned,
+	})
+	if err != nil {
+		return fmt.Errorf("补报索要简历结果失败：%w", err)
+	}
+	if code >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "补报索要简历结果失败"))
+	}
+	return nil
+}
+
 // getAuthed 使用 Bearer Token 请求云端接口。
 // ctx 为请求上下文，token 为登录令牌，path 为以 / 开头的云端路径。
 func (c *Client) getAuthed(ctx context.Context, token string, path string) (map[string]any, int, error) {

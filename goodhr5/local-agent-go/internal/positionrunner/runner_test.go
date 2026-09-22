@@ -197,14 +197,18 @@ func (r *candidateInfoErrorRuntime) RequestCandidateInfo(context.Context, platfo
 	return errors.New("索要信息测试失败")
 }
 
-// TestCandidateInfoFailureKeepsGreetSuccess 验证索要信息失败只记录警告，候选人仍算打招呼成功。
-func TestCandidateInfoFailureKeepsGreetSuccess(t *testing.T) {
-	runner := newTestRunner(t, nil, &fakeWorker{})
+// TestCandidateInfoEnqueueKeepsGreetSuccess 验证勾选索要项且评分通过时，候选人被记入待索要名单且打招呼仍算成功。
+func TestCandidateInfoEnqueueKeepsGreetSuccess(t *testing.T) {
+	runner, db := newTestRunnerWithDB(t, &fakeWorker{})
 	runtime := &candidateInfoErrorRuntime{}
-	position := localdb.Position{ID: "position-1", PositionSnapshot: map[string]any{
+	position := localdb.Position{ID: "position-enqueue-1", PlatformID: "boss", PositionSnapshot: map[string]any{
 		"common_config": map[string]any{"request_phone": true},
 		"ai_config":     map[string]any{"request_score_threshold": 70.0},
 	}}
+	// 待索要名单对岗位有外键约束，先写入岗位快照。
+	if _, err := db.UpsertPositionSnapshot(map[string]any{"id": position.ID, "name": "测试岗位", "platform_id": "boss"}); err != nil {
+		t.Fatal(err)
+	}
 	candidate := map[string]any{"candidate_name": "张三", "status": "passed", "ai_greet_score": 80.0}
 	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
 		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
@@ -215,8 +219,8 @@ func TestCandidateInfoFailureKeepsGreetSuccess(t *testing.T) {
 	if greeted != 1 || failed != 0 || skipped != 0 || stringFromMap(candidate, "status") != "greeted" {
 		t.Fatalf("result greeted=%d failed=%d skipped=%d candidate=%+v", greeted, failed, skipped, candidate)
 	}
-	if runtime.requestCalls != 1 {
-		t.Fatalf("request calls = %d", runtime.requestCalls)
+	if runtime.requestCalls != 0 {
+		t.Fatalf("勾选索要项后不应再调用平台即时索要接口，request calls = %d", runtime.requestCalls)
 	}
 	if !runtime.greetWillRequest {
 		t.Fatal("greet should know candidate info will run")
@@ -224,11 +228,18 @@ func TestCandidateInfoFailureKeepsGreetSuccess(t *testing.T) {
 	if _, exists := candidate["_candidate_info_after_greet"]; exists {
 		t.Fatal("temporary candidate info hint should be removed after greet")
 	}
+	items, err := db.ListResumeRequests(position.ID, localdb.ResumeRequestStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].CandidateName != "张三" || items[0].PlatformID != "boss" {
+		t.Fatalf("resume queue items = %+v", items)
+	}
 }
 
-// TestCandidateInfoWithoutAIScoreSkipsRequester 验证候选人没有最终 AI 评分时不调用平台索要接口。
+// TestCandidateInfoWithoutAIScoreSkipsRequester 验证候选人没有最终 AI 评分时不入待索要名单也不调用平台索要接口。
 func TestCandidateInfoWithoutAIScoreSkipsRequester(t *testing.T) {
-	runner := newTestRunner(t, nil, &fakeWorker{})
+	runner, db := newTestRunnerWithDB(t, &fakeWorker{})
 	runtime := &candidateInfoErrorRuntime{}
 	position := localdb.Position{ID: "position-no-score", PositionSnapshot: map[string]any{
 		"common_config": map[string]any{"request_phone": true},
@@ -246,6 +257,13 @@ func TestCandidateInfoWithoutAIScoreSkipsRequester(t *testing.T) {
 	}
 	if runtime.greetWillRequest {
 		t.Fatal("greet should not preserve chat when candidate info is skipped")
+	}
+	items, err := db.ListResumeRequests(position.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("没有评分时不应写入待索要名单，items = %+v", items)
 	}
 }
 
@@ -270,15 +288,19 @@ func (r *candidateInfoSuccessRuntime) RequestCandidateInfo(_ context.Context, _ 
 	return nil
 }
 
-// TestCandidateInfoSuccessWritesRequestedFlags 验证索要执行成功后按勾选项写入结果字段和已发送问候语。
-func TestCandidateInfoSuccessWritesRequestedFlags(t *testing.T) {
-	runner := newTestRunner(t, nil, &fakeWorker{})
+// TestCandidateInfoEnqueueWritesResumeQueue 验证勾选多个索要项时按岗位与姓名写入待索要名单，且不再即时写索要结果字段。
+func TestCandidateInfoEnqueueWritesResumeQueue(t *testing.T) {
+	runner, db := newTestRunnerWithDB(t, &fakeWorker{})
 	runtime := &candidateInfoSuccessRuntime{}
-	position := localdb.Position{ID: "position-request-ok", PositionSnapshot: map[string]any{
+	position := localdb.Position{ID: "position-request-ok", PlatformID: "boss", PositionSnapshot: map[string]any{
 		"common_config": map[string]any{"request_phone": true, "request_resume": true},
 		"greet_message": "方便留个联系方式吗",
 		"ai_config":     map[string]any{"request_score_threshold": 70.0},
 	}}
+	// 待索要名单对岗位有外键约束，先写入岗位快照。
+	if _, err := db.UpsertPositionSnapshot(map[string]any{"id": position.ID, "name": "测试岗位", "platform_id": "boss"}); err != nil {
+		t.Fatal(err)
+	}
 	candidate := map[string]any{"candidate_name": "王五", "status": "passed", "ai_greet_score": 80.0}
 	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
 		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
@@ -289,24 +311,34 @@ func TestCandidateInfoSuccessWritesRequestedFlags(t *testing.T) {
 	if greeted != 1 || failed != 0 || skipped != 0 {
 		t.Fatalf("greeted=%d failed=%d skipped=%d", greeted, failed, skipped)
 	}
-	if !boolFromMap(candidate, "requested_phone") || !boolFromMap(candidate, "requested_resume") {
-		t.Fatalf("requested flags = %+v", candidate)
+	if runtime.requestCalls != 0 {
+		t.Fatalf("勾选索要项后不应再调用平台即时索要接口，request calls = %d", runtime.requestCalls)
 	}
-	if _, exists := candidate["requested_wechat"]; exists {
-		t.Fatal("未勾选微信时不应写入 requested_wechat")
+	// 索要尚未发生，候选人不携带索要结果字段；结果字段在岗位收尾索要成功后由收尾流程补写。
+	for _, key := range []string{"requested_phone", "requested_wechat", "requested_resume", "greet_message_sent"} {
+		if _, exists := candidate[key]; exists {
+			t.Fatalf("入队阶段不应写入 %s", key)
+		}
 	}
-	if got := stringFromMap(candidate, "greet_message_sent"); got != "方便留个联系方式吗" {
-		t.Fatalf("greet_message_sent = %q", got)
+	items, err := db.ListResumeRequests(position.ID, localdb.ResumeRequestStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].CandidateName != "王五" {
+		t.Fatalf("resume queue items = %+v", items)
 	}
 }
 
-// TestCandidateInfoFailureSkipsRequestedFlags 验证索要执行失败时不写结果字段，候选人仍算打招呼成功。
-func TestCandidateInfoFailureSkipsRequestedFlags(t *testing.T) {
-	runner := newTestRunner(t, nil, &fakeWorker{})
+// TestCandidateInfoEnqueueFailureKeepsGreetSuccess 验证写入待索要名单失败只记录警告，候选人仍算打招呼成功。
+func TestCandidateInfoEnqueueFailureKeepsGreetSuccess(t *testing.T) {
+	runner, db := newTestRunnerWithDB(t, &fakeWorker{})
+	// 先关闭数据库，让入队必定失败，模拟本地库异常场景。
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 	runtime := &candidateInfoErrorRuntime{}
-	position := localdb.Position{ID: "position-request-fail", PositionSnapshot: map[string]any{
-		"common_config": map[string]any{"request_phone": true, "request_resume": true},
-		"greet_message": "方便留个联系方式吗",
+	position := localdb.Position{ID: "position-enqueue-fail", PlatformID: "boss", PositionSnapshot: map[string]any{
+		"common_config": map[string]any{"request_phone": true},
 		"ai_config":     map[string]any{"request_score_threshold": 70.0},
 	}}
 	candidate := map[string]any{"candidate_name": "赵六", "status": "passed", "ai_greet_score": 80.0}
@@ -316,13 +348,49 @@ func TestCandidateInfoFailureSkipsRequestedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if greeted != 1 || failed != 0 || skipped != 0 {
-		t.Fatalf("greeted=%d failed=%d skipped=%d", greeted, failed, skipped)
+	if greeted != 1 || failed != 0 || skipped != 0 || stringFromMap(candidate, "status") != "greeted" {
+		t.Fatalf("result greeted=%d failed=%d skipped=%d candidate=%+v", greeted, failed, skipped, candidate)
+	}
+	if runtime.requestCalls != 0 {
+		t.Fatalf("request calls = %d", runtime.requestCalls)
 	}
 	for _, key := range []string{"requested_phone", "requested_wechat", "requested_resume", "greet_message_sent"} {
 		if _, exists := candidate[key]; exists {
-			t.Fatalf("索要失败时不应写入 %s", key)
+			t.Fatalf("入队失败时不应写入 %s", key)
 		}
+	}
+}
+
+// TestGreetMessageOnlyKeepsInstantRequest 验证岗位只填追加问候语未勾索要项时，仍走平台即时索要接口发送问候语。
+func TestGreetMessageOnlyKeepsInstantRequest(t *testing.T) {
+	runner, db := newTestRunnerWithDB(t, &fakeWorker{})
+	runtime := &candidateInfoSuccessRuntime{}
+	position := localdb.Position{ID: "position-greet-only", PositionSnapshot: map[string]any{
+		"greet_message": "方便留个联系方式吗",
+		"ai_config":     map[string]any{"request_score_threshold": 70.0},
+	}}
+	candidate := map[string]any{"candidate_name": "钱七", "status": "passed", "ai_greet_score": 80.0}
+	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
+		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if greeted != 1 || failed != 0 || skipped != 0 {
+		t.Fatalf("greeted=%d failed=%d skipped=%d", greeted, failed, skipped)
+	}
+	if runtime.requestCalls != 1 {
+		t.Fatalf("只填追加问候语时应走即时索要接口，request calls = %d", runtime.requestCalls)
+	}
+	if got := stringFromMap(candidate, "greet_message_sent"); got != "方便留个联系方式吗" {
+		t.Fatalf("greet_message_sent = %q", got)
+	}
+	items, err := db.ListResumeRequests(position.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("只填追加问候语时不应写入待索要名单，items = %+v", items)
 	}
 }
 
@@ -519,12 +587,13 @@ func TestRunnerStartStop(t *testing.T) {
 	if len(savedCandidates) < 2 || savedCandidates[len(savedCandidates)-1]["status"] != "greeted" {
 		t.Fatalf("savedCandidates after position2 = %+v", savedCandidates)
 	}
-	if atomic.LoadInt64(&completedStatusCount) < 2 {
-		t.Fatalf("completed status sync count = %d, want at least 2", completedStatusCount)
-	}
+	// 先等完成邮件日志出现（云端状态同步完成的标志），再断言完成同步次数。
 	assertPositionLogContains(t, db, position2.ID, "岗位运行完成：本次运行结束，扫描=1，打招呼=1，跳过=0，失败=0")
 	assertPositionLogContains(t, db, position2.ID, "完成邮件已发送")
 	assertPositionLogContains(t, db, position2.ID, "音频文件不存在或为空")
+	if atomic.LoadInt64(&completedStatusCount) < 2 {
+		t.Fatalf("completed status sync count = %d, want at least 2", completedStatusCount)
+	}
 }
 
 // TestSyncCloudPositionCompletedRetriesMailFailure 验证完成邮件同步失败后本地程序会自动重试。
@@ -1629,19 +1698,26 @@ func waitForPositionStatus(t *testing.T, db *localdb.DB, positionID string, stat
 }
 
 // assertPositionLogContains 断言岗位运行日志包含指定文本。
+// 完成通知等日志由后台流程异步写入，在超时时间内轮询等待，避免断言与日志写入竞争。
 // t 为测试对象，db 为本地数据库，positionID 为岗位运行 ID，text 为期望文本。
 func assertPositionLogContains(t *testing.T, db *localdb.DB, positionID string, text string) {
 	t.Helper()
-	logs, err := db.ListPositionLogs(positionID, 200)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range logs {
-		if strings.Contains(item.Message, text) {
-			return
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		logs, err := db.ListPositionLogs(positionID, 200)
+		if err != nil {
+			t.Fatal(err)
 		}
+		for _, item := range logs {
+			if strings.Contains(item.Message, text) {
+				return
+			}
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatalf("岗位运行日志未包含 %q，logs=%+v", text, logs)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("岗位运行日志未包含 %q，logs=%+v", text, logs)
 }
 
 // speedUpPageEntryCheck 加快测试中的页面入口等待。
@@ -1682,4 +1758,19 @@ func newTestRunner(t *testing.T, db *localdb.DB, worker BrowserWorker) *Runner {
 	t.Helper()
 	root := t.TempDir()
 	return New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots", root+"/audio", "")
+}
+
+// newTestRunnerWithDB 创建带临时 SQLite 数据库的测试运行器。
+// t 为测试对象，worker 为浏览器 Worker，返回运行器和数据库句柄。
+func newTestRunnerWithDB(t *testing.T, worker BrowserWorker) (*Runner, *localdb.DB) {
+	t.Helper()
+	cfg := &config.Config{DataDir: t.TempDir()}
+	db, err := localdb.Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	root := t.TempDir()
+	runner := New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots", root+"/audio", "")
+	return runner, db
 }

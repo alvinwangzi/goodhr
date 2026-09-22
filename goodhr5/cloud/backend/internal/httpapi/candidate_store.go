@@ -152,6 +152,7 @@ type CandidateStore interface {
 	UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error)
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time, resumeRequestedAt *time.Time) error
+	FindEngagementsByPositionAndNames(positionID string, names []string) (map[string]CandidateEngagement, error)
 	ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error)
 	GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error)
 	ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error)
@@ -329,6 +330,33 @@ func (s *MemoryCandidateStore) UpdateCandidateEngagementStatus(engagementID stri
 	item.UpdatedAt = now
 	s.engagements[engagementID] = item
 	return nil
+}
+
+// FindEngagementsByPositionAndNames 按岗位和候选人姓名批量查找内存 engagement 记录。
+// positionID 为岗位 ID，names 为候选人姓名列表，返回姓名到 engagement 的映射，查不到的姓名不出现在结果中。
+func (s *MemoryCandidateStore) FindEngagementsByPositionAndNames(positionID string, names []string) (map[string]CandidateEngagement, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := map[string]CandidateEngagement{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		for _, item := range s.engagements {
+			if item.PositionID != positionID {
+				continue
+			}
+			profile, ok := s.profiles[item.CandidateID]
+			if !ok || profile.CandidateName != name {
+				continue
+			}
+			result[name] = item
+			break
+		}
+	}
+	return result, nil
 }
 
 // ListPositionCandidates 按条件分页列出内存候选人记录。

@@ -23,11 +23,11 @@ type Server struct {
 	userPreferences     *UserPreferencesService
 	notificationProfile *NotificationProfileService
 	platformAccounts    *PlatformAccountService
-	positions         *PositionService
-	positionExecution *PositionExecutionService
-	positionLogs      *PositionLogService
-	taskRuns          *TaskRunService
-	candidates        *CandidateService
+	positions           *PositionService
+	positionExecution   *PositionExecutionService
+	positionLogs        *PositionLogService
+	taskRuns            *TaskRunService
+	candidates          *CandidateService
 	subscriptions       *SubscriptionService
 	payments            *PaymentService
 	runtimeConfig       *RuntimeConfigService
@@ -245,6 +245,10 @@ func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/processed-resumes") {
 		s.positionExecution.AddProcessedResumes(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/resume-requests") {
+		s.positionExecution.NotifyResumeRequests(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/counts") {

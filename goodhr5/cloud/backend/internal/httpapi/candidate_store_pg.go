@@ -326,6 +326,51 @@ func (s *PostgresCandidateStore) UpdateCandidateEngagementStatus(engagementID st
 	return nil
 }
 
+// FindEngagementsByPositionAndNames 按岗位和候选人姓名批量查找 engagement 记录。
+// positionID 为岗位 ID，names 为候选人姓名列表，返回姓名到 engagement 的映射，查不到的姓名不出现在结果中。
+// 调用方须先用岗位接口校验岗位归属租户，本查询按 position_id 限定数据范围。
+func (s *PostgresCandidateStore) FindEngagementsByPositionAndNames(positionID string, names []string) (map[string]CandidateEngagement, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result := map[string]CandidateEngagement{}
+	cleaned := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			cleaned = append(cleaned, name)
+		}
+	}
+	if strings.TrimSpace(positionID) == "" || len(cleaned) == 0 {
+		return result, nil
+	}
+	rows, err := s.db.QueryContext(
+		ctx,
+		`
+		SELECT ce.id::text, ce.candidate_id::text, cp.candidate_name
+		FROM candidate_engagements ce
+		JOIN candidate_profiles cp ON cp.id = ce.candidate_id
+		WHERE ce.position_id = $1::uuid AND cp.candidate_name = ANY($2)
+		`,
+		positionID,
+		cleaned,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var engagement CandidateEngagement
+		var name string
+		if err := rows.Scan(&engagement.ID, &engagement.CandidateID, &name); err != nil {
+			return nil, err
+		}
+		engagement.PositionID = positionID
+		result[name] = engagement
+	}
+	return result, rows.Err()
+}
+
 // ListPositionCandidates 按团队和筛选条件分页读取候选人记录。
 // tenantID 为当前用户团队 ID，query 可传搜索词、岗位 ID、岗位 ID 和分页条件。
 func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error) {

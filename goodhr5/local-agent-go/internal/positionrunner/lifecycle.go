@@ -110,6 +110,8 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 			_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
 			r.positionLog(positionID, "info", "岗位运行停止：收到停止信号，正在同步云端停止状态")
 			r.notifyCloudPositionStopped(positionID, options)
+			// 用户停止岗位后浏览器保持打开，后台继续检查待索要名单中候选人是否已回复。
+			r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
 			return
 		}
 		if isBrowserClosedPositionError(err) {
@@ -130,6 +132,8 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	}
 	if r.isUserStopped(positionID) {
 		r.positionLog(positionID, "info", "岗位运行停止：岗位运行已被用户停止，忽略扫描完成结果")
+		// 用户停止岗位后浏览器保持打开，后台继续检查待索要名单中候选人是否已回复。
+		r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
 		return
 	}
 	r.updateProgress(positionID, Progress{Stage: "completed", Message: "岗位运行已完成", Round: totalRounds, TotalRounds: totalRounds})
@@ -142,6 +146,8 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 		intFromMap(scanResult, "failed_count"),
 	))
 	r.notifyCloudPositionCompleted(positionID, options)
+	// 岗位完成后后台检查待索要名单中候选人是否已回复，已回复则自动索要简历。
+	r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
 }
 
 // Stop 停止本地岗位运行运行器。

@@ -1759,6 +1759,136 @@ async function openBossConversation(payload) {
 }
 
 /**
+ * Boss 消息页会话区选择器规则，允许平台配置 chat 分组覆盖默认探测值。
+ * @param {Record<string, any>} platformConfig - 平台配置。
+ * @returns {Record<string, any>} 消息页规则。
+ */
+function bossChatRules(platformConfig) {
+  const chat =
+    platformConfig?.chat && typeof platformConfig.chat === "object"
+      ? platformConfig.chat
+      : {};
+  return {
+    session_list: chat.session_list || "[class*='user-list']",
+    session_item: chat.session_item || "[class*='user-list'] [class*='item']",
+    request_resume_buttons: chat.request_resume_buttons || "text=求简历",
+    confirm_buttons: chat.confirm_buttons || ".boss-btn-primary",
+  };
+}
+
+/**
+ * 在 Boss 消息页会话列表中查找指定候选人的会话项。
+ * 返回第一个可见且文本包含候选人姓名的会话项全文（时间+未读数+姓名+职位+预览）与元素引用，不做回复状态判断。
+ * @param {Record<string, any>} payload - 查找参数。
+ * @returns {Promise<Record<string, any>>} 查找结果。
+ */
+async function findBossChatSession(payload) {
+  const startedAt = Date.now();
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossChatRules(platformConfig);
+  const name = String(payload.candidate_name || payload.name || "").trim();
+  if (!name) throw new Error("候选人姓名不能为空");
+  const locators = await allLocators(currentPage, rules.session_item, true, 0);
+  for (const item of locators) {
+    const locator = item.locator || item;
+    // 会话项多层嵌套时外层文本最全，按页面顺序取第一个命中的即是外层。
+    const text = String(
+      await locator.innerText({ timeout: 800 }).catch(() => ""),
+    );
+    if (!text.includes(name)) continue;
+    const ref = rememberElement(locator);
+    return {
+      found: true,
+      text,
+      element_ref: ref,
+      ref,
+      elapsed_ms: Date.now() - startedAt,
+    };
+  }
+  return {
+    found: false,
+    text: "",
+    element_ref: "",
+    elapsed_ms: Date.now() - startedAt,
+  };
+}
+
+/**
+ * 在 Boss 消息页把鼠标移到会话列表中部并用真实滚轮下滚一屏，模拟真实用户浏览会话。
+ * 返回滚动前后首个会话项文本，供调用方判断会话列表是否已经到底。
+ * @param {Record<string, any>} payload - 滚动参数。
+ * @returns {Promise<Record<string, any>>} 滚动结果。
+ */
+async function scrollBossChatList(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossChatRules(platformConfig);
+  const distance = Number(payload.distance || 600);
+  const firstItemText = async () => {
+    const locators = await allLocators(
+      currentPage,
+      rules.session_item,
+      true,
+      1,
+    );
+    const locator = locators[0]?.locator || locators[0];
+    if (!locator) return "";
+    return String(await locator.innerText({ timeout: 800 }).catch(() => ""));
+  };
+  const beforeText = await firstItemText();
+  const listLocator = await firstLocator(currentPage, rules.session_list, true);
+  let scrolled = false;
+  if (listLocator) {
+    await moveMouseToElement(currentPage, listLocator, payload);
+    await currentPage.mouse.wheel(0, distance);
+    scrolled = true;
+  } else {
+    // 找不到会话列表容器时兜底滚动页面，保持与真实滚轮一致。
+    await currentPage.mouse.wheel(0, distance);
+  }
+  const waitMs = Math.max(120, Number(payload.wait_ms || 600));
+  await currentPage.waitForTimeout(waitMs);
+  const afterText = await firstItemText();
+  return {
+    scrolled,
+    distance,
+    before_text: beforeText,
+    after_text: afterText,
+    wait_ms: waitMs,
+  };
+}
+
+/**
+ * 点击 Boss 消息页右侧工具栏的求简历按钮，并在出现确认弹窗时点击确认。
+ * @param {Record<string, any>} payload - 求简历参数。
+ * @returns {Promise<Record<string, any>>} 点击结果。
+ */
+async function requestBossChatResume(payload) {
+  const currentPage = await ensurePage();
+  const platformConfig = payload.platform_config || payload.config || {};
+  const rules = bossChatRules(platformConfig);
+  const clicked = await clickFirstVisible(
+    currentPage,
+    selectorList(rules.request_resume_buttons),
+    3000,
+  );
+  if (!clicked) {
+    return { clicked: false, confirm_visible: false };
+  }
+  // 求简历点击后会出现确认弹窗，短暂等待后尝试点击确认按钮；未弹窗时视为直接成功。
+  await currentPage.waitForTimeout(
+    Math.max(200, Number(payload.confirm_wait_ms || 800)),
+  );
+  const confirmVisible = await clickFirstVisible(
+    currentPage,
+    selectorList(rules.confirm_buttons),
+    1500,
+  );
+  return { clicked: true, confirm_visible: confirmVisible };
+}
+
+/**
  * 打开并提取指定 Boss 候选人的详情文本。
  * @param {Record<string, any>} payload - 详情提取参数。
  * @returns {Promise<Record<string, any>>} 详情文本结果。
@@ -6740,6 +6870,9 @@ const routes = {
   "/api/v1/boss/candidates/open-chat": openBossConversation,
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
   "/api/v1/boss/candidates/detail/close": closeBossCandidateDetail,
+  "/api/v1/boss/chat/find-session": findBossChatSession,
+  "/api/v1/boss/chat/scroll-list": scrollBossChatList,
+  "/api/v1/boss/chat/request-resume": requestBossChatResume,
   "/api/v1/hliepin/stable-click": hliepinStableClick,
 };
 

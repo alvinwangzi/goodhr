@@ -116,3 +116,46 @@ func TestSyncPositionStatusReturnsNoticeResult(t *testing.T) {
 		t.Fatalf("result = %+v", result)
 	}
 }
+
+// TestNotifyResumeRequestedSendsRunAndNames 验证求简历补报按约定路径和报文发送。
+func TestNotifyResumeRequestedSendsRunAndNames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/positions/position-1/resume-requests" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token-1" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		var request struct {
+			RunID string   `json:"run_id"`
+			Names []string `json:"names"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.RunID != "run-1" {
+			t.Fatalf("run_id = %q", request.RunID)
+		}
+		if len(request.Names) != 2 || request.Names[0] != "赵永豪" || request.Names[1] != "程雨遥" {
+			t.Fatalf("names = %v", request.Names)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "matched": request.Names, "missing": []string{}})
+	}))
+	defer server.Close()
+
+	client := New(server.URL)
+	if err := client.NotifyResumeRequested(t.Context(), "token-1", "position-1", "run-1", []string{"赵永豪", "程雨遥"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestNotifyResumeRequestedRejectsEmptyInput 验证岗位或名单为空时直接报错不发请求。
+func TestNotifyResumeRequestedRejectsEmptyInput(t *testing.T) {
+	client := New("https://example.invalid")
+	if err := client.NotifyResumeRequested(t.Context(), "token-1", "", "run-1", []string{"张三"}); err == nil {
+		t.Fatal("岗位 ID 为空时应报错")
+	}
+	if err := client.NotifyResumeRequested(t.Context(), "token-1", "position-1", "run-1", []string{"  "}); err == nil {
+		t.Fatal("名单为空时应报错")
+	}
+}
