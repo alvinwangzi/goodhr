@@ -727,11 +727,104 @@ func TestMaybeRestAfterCandidate(t *testing.T) {
 	runner.initRestState("position-rest", options)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := runner.maybeRestAfterCandidate(ctx, "position-rest", platformExecutor{}, options); !errors.Is(err, context.Canceled) {
+	if err := runner.maybeRestAfterCandidate(ctx, localdb.Position{ID: "position-rest"}, nil, platformExecutor{}, cloudapi.PlatformConfig{}, options); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	if runner.running["position-rest"].restUsed != 1 {
 		t.Fatalf("restUsed = %d", runner.running["position-rest"].restUsed)
+	}
+}
+
+// restProbeRuntime 模拟支持回复检查的平台运行时，记录检查与回列表调用次数。
+type restProbeRuntime struct {
+	platformcore.Runtime
+	checkCalls   int
+	openCalls    int
+	prepareCalls int
+	onEntryPage  bool
+}
+
+// IsPositionEntryPage 模拟判断当前页面是否在入口页。
+func (r *restProbeRuntime) IsPositionEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) (bool, error) {
+	return r.onEntryPage, nil
+}
+
+// OpenEntryPage 模拟打开入口页并标记已回到入口页。
+func (r *restProbeRuntime) OpenEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, entryURL string) error {
+	r.openCalls++
+	r.onEntryPage = true
+	return nil
+}
+
+// PrepareEntryPage 模拟入口页准备动作。
+func (r *restProbeRuntime) PrepareEntryPage(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig) error {
+	r.prepareCalls++
+	return nil
+}
+
+// CheckResumeRequests 模拟回复检查，本轮全部保持待检查状态。
+func (r *restProbeRuntime) CheckResumeRequests(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, names []string) (map[string]platformcore.ResumeRequestOutcome, error) {
+	r.checkCalls++
+	return map[string]platformcore.ResumeRequestOutcome{}, nil
+}
+
+// TestMaybeRestChecksResumeRequestsDuringRest 验证休息窗口内会检查待索要名单并回到岗位列表页。
+func TestMaybeRestChecksResumeRequestsDuringRest(t *testing.T) {
+	speedUpPageEntryCheck(t)
+	runner, db := newTestRunnerWithDB(t, &fakeWorker{})
+	if _, err := db.UpsertPositionSnapshot(map[string]any{"id": "rest-position", "name": "休息检查岗位", "platform_id": "boss"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.EnqueueResumeRequest("rest-position", "boss", "候选人A"); err != nil {
+		t.Fatal(err)
+	}
+	platformConfig := cloudapi.PlatformConfig{
+		"auth": map[string]any{
+			"pages": []any{
+				map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true},
+			},
+		},
+	}
+	runtime := &restProbeRuntime{}
+	position := localdb.Position{ID: "rest-position"}
+	endsAt := time.Now().Add(2 * time.Second)
+	checked := runner.checkResumeRequestsDuringRest(t.Context(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, platformConfig, StartOptions{}, endsAt)
+	if !checked {
+		t.Fatal("休息窗口内应执行回复检查")
+	}
+	if runtime.checkCalls != 1 {
+		t.Fatalf("checkCalls = %d", runtime.checkCalls)
+	}
+	if runtime.openCalls != 1 || runtime.prepareCalls != 1 {
+		t.Fatalf("openCalls = %d, prepareCalls = %d", runtime.openCalls, runtime.prepareCalls)
+	}
+	items, err := db.ListResumeRequests("rest-position", localdb.ResumeRequestStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Status != localdb.ResumeRequestStatusPending {
+		t.Fatalf("items = %+v，未回复候选人应保持待检查", items)
+	}
+	assertPositionLogContains(t, db, position.ID, "模拟休息：窗口内检查候选人回复")
+	assertPositionLogContains(t, db, position.ID, "模拟休息：已回到岗位列表页")
+}
+
+// TestMaybeRestSkipsCheckWithoutQueue 验证待索要名单为空或平台不支持回复检查时休息行为保持纯等待。
+func TestMaybeRestSkipsCheckWithoutQueue(t *testing.T) {
+	runner, db := newTestRunnerWithDB(t, &fakeWorker{})
+	if _, err := db.UpsertPositionSnapshot(map[string]any{"id": "rest-empty", "name": "休息空名单岗位", "platform_id": "boss"}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &restProbeRuntime{}
+	endsAt := time.Now().Add(time.Second)
+	if runner.checkResumeRequestsDuringRest(t.Context(), localdb.Position{ID: "rest-empty"}, runtime, platformExecutor{runner: runner, positionID: "rest-empty"}, cloudapi.PlatformConfig{}, StartOptions{}, endsAt) {
+		t.Fatal("名单为空时不应执行回复检查")
+	}
+	if runtime.checkCalls != 0 || runtime.openCalls != 0 {
+		t.Fatalf("checkCalls = %d, openCalls = %d", runtime.checkCalls, runtime.openCalls)
+	}
+	if runner.checkResumeRequestsDuringRest(t.Context(), localdb.Position{ID: "rest-none"}, nil, platformExecutor{runner: runner, positionID: "rest-none"}, cloudapi.PlatformConfig{}, StartOptions{}, endsAt) {
+		t.Fatal("平台不支持回复检查时不应执行检查")
 	}
 }
 

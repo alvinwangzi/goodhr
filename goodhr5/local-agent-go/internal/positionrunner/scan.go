@@ -424,7 +424,7 @@ scanLoop:
 				}
 				flushPositionCounts(ctx)
 				candidateCancel()
-				if err := r.maybeRestAfterCandidate(ctx, position.ID, exec, options); err != nil {
+				if err := r.maybeRestAfterCandidate(ctx, position, platformRuntime, exec, platformConfig, options); err != nil {
 					return nil, err
 				}
 				if r.isUserStopped(position.ID) {

@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	// restEntryRestoreAttempts 是休息窗口内回复检查后回到岗位列表页的最大重试次数。
+	restEntryRestoreAttempts = 3
+)
+
 // consumeCandidateForGreet 按顺序消费一个候选人并执行打招呼。
 // greetedSoFar 为岗位运行已打招呼数量。
 func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
@@ -223,9 +228,10 @@ func (r *Runner) initRestState(positionID string, options StartOptions) {
 	r.positionLog(positionID, "info", fmt.Sprintf("模拟休息已启用：最多休息 %d 次，首次约处理 %d 人后休息", maxTimes, nextAfter))
 }
 
-// maybeRestAfterCandidate 在候选人处理后按计划模拟休息。
-// ctx 为岗位运行上下文，positionID 为岗位运行 ID，options 为岗位运行启动参数。
-func (r *Runner) maybeRestAfterCandidate(ctx context.Context, positionID string, exec platformExecutor, options StartOptions) error {
+// maybeRestAfterCandidate 在候选人处理后按计划模拟休息；休息窗口内优先检查候选人回复，剩余时间继续等待。
+// ctx 为岗位运行上下文，position 为岗位运行记录，platformRuntime 为平台能力，exec 为浏览器执行器，platformConfig 为云端平台配置，options 为岗位运行启动参数。
+func (r *Runner) maybeRestAfterCandidate(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, options StartOptions) error {
+	positionID := position.ID
 	r.mu.Lock()
 	state := r.running[positionID]
 	if state == nil || state.restMaxTimes <= 0 || state.restUsed >= state.restMaxTimes || state.restNextAfter <= 0 {
@@ -255,7 +261,7 @@ func (r *Runner) maybeRestAfterCandidate(ctx context.Context, positionID string,
 	duration := time.Duration(durationMinutes * float64(time.Minute))
 	endsAt := time.Now().Add(duration)
 	r.positionLog(positionID, "info", fmt.Sprintf("模拟休息：开始，已连续处理 %d 人，第 %d 次休息，预计休息 %s，结束时间=%s", processed, restIndex, formatRestDuration(duration), endsAt.Format("15:04:05")))
-	if err := r.waitForSimulatedRest(ctx, positionID, exec, restIndex, duration, endsAt); err != nil {
+	if err := r.waitForSimulatedRest(ctx, position, platformRuntime, exec, platformConfig, options, restIndex, duration, endsAt); err != nil {
 		return err
 	}
 	r.updateProgress(positionID, Progress{Stage: "running", Message: "模拟休息结束，继续处理候选人"})
@@ -263,11 +269,75 @@ func (r *Runner) maybeRestAfterCandidate(ctx context.Context, positionID string,
 	return nil
 }
 
-// waitForSimulatedRest 等待模拟休息结束，并在开始时更新页面浮层和岗位运行进度。
-// 浮层调用始终异步且忽略错误，页面展示异常不会影响岗位运行主流程。
-func (r *Runner) waitForSimulatedRest(ctx context.Context, positionID string, exec platformExecutor, restIndex int, duration time.Duration, endsAt time.Time) error {
+// waitForSimulatedRest 等待模拟休息结束；窗口内优先检查候选人回复并回到岗位列表页，剩余时间继续等待。
+// 检查耗时计入休息时长，总休息节奏保持不变；浮层调用始终异步且忽略错误，页面展示异常不会影响岗位运行主流程。
+func (r *Runner) waitForSimulatedRest(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, options StartOptions, restIndex int, duration time.Duration, endsAt time.Time) error {
+	positionID := position.ID
 	r.updateRestDisplay(positionID, exec, restIndex, duration, endsAt)
-	return sleepWithContext(ctx, duration)
+	if r.checkResumeRequestsDuringRest(ctx, position, platformRuntime, exec, platformConfig, options, endsAt) {
+		// 检查会切到消息页，回到列表页后重新显示休息进度，避免用户误以为休息被打断。
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		r.updateRestDisplay(positionID, exec, restIndex, duration, endsAt)
+	}
+	remaining := time.Until(endsAt)
+	if remaining <= 0 {
+		return nil
+	}
+	return sleepWithContext(ctx, remaining)
+}
+
+// checkResumeRequestsDuringRest 在模拟休息窗口内检查候选人回复，检查耗时计入休息时长。
+// 待索要名单为空、平台不支持回复检查或数据库不可用时返回 false，休息行为与原来保持一致。
+func (r *Runner) checkResumeRequestsDuringRest(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, options StartOptions, endsAt time.Time) bool {
+	if r.db == nil || ctx.Err() != nil {
+		return false
+	}
+	if _, ok := platformRuntime.(platformcore.ResumeRequestChecker); !ok {
+		return false
+	}
+	items, err := r.db.ListResumeRequests(position.ID, localdb.ResumeRequestStatusPending)
+	if err != nil || len(items) == 0 {
+		return false
+	}
+	windowCtx, cancel := context.WithDeadline(ctx, endsAt)
+	defer cancel()
+	r.positionLog(position.ID, "info", fmt.Sprintf("模拟休息：窗口内检查候选人回复，名单=%d 人，需在 %s 前完成", len(items), endsAt.Format("15:04:05")))
+	r.performResumeChecks(windowCtx, position, platformRuntime, platformConfig, options)
+	r.restoreEntryPageDuringRest(windowCtx, position, platformRuntime, exec, platformConfig)
+	return true
+}
+
+// restoreEntryPageDuringRest 回复检查结束后把页面带回岗位列表页，失败时重试，不影响岗位继续运行。
+func (r *Runner) restoreEntryPageDuringRest(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig) {
+	entryURL := platformEntryURL(platformConfig)
+	if strings.TrimSpace(entryURL) == "" {
+		r.positionLog(position.ID, "warning", "模拟休息：回复检查后云端平台配置缺少入口页面地址，无法回到列表页")
+		return
+	}
+	for attempt := 1; attempt <= restEntryRestoreAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		onEntry, err := platformRuntime.IsPositionEntryPage(ctx, exec, platformConfig)
+		if err == nil && onEntry {
+			r.positionLog(position.ID, "info", "模拟休息：已回到岗位列表页")
+			return
+		}
+		if err := platformRuntime.OpenEntryPage(ctx, exec, platformConfig, entryURL); err != nil {
+			r.positionLog(position.ID, "warning", fmt.Sprintf("模拟休息：回到岗位列表页失败，第 %d/%d 次，错误=%s", attempt, restEntryRestoreAttempts, err.Error()))
+			continue
+		}
+		if err := r.waitPositionEntryPage(ctx, position.ID, platformRuntime, exec, platformConfig); err != nil {
+			r.positionLog(position.ID, "warning", fmt.Sprintf("模拟休息：确认岗位列表页加载失败，第 %d/%d 次，错误=%s", attempt, restEntryRestoreAttempts, err.Error()))
+			continue
+		}
+		r.prepareEntryPage(ctx, position.ID, platformRuntime, exec, platformConfig)
+		r.positionLog(position.ID, "info", "模拟休息：已回到岗位列表页")
+		return
+	}
+	r.positionLog(position.ID, "warning", "模拟休息：多次尝试后仍未回到岗位列表页，继续休息流程")
 }
 
 // updateRestDisplay 更新模拟休息进度，并以非阻塞方式显示浏览器页面浮层。

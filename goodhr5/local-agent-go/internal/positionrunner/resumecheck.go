@@ -49,9 +49,18 @@ func (r *Runner) asyncCheckResumeRequests(position localdb.Position, platformCon
 	}()
 }
 
-// checkResumeRequests 读取待索要名单并逐人检查回复、执行索要、更新状态和云端补报。
+// checkResumeRequests 岗位收尾入口：自建整体超时上下文后执行回复检查。
 // position 为岗位运行记录，platformRuntime 为平台能力，platformConfig 为云端平台配置，options 为启动参数。
 func (r *Runner) checkResumeRequests(position localdb.Position, platformRuntime platformcore.Runtime, platformConfig cloudapi.PlatformConfig, options StartOptions) {
+	ctx, cancel := context.WithTimeout(context.Background(), resumeCheckTimeout)
+	defer cancel()
+	r.performResumeChecks(ctx, position, platformRuntime, platformConfig, options)
+}
+
+// performResumeChecks 回复检查内核：读取待索要名单并逐人检查回复、执行索要、更新状态和云端补报。
+// 检查耗时受传入上下文约束，岗位收尾与休息窗口两个入口共用。
+// ctx 为检查上下文，position 为岗位运行记录，platformRuntime 为平台能力，platformConfig 为云端平台配置，options 为启动参数。
+func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, platformConfig cloudapi.PlatformConfig, options StartOptions) {
 	positionID := position.ID
 	items, err := r.db.ListResumeRequests(positionID, localdb.ResumeRequestStatusPending)
 	if err != nil {
@@ -67,8 +76,6 @@ func (r *Runner) checkResumeRequests(position localdb.Position, platformRuntime 
 		return
 	}
 	r.positionLog(positionID, "info", fmt.Sprintf("回复检查：开始检查 %d 位候选人是否已回复并索要简历", len(items)))
-	ctx, cancel := context.WithTimeout(context.Background(), resumeCheckTimeout)
-	defer cancel()
 	exec := platformExecutor{runner: r, positionID: positionID}
 	names := make([]string, 0, len(items))
 	for _, item := range items {
