@@ -323,7 +323,7 @@ export default function SubscriptionPage() {
     <>
       <PageHeader
         title='订阅会员'
-        description='会员费用于订阅服务，AI 余额用于支付 AI 调用费用。'
+        description='会员费用于订阅服务。'
         actions={
           <RefreshButton
             loading={loading || aiLoading}
@@ -371,18 +371,15 @@ export default function SubscriptionPage() {
             />
             <Typography
               noWrap
-              sx={{
-                color: subscription.active
-                  ? "rgba(255,255,255,.72)"
-                  : "text.secondary",
-                fontSize: 13,
-              }}
+              sx={{ color: "text.secondary", fontSize: 13 }}
             >
               到期：{formatDate(subscription.expires_at) || "--"}
             </Typography>
           </Stack>
         </InfoCard>
 
+        {/* AI 余额卡片暂时下线：AI 充值依赖的外部通道未开放，需要时取消注释即可恢复。 */}
+        {/*
         <InfoCard
           icon={<PaidRoundedIcon />}
           title='AI 余额'
@@ -428,6 +425,7 @@ export default function SubscriptionPage() {
             </Stack>
           </Stack>
         </InfoCard>
+        */}
 
         <SectionPanel
           sx={{
@@ -751,8 +749,9 @@ function InfoCard({
   return (
     <SectionPanel
       sx={{
-        bgcolor: dark ? "secondary.main" : "action.hover",
-        color: dark ? "#ffffff" : "text.primary",
+        // 高亮卡片用主题淡蓝底 + 深色文字，避免深色块在页面里过于突兀。
+        bgcolor: dark ? "action.selected" : "action.hover",
+        color: "text.primary",
         borderColor: dark ? "primary.main" : "divider",
         ...sx,
       }}
