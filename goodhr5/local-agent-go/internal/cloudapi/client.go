@@ -309,14 +309,14 @@ func (c *Client) StopPosition(ctx context.Context, token string, positionID stri
 }
 
 // SyncPositionStatus 通知云端岗位运行当前状态并返回邮件提醒结果。
-// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，status 为 completed、stopped 或 running。
-func (c *Client) SyncPositionStatus(ctx context.Context, token string, positionID string, status string) (PositionStatusSyncResult, error) {
-	return c.SyncPositionStatusWithCounts(ctx, token, positionID, status, 0, 0)
+// ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID，status 为 completed、stopped 或 running，machineID 为本机设备机器码。
+func (c *Client) SyncPositionStatus(ctx context.Context, token string, positionID string, status string, machineID string) (PositionStatusSyncResult, error) {
+	return c.SyncPositionStatusWithCounts(ctx, token, positionID, status, machineID, 0, 0)
 }
 
 // SyncPositionStatusWithCounts 通知云端岗位状态并携带本次打招呼和跳过数量。
-// ctx 为请求上下文，其余参数为登录信息、岗位状态和本次统计。
-func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string, positionID string, status string, greeted, skipped int) (PositionStatusSyncResult, error) {
+// ctx 为请求上下文，其余参数为登录信息、岗位状态、本机设备机器码和本次统计。
+func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string, positionID string, status string, machineID string, greeted, skipped int) (PositionStatusSyncResult, error) {
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
 		return PositionStatusSyncResult{}, fmt.Errorf("岗位运行 ID 不能为空")
@@ -325,8 +325,9 @@ func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string,
 	if status == "" {
 		return PositionStatusSyncResult{}, fmt.Errorf("岗位运行状态不能为空")
 	}
+	// machine_id 必须上报：云端在运行中状态会校验设备绑定，缺失会被拒绝并导致执行任务记录无法创建。
 	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/status", map[string]any{
-		"status": status, "run_greeted_count": max(0, greeted), "run_skipped_count": max(0, skipped),
+		"status": status, "machine_id": strings.TrimSpace(machineID), "run_greeted_count": max(0, greeted), "run_skipped_count": max(0, skipped),
 	})
 	if err != nil {
 		return PositionStatusSyncResult{}, fmt.Errorf("同步云端岗位运行状态失败：%w", err)

@@ -504,9 +504,15 @@ func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, 
 	if token == "" {
 		token = bearerToken(r)
 	}
+	// 设备机器码随启动参数传给运行器，状态同步时上报云端做设备绑定校验；读取失败不阻塞启动，同步时按旧逻辑降级。
+	machineID, machineErr := s.ensureMachineID()
+	if machineErr != nil {
+		machineID = ""
+	}
 	result, err := s.runner.Start(r.Context(), positionID, positionrunner.StartOptions{
 		CloudAPIBase:           s.cloudAPIBase(payload),
 		Token:                  token,
+		MachineID:              machineID,
 		EnableGreet:            boolValueDefault(payload["enable_greet"], true),
 		GreetRetries:           0,
 		ScrollDelayMin:         3,

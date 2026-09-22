@@ -219,7 +219,7 @@ func (r *Runner) syncCloudPositionStatus(positionID string, status string, label
 	runGreetedCount := r.currentRunGreeted(positionID)
 	for attempt := 1; attempt <= attempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		result, err := client.SyncPositionStatusWithCounts(ctx, token, positionID, status, runGreetedCount, 0)
+		result, err := client.SyncPositionStatusWithCounts(ctx, token, positionID, status, options.MachineID, runGreetedCount, 0)
 		cancel()
 		if err == nil && status == "completed" && !result.NoticeSent {
 			err = fmt.Errorf("云端未确认完成邮件已发送")

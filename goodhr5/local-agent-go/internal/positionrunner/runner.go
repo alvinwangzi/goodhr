@@ -209,6 +209,8 @@ type StartOptions struct {
 	EmailForNotify string `json:"email_for_notify"` // 失败通知邮箱
 	// CloudRunID 为云端执行任务记录 ID，由启动状态同步返回，随候选人结果上报归组到本次执行任务。
 	CloudRunID string `json:"cloud_run_id,omitempty"`
+	// MachineID 为本机设备机器码，随状态同步上报云端用于设备绑定校验。
+	MachineID string `json:"machine_id,omitempty"`
 }
 
 // New 创建本地岗位运行运行器。

@@ -87,13 +87,17 @@ func TestSyncPositionStatusReturnsNoticeResult(t *testing.T) {
 			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
 		}
 		var request struct {
-			RunGreetedCount int `json:"run_greeted_count"`
+			RunGreetedCount int    `json:"run_greeted_count"`
+			MachineID       string `json:"machine_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
 		if request.RunGreetedCount != 3 {
 			t.Fatalf("run_greeted_count = %d", request.RunGreetedCount)
+		}
+		if request.MachineID != "goodhr-device-v1-test" {
+			t.Fatalf("machine_id = %q", request.MachineID)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":          true,
@@ -104,7 +108,7 @@ func TestSyncPositionStatusReturnsNoticeResult(t *testing.T) {
 	defer server.Close()
 
 	client := New(server.URL)
-	result, err := client.SyncPositionStatusWithCounts(t.Context(), "token-1", "position-1", "completed", 3, 1)
+	result, err := client.SyncPositionStatusWithCounts(t.Context(), "token-1", "position-1", "completed", "goodhr-device-v1-test", 3, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
