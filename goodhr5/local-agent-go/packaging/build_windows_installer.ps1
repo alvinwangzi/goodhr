@@ -1,19 +1,19 @@
 # Purpose: build GoodHR Go Local Agent and create the Windows installer.
 param(
-  [string]$Version = "5.3.5"
+  [string]$Version = "0.1.0",
+  [string]$Environment = $env:GOODHR_APP_ENV,
+  [string]$ConfigFile = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ($Environment -cnotin @("dev", "prod")) {
+  throw "请通过 -Environment dev 或 -Environment prod 选择安装包环境。"
+}
 
 $RootDir = Resolve-Path (Join-Path $PSScriptRoot "..")
-$DistInputDir = Join-Path $RootDir "dist\installer-input"
-# $ConsoleInputDir = Join-Path $DistInputDir "console"
-$SourceExe = Join-Path $RootDir "dist\bin\goodhr-local-agent-windows-amd64.exe"
-$TargetExe = Join-Path $DistInputDir "goodhr-local-agent.exe"
-$IssPath = Join-Path $PSScriptRoot "GoodHRLocalAgentGo.iss"
-# 暂时不把 frontend-next 打进本地程序安装包，避免前端构建影响本地程序打包。
-# $FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend-next")
-# $FrontendOutDir = Join-Path $FrontendDir "out"
+$DistBinDir = Join-Path $RootDir "dist\bin\$Environment"
+$DistInputDir = Join-Path $RootDir "dist\installer-input\$Environment"
+$DistInstallerDir = Join-Path $RootDir "dist\installers\$Environment"
 
 # Write-Step prints the current build step.
 # message is the build step text.
@@ -21,6 +21,22 @@ function Write-Step {
   param([string]$message)
   Write-Host "[GoodHR] $message" -ForegroundColor Cyan
 }
+
+# 清理旧的构建产物，避免残留文件影响新包。
+Write-Step "清理旧构建产物"
+foreach ($dir in @($DistBinDir, $DistInputDir, $DistInstallerDir)) {
+  if (Test-Path $dir) {
+    Remove-Item -Recurse -Force $dir
+    Write-Step "已删除: $dir"
+  }
+}
+# $ConsoleInputDir = Join-Path $DistInputDir "console"
+$SourceExe = Join-Path $RootDir "dist\bin\$Environment\hrplus-agent-$Environment-windows-amd64.exe"
+$TargetExe = Join-Path $DistInputDir "hrplus-agent.exe"
+$IssPath = Join-Path $PSScriptRoot "GoodHRLocalAgentGo.iss"
+# 暂时不把 frontend-next 打进本地程序安装包，避免前端构建影响本地程序打包。
+# $FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend-next")
+# $FrontendOutDir = Join-Path $FrontendDir "out"
 
 # Find-InnoSetup locates the Inno Setup compiler.
 # Returns the ISCC.exe path.
@@ -83,9 +99,13 @@ function Ensure-NodeOnPath {
   throw "node.exe was not found. Please reinstall Node.js LTS or reopen PowerShell after installation."
 }
 
-Write-Step "Build Windows x64 Go local agent"
+$iscc = Find-InnoSetup
+if (!(Test-Path (Join-Path $RootDir "worker-node\node_modules"))) {
+  throw "缺少 Worker 依赖，请先在 worker-node 目录安装依赖后再创建安装包。"
+}
+Write-Step "构建 Windows x64 本地程序：环境=$Environment"
 $buildStartedAt = Get-Date
-& (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version
+& (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version -Environment $Environment -ConfigFile $ConfigFile
 if ($LASTEXITCODE -ne 0) {
   throw "Go build script failed with exit code $LASTEXITCODE."
 }
@@ -147,12 +167,11 @@ Write-Step "Worker source verified: SHA256=$sourceWorkerHash"
 # New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
 # Copy-Item -Recurse -Force (Join-Path $FrontendOutDir "*") $ConsoleInputDir
 
-$iscc = Find-InnoSetup
-Write-Step "Create Windows installer"
-& $iscc "/DMyAppVersion=$Version" $IssPath
+Write-Step "创建 Windows 安装包：环境=$Environment"
+& $iscc "/DMyAppVersion=$Version" "/DBuildEnvironment=$Environment" $IssPath
 if ($LASTEXITCODE -ne 0) {
   throw "Inno Setup build failed with exit code $LASTEXITCODE."
 }
 
-$InstallerOutputDir = Join-Path $RootDir "dist-installer"
+$InstallerOutputDir = Join-Path $RootDir "dist\installers\$Environment"
 Write-Step "Installer build completed: $InstallerOutputDir"

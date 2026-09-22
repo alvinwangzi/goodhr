@@ -1,0 +1,7 @@
+{
+  "_comment": "本文件配置生产环境安装包的公开地址；沿用现有线上接口及控制台配置，发布前核对，不要填写密钥。",
+  "environment": "prod",
+  "console_url": "https://goodhr.58it.cn/admin",
+  "cloud_api_base": "https://goodhr5.58it.cn",
+  "console_manifest_url": "https://goodhr5.58it.cn/downloads/goodhr-console-manifest.json"
+}

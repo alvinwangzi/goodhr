@@ -2,7 +2,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"log"
 	"net"
@@ -11,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"goodhr5/local-agent-go/internal/cloudapi"
 )
 
 // openConsoleAfterStart 在本地服务可访问后打开控制台。
@@ -76,25 +73,14 @@ func (s *Server) healthURL(port int) string {
 	return "http://" + net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)) + "/health"
 }
 
-// resolveConsoleURL 从云端公共配置读取控制台地址，失败时返回本地兜底地址。
-// fallbackURL 为本地控制台地址。
+// resolveConsoleURL 使用当前环境配置的控制台地址，不再从远程获取跳转地址。
+// fallbackURL 只用于防御无效配置，不会回退到其他环境。
 func (s *Server) resolveConsoleURL(fallbackURL string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	log.Printf("开始读取云端控制台地址：cloud_api=%s fallback_url=%s", s.cfg.CloudAPIBase, fallbackURL)
-	remoteURL, err := cloudapi.New(s.cfg.CloudAPIBase).FetchLocalAgentConsoleURL(ctx)
-	if err != nil {
-		log.Printf("读取云端控制台地址失败，使用本地控制台地址：%v", err)
+	if !isConsoleURLAllowed(s.cfg.ConsoleURL) {
 		return fallbackURL
 	}
-	if !isConsoleURLAllowed(remoteURL) {
-		if remoteURL != "" {
-			log.Printf("云端控制台地址不合法，使用本地控制台地址：%s", remoteURL)
-		}
-		return fallbackURL
-	}
-	log.Printf("已读取云端控制台地址：%s", remoteURL)
-	return remoteURL
+	log.Printf("使用环境配置的控制台地址：environment=%s console_url=%s", s.cfg.Environment, s.cfg.ConsoleURL)
+	return s.cfg.ConsoleURL
 }
 
 // isConsoleURLAllowed 判断控制台地址是否可以交给系统浏览器打开。

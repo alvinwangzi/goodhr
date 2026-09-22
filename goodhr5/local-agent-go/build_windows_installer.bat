@@ -3,10 +3,16 @@ REM Purpose: check Windows build tools and package GoodHR Go Local Agent install
 setlocal EnableExtensions
 
 set "ROOT_DIR=%~dp0"
-set "VERSION=%~1"
-if "%VERSION%"=="" set "VERSION=5.3.5"
+set "BUILD_ENV=%~1"
+if "%BUILD_ENV%"=="" set "BUILD_ENV=%GOODHR_APP_ENV%"
+if not "%BUILD_ENV%"=="dev" if not "%BUILD_ENV%"=="prod" (
+  echo [GoodHR][ERROR] Usage: build_windows_installer.bat dev^|prod [version]
+  exit /b 1
+)
+set "VERSION=%~2"
+if "%VERSION%"=="" set "VERSION=0.1.0"
 
-echo [GoodHR] Start Windows installer build. Version: %VERSION%
+echo [GoodHR] Start Windows installer build. Environment: %BUILD_ENV% Version: %VERSION%
 echo [GoodHR] Project dir: %ROOT_DIR%
 echo.
 
@@ -75,7 +81,7 @@ if errorlevel 1 (
 
 echo.
 echo [GoodHR] Running installer build script...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%packaging\build_windows_installer.ps1" -Version "%VERSION%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT_DIR%packaging\build_windows_installer.ps1" -Version "%VERSION%" -Environment "%BUILD_ENV%"
 if errorlevel 1 (
   echo.
   echo [GoodHR][ERROR] Build failed. Please check the error output above.
@@ -85,7 +91,7 @@ if errorlevel 1 (
 
 echo.
 echo [GoodHR] Build completed.
-echo [GoodHR] Installer output dir: %ROOT_DIR%dist-installer
+echo [GoodHR] Installer output dir: %ROOT_DIR%dist\installers\%BUILD_ENV%
 echo.
 pause
 exit /b 0

@@ -2,7 +2,9 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -22,12 +24,25 @@ func main() {
 	dataDir := flag.String("data-dir", "", "本地数据目录")
 	openConsole := flag.Bool("open-console", os.Getenv("GOODHR_AUTO_OPEN_CONSOLE") != "false", "启动后自动打开控制台")
 	restart := flag.Bool("restart", false, "启动前先关闭旧的本地程序")
+	printConfig := flag.Bool("print-config", false, "输出环境地址配置后退出，不启动服务或打开浏览器")
 	flag.Parse()
+	if *printConfig {
+		buildConfig, err := config.RuntimeBuildConfig()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(buildConfig); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	log.Printf("本地程序进程启动：pid=%d args=%v host=%s port=%d data_dir=%s open_console=%v restart=%v",
 		os.Getpid(), os.Args, *host, *port, *dataDir, *openConsole, *restart)
 	if *restart {
 		log.Printf("收到 restart 参数，准备关闭旧本地程序：pid=%d", os.Getpid())
-		if err := process.StopOtherInstances("goodhr-local-agent.exe", os.Getpid()); err != nil {
+		if err := process.StopOtherInstances("hrplus-agent.exe", os.Getpid()); err != nil {
 			log.Fatalf("按程序名关闭旧本地程序失败，已拒绝启动：%v", err)
 		}
 		if err := process.StopGoodHRPortOwner(*host, *port, os.Getpid()); err != nil {
@@ -48,8 +63,8 @@ func main() {
 		defer logFile.Close()
 	}
 	log.Printf("文件日志已启用：path=%s pid=%d args=%v", filepath.Join(cfg.LogsDir, "local-agent.log"), os.Getpid(), os.Args)
-	log.Printf("本地程序配置：host=%s port=%d data_dir=%s frontend_dir=%s cloud_api=%s auto_open_console=%v",
-		cfg.Host, cfg.Port, cfg.DataDir, cfg.FrontendDir, cfg.CloudAPIBase, *openConsole)
+	log.Printf("本地程序配置：environment=%s console_url=%s host=%s port=%d data_dir=%s frontend_dir=%s cloud_api=%s auto_open_console=%v",
+		cfg.Environment, cfg.ConsoleURL, cfg.Host, cfg.Port, cfg.DataDir, cfg.FrontendDir, cfg.CloudAPIBase, *openConsole)
 	browserprofile.EnsureDefaultsAsync(cfg.ProfilesDir)
 	cfg.AutoOpenConsole = *openConsole
 	server, err := app.NewServer(cfg)

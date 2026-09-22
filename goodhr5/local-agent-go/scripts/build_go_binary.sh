@@ -3,10 +3,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist/bin"
 TARGET_OS="${TARGET_OS:-$(go env GOOS)}"
 TARGET_ARCH="${TARGET_ARCH:-$(go env GOARCH)}"
-EXT=""
+BUILD_ENV="${GOODHR_APP_ENV:-}"
+VERSION="${VERSION:-0.1.0}"
+CONFIG_FILE="${GOODHR_BUILD_CONFIG:-$ROOT_DIR/packaging/environments/$BUILD_ENV.json}"
+if [[ "$CONFIG_FILE" != /* ]]; then
+  CONFIG_FILE="$PWD/$CONFIG_FILE"
+fi
 
 # log 输出脚本状态。
 # 参数为要显示的中文消息。
@@ -14,25 +18,16 @@ log() {
   printf '[GoodHR] %s\n' "$*"
 }
 
-if [ "$TARGET_OS" = "windows" ]; then
-  EXT=".exe"
-fi
-LDFLAGS=""
-if [ "$TARGET_OS" = "windows" ]; then
-  LDFLAGS="-H windowsgui"
+if [[ "$BUILD_ENV" != "dev" && "$BUILD_ENV" != "prod" ]]; then
+  log "请设置 GOODHR_APP_ENV=dev 或 GOODHR_APP_ENV=prod 后再构建"
+  exit 1
 fi
 
-mkdir -p "$DIST_DIR"
-OUTPUT="$DIST_DIR/goodhr-local-agent-${TARGET_OS}-${TARGET_ARCH}${EXT}"
-
-log "开始编译 Go 本地程序：GOOS=$TARGET_OS GOARCH=$TARGET_ARCH"
+log "开始编译 Go 本地程序：环境=$BUILD_ENV GOOS=$TARGET_OS GOARCH=$TARGET_ARCH"
 (
   cd "$ROOT_DIR"
-  CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build \
-    -trimpath \
-    -ldflags="$LDFLAGS" \
-    -o "$OUTPUT" \
-    ./cmd/goodhr-local-agent
+  CGO_ENABLED=0 GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" go run \
+    ./cmd/build-local-agent \
+    -env "$BUILD_ENV" -config "$CONFIG_FILE" \
+    -os "$TARGET_OS" -arch "$TARGET_ARCH" -version "$VERSION"
 )
-
-log "编译完成：$OUTPUT"
