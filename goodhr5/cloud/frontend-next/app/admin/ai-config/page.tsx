@@ -12,6 +12,7 @@ import {
   Button,
   IconButton,
   InputAdornment,
+  Popover,
   Stack,
   TextField,
   Typography,
@@ -51,6 +52,8 @@ export default function AIConfigPage() {
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [testError, setTestError] = useState("");
+  const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
 
   /** load 读取当前用户的自定义 AI 配置并回填表单。 */
   async function load() {
@@ -116,6 +119,7 @@ export default function AIConfigPage() {
       notify("请填写模型名称", "warning");
       return;
     }
+    setTestError("");
     setTesting(true);
     try {
       await cloudRequest("/api/config/test-ai", {
@@ -132,10 +136,7 @@ export default function AIConfigPage() {
         notify("AI 连接成功，但自动保存失败，请手动保存", "warning");
       }
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "AI 测试失败",
-        "error",
-      );
+      setTestError(parseTestError(error));
     } finally {
       setTesting(false);
     }
@@ -144,6 +145,7 @@ export default function AIConfigPage() {
   /** setText 更新一个文本配置字段。 */
   function setText(key: "base_url" | "model" | "api_key", value: string) {
     setForm((current) => ({ ...current, [key]: value }));
+    setTestError("");
   }
 
   return (
@@ -178,9 +180,9 @@ export default function AIConfigPage() {
         <SectionTitle
           icon={<ScienceOutlinedIcon />}
           title='自定义 AI'
-          description='岗位 AI 筛选优先使用这里保存的接口配置。'
+          description='请配置多模态大模型，即支持文字、图片输入的大模型，比如 qwen3.7-plus、qwen3.8-max 等。'
         />
-        <Stack spacing={2.25} sx={{ mt: 2.5, maxWidth: 640 }}>
+        <Stack spacing={2.25} sx={{ mt: 2.5, maxWidth: 800 }}>
           <LabeledField
             label='API 地址'
             help='OpenAI 兼容的服务地址，通常以 /v1 结尾。'
@@ -192,7 +194,9 @@ export default function AIConfigPage() {
               onChange={(event) => setText("base_url", event.target.value)}
             />
           </LabeledField>
-          <LabeledField label='模型名称' help='与接口服务匹配的模型 ID。'>
+          <LabeledField label='模型名称' help={
+            <Typography component="span" onClick={(e) => setHelpAnchor(e.currentTarget)} sx={{ color: "primary.main", fontSize: 12, cursor: "pointer", "&:hover": { textDecoration: "underline" } }}>如何判断多模态模型</Typography>
+          }>
             <TextField
               size='small'
               value={form.model}
@@ -224,21 +228,50 @@ export default function AIConfigPage() {
               }}
             />
           </LabeledField>
-          <Stack direction='row' spacing={1.5} sx={{ alignItems: "center" }}>
-            <Button
-              variant='contained'
-              startIcon={<ScienceOutlinedIcon />}
-              disabled={testing || loading}
-              onClick={() => void testAI()}
-            >
-              {testing ? "测试中" : "先测试 AI"}
-            </Button>
-            <Typography sx={{ color: "text.secondary", fontSize: 12.5 }}>
-              测试通过后会自动保存配置，无需再点保存。
-            </Typography>
+          <Stack spacing={1} sx={{ alignItems: "flex-start" }}>
+            <Stack direction='row' spacing={1.5} sx={{ alignItems: "center" }}>
+              <Button
+                variant='contained'
+                startIcon={<ScienceOutlinedIcon />}
+                disabled={testing || loading}
+                onClick={() => void testAI()}
+              >
+                {testing ? "测试中" : "测试AI是否配置正确"}
+              </Button>
+              <Typography sx={{ color: "text.secondary", fontSize: 12.5 }}>
+                测试通过后会自动保存配置，无需再点保存。
+              </Typography>
+            </Stack>
+            {testError ? (
+              <Typography sx={{ color: "error.main", fontSize: 13, lineHeight: 1.6 }}>
+                {testError}
+              </Typography>
+            ) : null}
           </Stack>
         </Stack>
       </SectionPanel>
+      <Popover
+        open={Boolean(helpAnchor)}
+        anchorEl={helpAnchor}
+        onClose={() => setHelpAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        sx={{ "& .MuiPaper-root": { maxWidth: 420, p: 2 } }}
+      >
+        <Typography sx={{ fontSize: 13.5, lineHeight: 1.8, color: "text.primary" }}>
+          在千问模型页面找到你想用的模型，看模型卡片上的<b>能力图标</b>区域：
+        </Typography>
+        <Box component="img" src="/multimodal-guide.png" alt="多模态模型能力图标示例" sx={{ width: "100%", mt: 1.5, mb: 1, borderRadius: 1, border: "1px solid", borderColor: "divider" }} />
+        <Typography sx={{ fontSize: 13.5, lineHeight: 1.8, color: "text.primary" }}>
+          如上图，显示 <b>图片 + 文字 → 文字</b> 的图标，说明支持图片和文字输入，就是多模态大模型。
+        </Typography>
+        <Typography sx={{ mt: 0.5, fontSize: 13.5, lineHeight: 1.8, color: "text.primary" }}>
+          如果只有文字图标，则不支持图片输入，不能用在本系统中。
+        </Typography>
+        <Link href="https://www.qianwenai.com/models" target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 12, color: "primary.main", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+          去千问模型页面查看 →
+        </Link>
+      </Popover>
     </>
   );
 }
@@ -252,6 +285,33 @@ function normalizeLoadedBaseURL(value: string) {
   return trimmed;
 }
 
+// parseTestError 将 AI 测试失败的原始错误转为友好的中文提示。
+function parseTestError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  // API Key 无效
+  if (message.includes("401") || message.toLowerCase().includes("invalid_api_key") || message.toLowerCase().includes("authentication")) {
+    return "API Key 无效，请检查是否填写正确，或到千问平台重新获取。";
+  }
+  // 模型不存在
+  if (message.includes("404") || message.toLowerCase().includes("model_not_found")) {
+    return "找不到这个模型，请确认模型名称填写正确。";
+  }
+  // 接口地址错误
+  if (message.includes("ENOTFOUND") || message.includes("ECONNREFUSED") || message.includes("getaddrinfo")) {
+    return "无法连接到 API 地址，请检查地址是否正确、网络是否通畅。";
+  }
+  // 请求超时
+  if (message.includes("timeout") || message.includes("ETIMEDOUT") || message.includes("AbortError")) {
+    return "请求超时，AI 服务响应太慢，请稍后重试。";
+  }
+  // 配额/限流
+  if (message.includes("429") || message.toLowerCase().includes("rate_limit") || message.toLowerCase().includes("quota")) {
+    return "调用次数已用完或被限流，请检查账户余额或稍后重试。";
+  }
+  // 兜底
+  return message || "AI 测试失败，请检查配置后重试。";
+}
+
 /** LabeledField 展示一行带说明的表单项。 */
 function LabeledField({
   label,
@@ -259,14 +319,14 @@ function LabeledField({
   children,
 }: {
   label: string;
-  help: string;
+  help: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", sm: "minmax(160px, 1fr) 260px" },
+        gridTemplateColumns: { xs: "1fr", sm: "minmax(100px, 140px) 1fr" },
         gap: 1.5,
         alignItems: "center",
       }}
