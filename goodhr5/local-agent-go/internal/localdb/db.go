@@ -33,6 +33,9 @@ func Open(cfg *config.Config) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开本地数据库失败：%w", err)
 	}
+	// SQLite 多连接并发写会立即报 database is locked，本地程序按单连接串行化读写，
+	// 同时保证 migrate 里的 PRAGMA（foreign_keys 等连接级设置）对所有操作真实生效。
+	conn.SetMaxOpenConns(1)
 	db := &DB{conn: conn, path: dbPath}
 	if err := db.migrate(); err != nil {
 		_ = conn.Close()
@@ -178,6 +181,29 @@ CREATE TABLE IF NOT EXISTS local_downloads (
     created_at TEXT NOT NULL,
     -- 更新时间。
     updated_at TEXT NOT NULL
+);
+
+-- resume_request_queue 保存打招呼后待检查回复并索要信息的候选人名单。
+CREATE TABLE IF NOT EXISTS resume_request_queue (
+    -- 记录唯一 ID。
+    id TEXT PRIMARY KEY,
+    -- 关联岗位运行 ID。
+    position_id TEXT NOT NULL DEFAULT '',
+    -- 平台 ID，如 boss。
+    platform_id TEXT NOT NULL DEFAULT '',
+    -- 候选人姓名。
+    candidate_name TEXT NOT NULL DEFAULT '',
+    -- 状态：pending 待检查回复，requested 已完成索要，failed 处理失败。
+    status TEXT NOT NULL DEFAULT 'pending',
+    -- 失败原因，status 为 failed 时有值。
+    fail_reason TEXT NOT NULL DEFAULT '',
+    -- 入队时间。
+    created_at TEXT NOT NULL,
+    -- 更新时间。
+    updated_at TEXT NOT NULL,
+    -- 完成索要时间。
+    requested_at TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY(position_id) REFERENCES local_positions(id) ON DELETE CASCADE
 );
 
 INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
