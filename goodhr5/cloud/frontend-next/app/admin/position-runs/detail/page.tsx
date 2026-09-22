@@ -1,4 +1,4 @@
-/** 本文件负责新版后台执行任务详情：任务统计和本次运行的打招呼、索要简历名单。 */
+/** 本文件负责新版后台任务记录详情：任务统计和本次运行的打招呼、索要简历名单。 */
 "use client";
 
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
@@ -25,7 +25,7 @@ import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest, formatDate, formatDateTime } from "@/lib/admin-api";
 import { scoreText } from "@/lib/candidate-normalize";
 
-/** TaskRunDetail 表示执行任务详情的接口数据。 */
+/** TaskRunDetail 表示任务记录详情的接口数据。 */
 type TaskRunDetail = {
   id: string;
   user_email: string;
@@ -44,7 +44,7 @@ type TaskRunDetail = {
   finished_at: string | null;
 };
 
-/** TaskRunCandidateItem 表示执行任务名单里的一条候选人记录。 */
+/** TaskRunCandidateItem 表示任务记录名单里的一条候选人记录。 */
 type TaskRunCandidateItem = {
   candidate_id: string;
   candidate_name: string;
@@ -57,7 +57,7 @@ type TaskRunCandidateItem = {
   message_text: string;
 };
 
-/** taskRunStatusText 返回执行任务状态的中文文案。 */
+/** taskRunStatusText 返回任务记录状态的中文文案。 */
 function taskRunStatusText(status: string) {
   return (
     ({
@@ -69,7 +69,7 @@ function taskRunStatusText(status: string) {
   );
 }
 
-/** taskRunStatusColor 返回执行任务状态对应的展示颜色。 */
+/** taskRunStatusColor 返回任务记录状态对应的展示颜色。 */
 function taskRunStatusColor(
   status: string,
 ): "info" | "success" | "warning" | "error" | "default" {
@@ -80,7 +80,7 @@ function taskRunStatusColor(
   return "default";
 }
 
-/** PositionRunDetailPage 展示一次执行任务的统计和候选人名单。 */
+/** PositionRunDetailPage 展示一次任务记录的统计和候选人名单。 */
 export default function PositionRunDetailPage() {
   const params = useSearchParams();
   const { notify } = useAdmin();
@@ -102,7 +102,7 @@ export default function PositionRunDetailPage() {
       setRun(data.run || null);
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "执行任务读取失败",
+        error instanceof Error ? error.message : "任务记录读取失败",
         "error",
       );
     } finally {
@@ -142,7 +142,7 @@ export default function PositionRunDetailPage() {
   if (!runID)
     return (
       <SectionPanel>
-        <Typography color='error'>缺少执行任务 ID</Typography>
+        <Typography color='error'>缺少任务记录 ID</Typography>
       </SectionPanel>
     );
 
@@ -151,8 +151,8 @@ export default function PositionRunDetailPage() {
       <PageHeader
         title={
           run
-            ? `执行任务 · ${run.position_name || "岗位已删除"}`
-            : "执行任务详情"
+            ? `任务记录 · ${run.position_name || "岗位已删除"}`
+            : "任务记录详情"
         }
         description={
           run

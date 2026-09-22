@@ -428,20 +428,32 @@ function ResumeRow({
   );
 }
 
-/** ProgressMarks 展示候选人的触达进度标记：已看详情、已打招呼、已索要简历。 */
+/** ProgressMarks 展示候选人的触达进度标记：看详情、打招呼、要简历，完成亮起显示"已"，未完成为灰色显示"未"。 */
 function ProgressMarks({ item }: { item: NormalizedCandidate }) {
   const marks = [
-    { label: "已看详情", active: Boolean(item.detailFetchedAt) },
-    { label: "已打招呼", active: Boolean(item.greetedAt) },
-    { label: "已要简历", active: Boolean(item.resumeRequestedAt) },
+    {
+      done: "已看详情",
+      todo: "未看详情",
+      active: Boolean(item.detailFetchedAt),
+    },
+    {
+      done: "已打招呼",
+      todo: "未打招呼",
+      active: Boolean(item.greetedAt),
+    },
+    {
+      done: "已要简历",
+      todo: "未要简历",
+      active: Boolean(item.resumeRequestedAt),
+    },
   ];
   return (
     <Stack direction='row' spacing={0.6} sx={{ flexWrap: "wrap", rowGap: 0.6 }}>
       {marks.map((mark) => (
         <Chip
-          key={mark.label}
+          key={mark.done}
           size='small'
-          label={mark.label}
+          label={mark.active ? mark.done : mark.todo}
           color={mark.active ? "primary" : "default"}
           variant={mark.active ? "filled" : "outlined"}
           sx={{

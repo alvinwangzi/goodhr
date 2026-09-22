@@ -1,4 +1,4 @@
-/** 本文件负责新版后台执行任务列表：展示每次岗位运行的记录、统计和详情入口。 */
+/** 本文件负责新版后台任务记录列表：展示每次岗位运行的记录、统计和详情入口。 */
 "use client";
 
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
@@ -22,7 +22,7 @@ import { useAdmin } from "@/components/admin/AdminApp";
 import PlatformLogo from "@/components/admin/PlatformLogo";
 import { cloudRequest, formatDateTime } from "@/lib/admin-api";
 
-/** TaskRunItem 表示一条执行任务记录的接口数据。 */
+/** TaskRunItem 表示一条任务记录的接口数据。 */
 type TaskRunItem = {
   id: string;
   user_email: string;
@@ -41,7 +41,7 @@ type TaskRunItem = {
   finished_at: string | null;
 };
 
-/** taskRunStatusText 返回执行任务状态的中文文案。 */
+/** taskRunStatusText 返回任务记录状态的中文文案。 */
 function taskRunStatusText(status: string) {
   return (
     ({
@@ -53,7 +53,7 @@ function taskRunStatusText(status: string) {
   );
 }
 
-/** taskRunStatusColor 返回执行任务状态对应的展示颜色。 */
+/** taskRunStatusColor 返回任务记录状态对应的展示颜色。 */
 function taskRunStatusColor(status: string): "info" | "success" | "warning" | "error" | "default" {
   if (status === "running") return "info";
   if (status === "completed") return "success";
@@ -71,7 +71,7 @@ function taskRunTypeText(taskType: string) {
   );
 }
 
-/** PositionRunsPage 展示执行任务分页列表，点击单行进入任务详情。 */
+/** PositionRunsPage 展示任务记录分页列表，点击单行进入任务详情。 */
 export default function PositionRunsPage() {
   const { notify } = useAdmin();
   const [items, setItems] = useState<TaskRunItem[]>([]);
@@ -80,7 +80,7 @@ export default function PositionRunsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  /** load 读取执行任务分页列表。 */
+  /** load 读取任务记录分页列表。 */
   async function load(nextPage = page) {
     setLoading(true);
     try {
@@ -94,7 +94,7 @@ export default function PositionRunsPage() {
       setPage(Number(data.page || nextPage));
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "执行任务读取失败",
+        error instanceof Error ? error.message : "任务记录读取失败",
         "error",
       );
     } finally {
@@ -110,7 +110,7 @@ export default function PositionRunsPage() {
   return (
     <>
       <PageHeader
-        title='执行任务'
+        title='任务记录'
         description='每次点击开始岗位运行都会在这里记录一条任务，可以查看本次打招呼和索要简历的名单。'
         actions={
           <RefreshButton loading={loading} onClick={() => void load()} />
@@ -123,7 +123,7 @@ export default function PositionRunsPage() {
               sx={{
                 display: { xs: "none", md: "grid" },
                 gridTemplateColumns:
-                  "1.6fr .9fr 1.15fr 1.15fr .7fr .7fr .5fr",
+                  "minmax(0,1.6fr) minmax(0,.9fr) minmax(0,1.05fr) minmax(0,1.05fr) minmax(0,.55fr) minmax(0,.55fr) .5fr",
                 px: 2,
                 py: 1.5,
                 bgcolor: "action.hover",
@@ -136,8 +136,8 @@ export default function PositionRunsPage() {
               <Typography>状态</Typography>
               <Typography>开始时间</Typography>
               <Typography>结束时间</Typography>
-              <Typography>打招呼</Typography>
-              <Typography>要简历</Typography>
+              <Typography sx={{ textAlign: "center" }}>打招呼</Typography>
+              <Typography sx={{ textAlign: "center" }}>要简历</Typography>
               <Typography />
             </Box>
             <Stack>
@@ -147,7 +147,7 @@ export default function PositionRunsPage() {
             </Stack>
           </>
         ) : (
-          <EmptyState text={loading ? "正在读取执行任务" : "暂无执行任务，去岗位页点击开始后这里会记录。"} />
+          <EmptyState text={loading ? "正在读取任务记录" : "暂无任务记录，去岗位页点击开始后这里会记录。"} />
         )}
         <Stack
           direction={{ xs: "column", sm: "row" }}
@@ -173,17 +173,19 @@ export default function PositionRunsPage() {
   );
 }
 
-/** RunRow 展示一行执行任务记录。 */
+/** RunRow 展示一行任务记录。 */
 function RunRow({ item }: { item: TaskRunItem }) {
   const href = `/admin/position-runs/detail?run_id=${encodeURIComponent(item.id)}`;
   const positionText = item.position_name || "岗位已删除";
+  const running = item.status === "running";
   return (
     <Box
       sx={{
         display: "grid",
         gridTemplateColumns: {
           xs: "1fr",
-          md: "1.6fr .9fr 1.15fr 1.15fr .7fr .7fr .5fr",
+          md:
+            "minmax(0,1.6fr) minmax(0,.9fr) minmax(0,1.05fr) minmax(0,1.05fr) minmax(0,.55fr) minmax(0,.55fr) .5fr",
         },
         gap: { xs: 1, md: 2 },
         alignItems: "center",
@@ -192,6 +194,8 @@ function RunRow({ item }: { item: TaskRunItem }) {
         py: 1.8,
         borderBottom: "1px solid",
         borderColor: "divider",
+        transition: "background-color .2s",
+        "&:hover": { bgcolor: "action.hover" },
       }}
     >
       <Box sx={{ minWidth: 0 }}>
@@ -200,7 +204,7 @@ function RunRow({ item }: { item: TaskRunItem }) {
             platformID={item.platform_id}
             size={22}
           />
-          <Typography noWrap sx={{ fontWeight: 800 }}>
+          <Typography noWrap title={positionText} sx={{ fontWeight: 800 }}>
             {positionText}
           </Typography>
         </Stack>
@@ -211,11 +215,34 @@ function RunRow({ item }: { item: TaskRunItem }) {
           {taskRunTypeText(item.task_type)} · {item.user_email || "未知成员"}
         </Typography>
       </Box>
-      <Box>
+      <Box sx={{ minWidth: 0 }}>
         <Chip
           size='small'
-          label={taskRunStatusText(item.status)}
           color={taskRunStatusColor(item.status)}
+          label={
+            <Stack
+              direction='row'
+              spacing={0.75}
+              sx={{ alignItems: "center" }}
+            >
+              {running ? (
+                <Box
+                  sx={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    bgcolor: "info.main",
+                    animation: "goodhrRunPulse 1.2s ease-in-out infinite",
+                    "@keyframes goodhrRunPulse": {
+                      "0%, 100%": { opacity: 0.25 },
+                      "50%": { opacity: 1 },
+                    },
+                  }}
+                />
+              ) : null}
+              <span>{taskRunStatusText(item.status)}</span>
+            </Stack>
+          }
         />
         {item.status === "failed" && item.error_message ? (
           <Typography
@@ -227,14 +254,48 @@ function RunRow({ item }: { item: TaskRunItem }) {
           </Typography>
         ) : null}
       </Box>
-      <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
+      <Typography
+        noWrap
+        sx={{
+          fontSize: 13,
+          color: "text.secondary",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {formatDateTime(item.started_at)}
       </Typography>
-      <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
+      <Typography
+        noWrap
+        sx={{
+          fontSize: 13,
+          color: "text.secondary",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {item.finished_at ? formatDateTime(item.finished_at) : "--"}
       </Typography>
-      <Typography sx={{ fontWeight: 800 }}>{item.greeted_count}</Typography>
-      <Typography sx={{ fontWeight: 800 }}>
+      <Typography
+        sx={{
+          fontWeight: 800,
+          textAlign: "center",
+          fontVariantNumeric: "tabular-nums",
+          color:
+            item.greeted_count > 0 ? "text.primary" : "text.disabled",
+        }}
+      >
+        {item.greeted_count}
+      </Typography>
+      <Typography
+        sx={{
+          fontWeight: 800,
+          textAlign: "center",
+          fontVariantNumeric: "tabular-nums",
+          color:
+            item.resume_requested_count > 0
+              ? "text.primary"
+              : "text.disabled",
+        }}
+      >
         {item.resume_requested_count}
       </Typography>
       <Button
@@ -243,7 +304,7 @@ function RunRow({ item }: { item: TaskRunItem }) {
         size='small'
         color='secondary'
         startIcon={<OpenInNewRoundedIcon />}
-        sx={{ minWidth: 0, justifyContent: "center" }}
+        sx={{ minWidth: 0, justifyContent: "center", whiteSpace: "nowrap" }}
       >
         详情
       </Button>

@@ -86,7 +86,14 @@ type AdminContextValue = {
   confirm: (title: string, message: string) => Promise<boolean>;
 };
 
-type MenuItem = readonly [string, string, typeof DashboardRoundedIcon];
+// 菜单项元组：[路径, 名称, 图标, adminOnly?]
+// 第 4 位可选，true 表示仅团队管理员（含超级管理员）可见。
+type MenuItem = readonly [
+  string,
+  string,
+  typeof DashboardRoundedIcon,
+  boolean?,
+];
 type MenuGroup = {
   label: string;
   items: readonly MenuItem[];
@@ -115,7 +122,7 @@ const menuGroups: MenuGroup[] = [
     label: "招聘管理",
     items: [
       ["/admin/positions", "岗位管理", WorkRoundedIcon],
-      ["/admin/position-runs", "执行任务", PlayCircleRoundedIcon],
+      ["/admin/position-runs", "任务记录", PlayCircleRoundedIcon],
       ["/admin/resumes", "简历库", ArticleRoundedIcon],
     ],
   },
@@ -124,7 +131,8 @@ const menuGroups: MenuGroup[] = [
     items: [
       ["/admin/team", "团队管理", GroupRoundedIcon],
       // ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
-      ["/admin/ai-config", "AI配置", AutoAwesomeRoundedIcon],
+      // AI 配置只有团队管理员可以查看和填写，普通成员不显示入口。
+      ["/admin/ai-config", "AI配置", AutoAwesomeRoundedIcon, true],
       ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
     ],
@@ -570,38 +578,48 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               {group.label}
             </Typography>
             <Stack spacing={0.35}>
-              {group.items.map(([href, label, Icon]) => {
-                const active =
-                  href === "/admin"
-                    ? pathname === href
-                    : pathname.startsWith(href);
-                return (
-                  <Button
-                    key={href}
-                    component={Link}
-                    href={href}
-                    startIcon={<Icon />}
-                    onClick={() => setMobileOpen(false)}
-                    sx={{
-                      justifyContent: "flex-start",
-                      minHeight: 40,
-                      px: 1.5,
-                      borderRadius: "8px",
-                      color: active ? "primary.dark" : "text.secondary",
-                      bgcolor: active ? "action.selected" : "transparent",
-                      "& .MuiButton-startIcon": {
-                        color: active ? "primary.main" : "text.disabled",
-                      },
-                      "&:hover": {
-                        color: active ? "primary.dark" : "text.primary",
-                        bgcolor: active ? "action.selected" : "action.hover",
-                      },
-                    }}
-                  >
-                    {label}
-                  </Button>
-                );
-              })}
+              {group.items
+                // 第 4 位为 true 的菜单项仅团队管理员和超级管理员可见。
+                .filter(
+                  (item) =>
+                    !item[3] ||
+                    user?.role === "admin" ||
+                    user?.role === "super_admin",
+                )
+                .map(([href, label, Icon]) => {
+                  const active =
+                    href === "/admin"
+                      ? pathname === href
+                      : pathname.startsWith(href);
+                  return (
+                    <Button
+                      key={href}
+                      component={Link}
+                      href={href}
+                      startIcon={<Icon />}
+                      onClick={() => setMobileOpen(false)}
+                      sx={{
+                        justifyContent: "flex-start",
+                        minHeight: 40,
+                        px: 1.5,
+                        borderRadius: "8px",
+                        color: active ? "primary.dark" : "text.secondary",
+                        bgcolor: active ? "action.selected" : "transparent",
+                        "& .MuiButton-startIcon": {
+                          color: active ? "primary.main" : "text.disabled",
+                        },
+                        "&:hover": {
+                          color: active ? "primary.dark" : "text.primary",
+                          bgcolor: active
+                            ? "action.selected"
+                            : "action.hover",
+                        },
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  );
+                })}
             </Stack>
           </Box>
         ))}
