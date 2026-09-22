@@ -550,26 +550,26 @@ func TestGreetCandidateSelectsPositionAndPressesEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, hliepinStableClickPath, "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := intFromMap(exec.payloads[7], "target_index"); got != 1 {
+	if got := intFromMap(exec.payloads[8], "target_index"); got != 1 {
 		t.Fatalf("position index = %d, want 1", got)
 	}
-	if got := stringFromMap(exec.payloads[7], "parent_selector"); got != hliepinGreetDropdownParent {
+	if got := stringFromMap(exec.payloads[8], "parent_selector"); got != hliepinGreetDropdownParent {
 		t.Fatalf("position parent = %q, want %q", got, hliepinGreetDropdownParent)
 	}
-	if got := stringFromMap(exec.payloads[7], "target_selector"); got != hliepinGreetJobOptionTarget {
+	if got := stringFromMap(exec.payloads[8], "target_selector"); got != hliepinGreetJobOptionTarget {
 		t.Fatalf("position target = %q, want %q", got, hliepinGreetJobOptionTarget)
 	}
-	if got := stringFromMap(exec.payloads[7], "nested_selector"); got != hliepinGreetJobOptionNested {
+	if got := stringFromMap(exec.payloads[8], "nested_selector"); got != hliepinGreetJobOptionNested {
 		t.Fatalf("position nested target = %q, want %q", got, hliepinGreetJobOptionNested)
 	}
-	if got := stringFromMap(exec.payloads[3], "parent_selector"); got != "tbody tr.r-test-candidate-2" {
+	if got := stringFromMap(exec.payloads[4], "parent_selector"); got != "tbody tr.r-test-candidate-2" {
 		t.Fatalf("candidate parent = %q", got)
 	}
-	if got := stringFromMap(exec.payloads[3], "target_selector"); got != hliepinCandidateButtonTarget {
+	if got := stringFromMap(exec.payloads[4], "target_selector"); got != hliepinCandidateButtonTarget {
 		t.Fatalf("candidate target = %q", got)
 	}
 	if got := countPath(exec.paths, "/api/v1/page/press-key"); got != 2 {
@@ -588,11 +588,11 @@ func TestGreetCandidateUsesNoPositionForShortcutMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[5], "expected_text"); got != "不选择职位开聊" {
+	if got := stringFromMap(exec.payloads[6], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("button text = %q", got)
 	}
 }
@@ -612,14 +612,14 @@ func TestGreetCandidateFallsBackToChatWithoutPosition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/press-key", "/api/v1/page/press-key"}
+	want := []string{"/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", hliepinStableClickPath, "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/find-elements", "/api/v1/page/press-key", "/api/v1/page/press-key"}
 	if fmt.Sprint(exec.paths) != fmt.Sprint(want) {
 		t.Fatalf("paths = %#v", exec.paths)
 	}
-	if got := stringFromMap(exec.payloads[7], "expected_text"); got != "不选择职位开聊" {
+	if got := stringFromMap(exec.payloads[8], "expected_text"); got != "不选择职位开聊" {
 		t.Fatalf("fallback button text = %q", got)
 	}
-	if exact, _ := exec.payloads[7]["exact_text"].(bool); !exact {
+	if exact, _ := exec.payloads[8]["exact_text"].(bool); !exact {
 		t.Fatal("fallback button should use exact text match")
 	}
 }
@@ -1007,6 +1007,86 @@ func TestRequestCandidateInfoTimeoutCleansDrawer(t *testing.T) {
 	}
 	if exec.candidateDrawerOpen {
 		t.Fatal("candidate drawer should be closed before returning")
+	}
+}
+
+// TestClosePostGreetPromotionClosesModal 验证推广弹框存在时点击关闭按钮，按钮失效时按 Esc 兜底。
+func TestClosePostGreetPromotionClosesModal(t *testing.T) {
+	exec := &searchExecutor{findItems: map[string][]any{
+		hliepinGreetPromotionModalSelector: {map[string]any{"text": "一键免费开聊相似候选人"}},
+	}}
+	if err := closePostGreetPromotion(context.Background(), exec, 3); err != nil {
+		t.Fatal(err)
+	}
+	if !hasExecutorClick(exec, hliepinGreetPromotionCloseSelector) {
+		t.Fatal("推广弹框存在时应点击关闭按钮")
+	}
+	if countPath(exec.paths, "/api/v1/page/press-key") != 0 {
+		t.Fatal("关闭按钮点击成功时不应按 Esc")
+	}
+}
+
+// TestClosePostGreetPromotionFallsBackToEscape 验证关闭按钮点击失败时按 Esc 兜底且不返回错误。
+func TestClosePostGreetPromotionFallsBackToEscape(t *testing.T) {
+	exec := &searchExecutor{
+		findItems: map[string][]any{
+			hliepinGreetPromotionModalSelector: {map[string]any{"text": "一键免费开聊相似候选人"}},
+		},
+		errors: map[string]error{"/api/v1/page/click": errors.New("模拟关闭按钮失效")},
+	}
+	if err := closePostGreetPromotion(context.Background(), exec, 1); err != nil {
+		t.Fatal(err)
+	}
+	if countPath(exec.paths, "/api/v1/page/press-key") != 1 {
+		t.Fatal("关闭按钮失效时应按 Esc 兜底")
+	}
+}
+
+// hasExecutorClick 判断测试执行器是否点击过指定选择器。
+func hasExecutorClick(exec *searchExecutor, selector string) bool {
+	for index, path := range exec.paths {
+		if path == "/api/v1/page/click" && stringFromMap(mapFromAny(exec.payloads[index]["element"]), "selector") == selector {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRequestCandidateInfoClosesUnexpectedResumeDetail 验证索要收尾时按地址片段关闭意外简历详情页，且发生在弹层清理之前。
+func TestRequestCandidateInfoClosesUnexpectedResumeDetail(t *testing.T) {
+	exec := &searchExecutor{}
+	err := NewRuntime().RequestCandidateInfo(context.Background(), exec, nil, hliepinStableTestCandidate(0), platformcore.CandidateInfoRequest{RequestResume: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeIndex := -1
+	for index, path := range exec.paths {
+		if path == "/api/v1/page/close" {
+			closeIndex = index
+		}
+	}
+	if closeIndex < 0 {
+		t.Fatalf("收尾时应调用关闭意外简历详情页接口，paths=%#v", exec.paths)
+	}
+	payload := exec.payloads[closeIndex]
+	if got := stringFromMap(payload, "target_url_contains"); got != hliepinResumeDetailURLPart {
+		t.Fatalf("target_url_contains = %q, want %q", got, hliepinResumeDetailURLPart)
+	}
+	if got := stringFromMap(payload, "only_url_contains"); got != hliepinResumeDetailURLPart {
+		t.Fatalf("only_url_contains = %q, want %q", got, hliepinResumeDetailURLPart)
+	}
+	if got := stringFromMap(payload, "return_url_contains"); got != hliepinSearchListURLPart {
+		t.Fatalf("return_url_contains = %q, want %q", got, hliepinSearchListURLPart)
+	}
+	panelCloseIndex := -1
+	for index, path := range exec.paths {
+		if path == hliepinStableClickPath && stringFromMap(exec.payloads[index], "target_selector") == hliepinChatCloseSelector {
+			panelCloseIndex = index
+			break
+		}
+	}
+	if panelCloseIndex >= 0 && panelCloseIndex < closeIndex {
+		t.Fatalf("意外详情页关闭（调用序=%d）应发生在弹层清理（调用序=%d）之前", closeIndex, panelCloseIndex)
 	}
 }
 

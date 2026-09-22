@@ -23,6 +23,10 @@ const (
 	hliepinRequestConfirmDialog   = ".ant-im-modal.ant-im-modal-confirm"
 	hliepinRequestConfirmButton   = ".ant-im-modal-confirm-btns .ant-im-btn-primary"
 	hliepinChatCandidateName      = ".im-ui-basic-chat-header-name"
+	// hliepinResumeDetailURLPart 是猎聘简历详情页地址的固定片段，用于识别索要简历时意外打开的详情页。
+	hliepinResumeDetailURLPart = "/resume/showresumedetail/"
+	// hliepinSearchListURLPart 是猎聘候选人列表页地址的固定片段，用于关闭意外详情页后切回列表页。
+	hliepinSearchListURLPart = "h.liepin.com/search/"
 	hliepinPanelPollInterval      = 0.1
 	hliepinChatOpenPollCount      = 100
 	hliepinActionReadyPollCount   = 30
@@ -60,6 +64,13 @@ func (r *Runtime) RequestCandidateInfo(ctx context.Context, exec platformcore.Ex
 		}
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
+		// 先关闭索要简历时意外打开的详情页并切回列表页，弹层清理需要在列表页上执行才准确。
+		if err := closeUnexpectedResumeDetailPage(cleanupCtx, exec, candidate); err != nil {
+			exec.Log("warning", "猎聘索要信息：候选人="+candidateName(candidate)+"，意外简历详情页收尾失败，错误="+err.Error())
+			if resultErr == nil {
+				resultErr = err
+			}
+		}
 		if err := closeCandidateInfoPanels(cleanupCtx, exec, candidate); err != nil {
 			exec.Log("warning", "猎聘索要信息：候选人="+candidateName(candidate)+"，弹层收尾失败，错误="+err.Error())
 			if resultErr == nil {
@@ -364,4 +375,22 @@ func closeCandidateInfoPanels(ctx context.Context, exec platformcore.Executor, c
 		}
 	}
 	return fmt.Errorf("猎聘弹层收尾超时：候选人=%s，耗时=%s", candidateName(candidate), time.Since(startedAt).Round(time.Millisecond))
+}
+
+// closeUnexpectedResumeDetailPage 关闭索要简历时意外打开的简历详情页，并切回候选人列表页。
+// Worker 按地址片段定位目标页，没有意外详情页时返回关闭结果为假，属于正常情况不算错误。
+func closeUnexpectedResumeDetailPage(ctx context.Context, exec platformcore.Executor, candidate platformcore.Candidate) error {
+	result, err := exec.Post(ctx, "/api/v1/page/close", map[string]any{
+		"target_url_contains": hliepinResumeDetailURLPart,
+		"only_url_contains":   hliepinResumeDetailURLPart,
+		"return_url_contains": hliepinSearchListURLPart,
+		"timeout":             10000,
+	})
+	if err != nil {
+		return fmt.Errorf("关闭猎聘意外简历详情页失败：%w", err)
+	}
+	if closed, _ := workerDataMap(result)["closed"].(bool); closed {
+		exec.Log("info", "猎聘索要信息状态：候选人="+candidateName(candidate)+"，已关闭意外打开的简历详情页并切回列表页")
+	}
+	return nil
 }

@@ -15,6 +15,16 @@ const (
 	hliepinGreetModalSelector     = hliepinGreetModalParent
 	hliepinGreetPollAttempts      = 20
 	hliepinGreetPollDelaySeconds  = 0.25
+	// hliepinGreetPromotionModalSelector 是猎聘开聊后偶发“相似候选人免费开聊”推广弹框的检测选择器，
+	// 每个候选都带推广专属文案，避免误关职位开聊弹框和候选人聊天框。
+	hliepinGreetPromotionModalSelector = ".ant-modal:has-text('一键免费开聊相似候选人'), " +
+		".ant-modal:has-text('发送打招呼语'):has-text('免费开聊'), " +
+		"[role='dialog']:has-text('一键免费开聊相似候选人'), " +
+		"[role='dialog']:has-text('发送打招呼语'):has-text('免费开聊')"
+	// hliepinGreetPromotionCloseSelector 是推广弹框右上角关闭按钮，点击失败时按 Escape 兜底。
+	hliepinGreetPromotionCloseSelector = ".ant-modal-close, .ant-modal-close-x, [aria-label='Close']"
+	hliepinGreetPromotionPollAttempts  = 4    // 开聊确认后探测推广弹框的轮数
+	hliepinGreetPromotionPollInterval  = 0.15 // 推广弹框探测的间隔秒数
 )
 
 // GreetCandidate 执行猎聘猎头端候选人打招呼。
@@ -25,10 +35,13 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 	return r.greetCandidateOnce(ctx, exec, cfg, candidate)
 }
 
-// prepareHliepinCandidateProcessing 在点击当前候选人前关闭遗留的开聊弹框、聊天框和候选人列表抽屉。
+// prepareHliepinCandidateProcessing 在点击当前候选人前关闭遗留的开聊弹框、推广弹框、聊天框和候选人列表抽屉。
 func prepareHliepinCandidateProcessing(ctx context.Context, exec platformcore.Executor, candidate platformcore.Candidate) error {
 	name := candidateName(candidate)
 	exec.Log("info", "猎聘候选人处理前检查：开始，候选人="+name)
+	if err := closePostGreetPromotion(ctx, exec, 1); err != nil {
+		return fmt.Errorf("关闭遗留推广弹框失败：%w", err)
+	}
 	if err := closeHliepinGreetModalIfPresent(ctx, exec); err != nil {
 		return fmt.Errorf("关闭遗留开聊弹框失败：%w", err)
 	}
@@ -104,12 +117,16 @@ func candidateInfoAfterGreetEnabled(candidate platformcore.Candidate) bool {
 
 // finishGreetCandidate 在需要立即索要信息时保留猎聘自动打开的聊天框，否则沿用两次 Esc 完成页面收尾。
 func (r *Runtime) finishGreetCandidate(ctx context.Context, exec platformcore.Executor, preserveChat bool) error {
+	// 开聊后偶发相似候选人推广弹框，先等待出现再显式关闭，避免遮挡后续的聊天框和索要操作。
+	if err := exec.Delay(ctx, "等待猎聘开聊后提示弹框", 1); err != nil {
+		return err
+	}
+	if err := closePostGreetPromotion(ctx, exec, hliepinGreetPromotionPollAttempts); err != nil {
+		return err
+	}
 	if preserveChat {
 		exec.Log("info", "猎聘打招呼：本候选人随后需要索要信息，保留可能自动打开的聊天框并交给索要流程判断")
 		return nil
-	}
-	if err := exec.Delay(ctx, "等待猎聘开聊后提示弹框", 1); err != nil {
-		return err
 	}
 	exec.Log("info", "猎聘打招呼：立即开聊后发送第 1 次 Esc")
 	if _, err := exec.Post(ctx, "/api/v1/page/press-key", map[string]any{"key": "Escape"}); err != nil {
@@ -275,4 +292,43 @@ func greetJobItemNames(items []map[string]any) string {
 		return "无"
 	}
 	return strings.Join(names, "、")
+}
+
+// closePostGreetPromotion 检测并关闭猎聘开聊后偶发的相似候选人推广弹框。
+// attempts 为检测轮次，弹框存在但关闭按钮点击失败时按 Escape 兜底。
+func closePostGreetPromotion(ctx context.Context, exec platformcore.Executor, attempts int) error {
+	if attempts < 1 {
+		attempts = 1
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
+		result, err := exec.Post(ctx, "/api/v1/page/find-elements", map[string]any{
+			"element":      map[string]any{"selector": hliepinGreetPromotionModalSelector},
+			"visible_only": true,
+			"max_items":    1,
+		})
+		if err != nil {
+			return fmt.Errorf("检查猎聘开聊后推广弹框失败：%w", err)
+		}
+		if len(mapList(workerDataMap(result)["items"])) == 0 {
+			if attempt < attempts {
+				if err := exec.Delay(ctx, "等待猎聘开聊后推广弹框", hliepinGreetPromotionPollInterval); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{
+			"element": map[string]any{"selector": hliepinGreetPromotionCloseSelector},
+			"timeout": 2000,
+		}); err != nil {
+			if _, escErr := exec.Post(ctx, "/api/v1/page/press-key", map[string]any{"key": "Escape"}); escErr != nil {
+				return fmt.Errorf("关闭猎聘开聊后推广弹框失败：%w", err)
+			}
+			exec.Log("info", "猎聘打招呼：推广弹框关闭按钮点击失败，已按 Esc 兜底关闭")
+			return nil
+		}
+		exec.Log("info", "猎聘打招呼：已关闭开聊后出现的相似候选人推广弹框")
+		return nil
+	}
+	return nil
 }

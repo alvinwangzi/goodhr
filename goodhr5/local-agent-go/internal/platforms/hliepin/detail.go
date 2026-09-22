@@ -79,9 +79,9 @@ func (r *Runtime) CloseCandidateDetail(ctx context.Context, exec platformcore.Ex
 	payload := map[string]any{
 		"page_token":          stringFromMap(candidate, "detail_page_token"),
 		"return_page_token":   stringFromMap(candidate, "detail_return_page_token"),
-		"target_url_contains": "/resume/showresumedetail/",
-		"only_url_contains":   "/resume/showresumedetail/",
-		"return_url_contains": "h.liepin.com/search/",
+		"target_url_contains": hliepinResumeDetailURLPart,
+		"only_url_contains":   hliepinResumeDetailURLPart,
+		"return_url_contains": hliepinSearchListURLPart,
 		"go_back_if_same":     true,
 		"timeout":             10000,
 	}
