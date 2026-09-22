@@ -58,7 +58,6 @@ export default function ChoiceCards({
       >
         {options.map((option) => {
           const selected = value === option.value;
-          const memberStyle = option.memberOnly;
           return (
             <ButtonBase
               key={String(option.value)}
@@ -76,41 +75,17 @@ export default function ChoiceCards({
                 minHeight: option.iconOnly ? 76 : 98,
                 p: option.iconOnly ? 1.25 : 1.75,
                 border: "1px solid",
-                borderColor: memberStyle
-                  ? selected
-                    ? "#d6ad54"
-                    : "#8b713a"
-                  : selected
-                    ? "primary.main"
-                    : "divider",
+                borderColor: selected ? "primary.main" : "divider",
                 borderRadius: "8px",
                 textAlign: "left",
-                color: memberStyle ? "#f7e6b2" : "text.primary",
-                bgcolor: memberStyle
-                  ? selected
-                    ? "#242017"
-                    : "#181713"
-                  : selected
-                    ? "action.selected"
-                    : "#fff",
-                boxShadow:
-                  memberStyle && selected
-                    ? "0 0 0 2px rgba(214,173,84,.18)"
-                    : "none",
+                color: "text.primary",
+                bgcolor: selected ? "action.selected" : "#fff",
                 opacity: option.disabled ? 0.48 : 1,
                 transition:
                   "border-color .18s ease, background-color .18s ease, box-shadow .18s ease",
                 "&:hover": {
-                  borderColor: option.disabled
-                    ? "divider"
-                    : memberStyle
-                      ? "#e2bd68"
-                      : "primary.main",
-                  bgcolor: memberStyle
-                    ? "#242017"
-                    : selected
-                      ? "action.selected"
-                      : "background.paper",
+                  borderColor: option.disabled ? "divider" : "primary.main",
+                  bgcolor: selected ? "action.selected" : "background.paper",
                 },
               }}
             >
@@ -173,7 +148,7 @@ export default function ChoiceCards({
                     {selected ? (
                       <CheckCircleRoundedIcon
                         sx={{
-                          color: memberStyle ? "#d6ad54" : "primary.main",
+                          color: "primary.main",
                           fontSize: 20,
                         }}
                       />
@@ -182,7 +157,7 @@ export default function ChoiceCards({
                   <Typography
                     sx={{
                       mt: 0.75,
-                      color: memberStyle ? "#cbbd97" : "text.secondary",
+                      color: "text.secondary",
                       fontSize: 12.5,
                       lineHeight: 1.55,
                     }}

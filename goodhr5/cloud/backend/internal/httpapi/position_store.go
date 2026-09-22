@@ -17,6 +17,7 @@ type Position struct {
 	UserEmail         string
 	PlatformID        string
 	Name              string
+	Label             string
 	Keywords          []string
 	ExcludeKeywords   []string
 	Description       string

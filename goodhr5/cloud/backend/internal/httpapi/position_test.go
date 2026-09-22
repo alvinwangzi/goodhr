@@ -4,8 +4,10 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,7 +21,7 @@ func TestPositionLifecycle(t *testing.T) {
 	createReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/positions",
-		bytes.NewBufferString(`{"name":"带货主播","keywords":["直播","带货"],"exclude_keywords":["销售"],"description":"成都岗位","greet_message":"你好","is_and_mode":true}`),
+		bytes.NewBufferString(`{"name":"带货主播","label":"晚班主力","keywords":["直播","带货"],"exclude_keywords":["销售"],"description":"成都岗位","greet_message":"你好","is_and_mode":true}`),
 	)
 	createReq.Header.Set("Authorization", "Bearer "+token)
 	createResp := httptest.NewRecorder()
@@ -32,6 +34,7 @@ func TestPositionLifecycle(t *testing.T) {
 		Position struct {
 			ID        string   `json:"id"`
 			Name      string   `json:"name"`
+			Label     string   `json:"label"`
 			Keywords  []string `json:"keywords"`
 			IsAndMode bool     `json:"is_and_mode"`
 			GreetMsg  string   `json:"greet_message"`
@@ -42,6 +45,22 @@ func TestPositionLifecycle(t *testing.T) {
 	}
 	if createPayload.Position.ID == "" || createPayload.Position.Name != "带货主播" {
 		t.Fatalf("unexpected position payload: %+v", createPayload.Position)
+	}
+	if createPayload.Position.Label != "晚班主力" {
+		t.Fatalf("unexpected label: %q", createPayload.Position.Label)
+	}
+
+	// 岗位标签超过 20 字时保存被拒绝。
+	longLabelReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/positions",
+		bytes.NewBufferString(`{"name":"带货主播","label":"`+strings.Repeat("标", 21)+`"}`),
+	)
+	longLabelReq.Header.Set("Authorization", "Bearer "+token)
+	longLabelResp := httptest.NewRecorder()
+	routes.ServeHTTP(longLabelResp, longLabelReq)
+	if longLabelResp.Code != http.StatusBadRequest {
+		t.Fatalf("long label status = %d, body = %s", longLabelResp.Code, longLabelResp.Body.String())
 	}
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/positions", nil)
@@ -137,6 +156,53 @@ func TestPositionRejectsMissingName(t *testing.T) {
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("create status = %d, want %d", resp.Code, http.StatusBadRequest)
+	}
+}
+
+// TestOptimizeRequirementCompletesURL 验证岗位要求优化会把用户配置的 OpenAI 兼容地址补全到 chat/completions 端点。
+func TestOptimizeRequirementCompletesURL(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "optimize-url@example.com"
+	token := loginForTest(t, routes, email)
+	if _, err := server.positions.subscriptions.AdjustSubscriptionDays(email, memberTypeMax, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	// 保存一份按 OpenAI SDK 惯例、不带 chat/completions 后缀的个人 AI 配置。
+	saveAI := httptest.NewRequest(
+		http.MethodPut,
+		"/api/config/user-ai",
+		bytes.NewBufferString(`{"base_url":"https://optimize.example.com/compatible-mode/v1","model":"test-model","api_key":"test-secret","enabled":true}`),
+	)
+	saveAI.Header.Set("Authorization", "Bearer "+token)
+	saveAIResp := httptest.NewRecorder()
+	routes.ServeHTTP(saveAIResp, saveAI)
+	if saveAIResp.Code != http.StatusOK {
+		t.Fatalf("save ai status = %d, body = %s", saveAIResp.Code, saveAIResp.Body.String())
+	}
+
+	server.positions.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://optimize.example.com/compatible-mode/v1/chat/completions" {
+			t.Fatalf("AI request URL = %q", req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"1. 三年以上相关经验"}}]}`)),
+		}, nil
+	})}
+
+	optimizeReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/positions/optimize-requirement",
+		bytes.NewBufferString(`{"text":"三年以上经验，持证上岗"}`),
+	)
+	optimizeReq.Header.Set("Authorization", "Bearer "+token)
+	optimizeResp := httptest.NewRecorder()
+	routes.ServeHTTP(optimizeResp, optimizeReq)
+	if optimizeResp.Code != http.StatusOK {
+		t.Fatalf("optimize status = %d, body = %s", optimizeResp.Code, optimizeResp.Body.String())
 	}
 }
 

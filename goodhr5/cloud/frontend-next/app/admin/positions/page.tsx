@@ -17,6 +17,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   Collapse,
   CircularProgress,
   Divider,
@@ -55,8 +56,6 @@ import { canUseAI, normalizeSubscription } from "@/lib/subscription";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
 import { evaluatePositionStartGuard, latestLocalAgentRelease, positionUsesAI } from "@/lib/position-start-guard";
 
-const CHROMIUM_ICON_SRC = "/assets/platforms/chromium.png";
-const BOSS_NOTICE_IMAGE_SRC = "/assets/platforms/boss-plugin-notice.jpg";
 const HLIEPIN_SHORTCUT_GUIDE_IMAGE_SRC =
   "/assets/help/hliepin-shortcut-search-guide.png";
 const PLATFORM_OPEN_ORDER = ["boss", "zhaopin", "hliepin", "liepin"];
@@ -290,6 +289,7 @@ export default function PositionsPage() {
           id: form.id,
           platform_id: form.platform_id,
           name: form.name.trim(),
+          label: form.label.trim(),
           keywords: splitKeywords(form.keywords),
           exclude_keywords: splitKeywords(form.exclude_keywords),
           description: form.description.trim(),
@@ -843,7 +843,7 @@ export default function PositionsPage() {
               startIcon={<PlayCircleRoundedIcon />}
               disabled={loading}
             >
-              执行任务
+              任务记录
             </Button>
             <Button
               variant='contained'
@@ -887,9 +887,31 @@ export default function PositionsPage() {
                   }}
                 >
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 760 }}>
-                      {item.name}
-                    </Typography>
+                    <Stack
+                      direction='row'
+                      spacing={0.75}
+                      sx={{ alignItems: "center", minWidth: 0 }}
+                    >
+                      <Typography noWrap sx={{ fontWeight: 760, minWidth: 0 }}>
+                        {item.name}
+                      </Typography>
+                      {item.label ? (
+                        <Chip
+                          size='small'
+                          variant='outlined'
+                          label={item.label}
+                          title={item.label}
+                          sx={{
+                            height: 20,
+                            fontSize: 12,
+                            flexShrink: 0,
+                            color: "text.secondary",
+                            borderColor: "divider",
+                            "& .MuiChip-label": { px: 0.75 },
+                          }}
+                        />
+                      ) : null}
+                    </Stack>
                     <Typography
                       sx={{ mt: 0.4, color: "text.secondary", fontSize: 12, overflowWrap: "anywhere" }}
                     >
@@ -1092,9 +1114,6 @@ export default function PositionsPage() {
         onConfirm={() => void save()}
       >
         <Stack spacing={3}>
-          <Alert severity='info' variant='outlined'>
-            运行时先读取候选人基础信息，完成第一次筛选并决定是否打开详情；读取详情后再进行第二次分析，决定是否打招呼。请按这个顺序配置下面的内容。
-          </Alert>
           <Box>
             <Typography
               component='h3'
@@ -1116,6 +1135,17 @@ export default function PositionsPage() {
                   sx: { color: "error.main", fontSize: 14, fontWeight: "bold" },
                 },
               }}
+            />
+            <TextField
+              label='标签'
+              value={form.label}
+              onChange={(event) =>
+                setForm({ ...form, label: event.target.value.slice(0, 20) })
+              }
+              fullWidth
+              placeholder='例如：主力岗位、测试岗'
+              helperText='选填，最多 20 字，用于在岗位列表区分同名岗位。'
+              sx={{ mt: 2 }}
             />
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mt: 2, alignItems: { sm: "flex-start" } }}>
               <TextField
@@ -1192,44 +1222,6 @@ export default function PositionsPage() {
               },
             ]}
           />
-          <Box
-            sx={{
-              p: 1.25,
-              border: "1px solid",
-              borderColor: "#d9c485",
-              borderRadius: "8px",
-              bgcolor: "#fffaf0",
-            }}
-          >
-            <Typography
-              sx={{ mb: 1, color: "#7a4d00", fontSize: 13, fontWeight: 780 }}
-            >
-              平台提示（不用选择）
-            </Typography>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns:
-                  form.platform_id === "boss"
-                    ? { xs: "1fr", md: "minmax(0, .9fr) minmax(0, 1.1fr)" }
-                    : "1fr",
-                gap: { xs: 1, md: 1.75 },
-              }}
-            >
-              <PlatformTipCard
-                iconSrc={CHROMIUM_ICON_SRC}
-                title='浏览器图标'
-                text='创建岗位运行后点右下角蓝色浏览器图标，完成对应平台登录。'
-              />
-              {form.platform_id === "boss" ? (
-                <PlatformTipCard
-                  imageSrc={BOSS_NOTICE_IMAGE_SRC}
-                  title='BOSS 插件、外挂 提示'
-                  text='很多账号会提示插件、外挂等招聘辅助工具，这是平台通用公告，不等于封号。点“我已知晓”即可，别高频操作。'
-                />
-              ) : null}
-            </Box>
-          </Box>
           <ChoiceCards
             label='基础信息筛选模式   (决定是否打开查看详情)'
             value={form.mode_default}
@@ -1248,44 +1240,6 @@ export default function PositionsPage() {
               },
             ]}
           />
-          {form.id ? (
-            <>
-              <Typography
-                sx={{ mt: -2, color: "text.secondary", fontSize: 13 }}
-              >
-                选择哪种详情方式就只使用哪一种：DOM 最快，OCR
-                在本地识别截图文字，AI 能理解完整页面但耗时更长。
-              </Typography>
-              <ChoiceCards
-                label='详情信息筛选模式  (决定是否打招呼)'
-                value={form.detail_mode}
-                columns={3}
-                onChange={(value) => void selectDetailMode(String(value))}
-                options={[
-                  {
-                    value: "dom",
-                    label: "DOM 识别",
-                    description: "BOSS直聘不支持DOM识别，速度快，精度高，免费",
-                    disabled: form.platform_id === "boss",
-                  },
-                  {
-                    value: "ocr",
-                    label: "OCR 识别",
-                    description:
-                      "离线识别截图文字，速度快。电脑配置低就别选这个。",
-                    disabled: isDOMOnlyPlatform(form.platform_id),
-                  },
-                  {
-                    value: "ai",
-                    label: "AI 识别（会员功能）",
-                    description: "直接理解完整详情截图，效果最好但更慢。",
-                    disabled: isDOMOnlyPlatform(form.platform_id),
-                    memberOnly: true,
-                  },
-                ]}
-              />
-            </>
-          ) : null}
           {form.mode_default === "keyword" ? (
             <>
               <Divider />
@@ -1472,30 +1426,6 @@ export default function PositionsPage() {
                   ) : null}
                   <Box
                     sx={{
-                      p: 1.5,
-                      borderLeft: "3px solid",
-                      borderColor: "primary.main",
-                      bgcolor: "action.hover",
-                    }}
-                  >
-                    <Typography sx={{ fontSize: 13, fontWeight: 760 }}>
-                      强烈建议 先看右上角的视频教程，了解各项参数的意义
-                    </Typography>
-
-                    <Typography
-                      sx={{
-                        mt: 0.5,
-                        color: "text.secondary",
-                        fontSize: 13,
-                        lineHeight: 1.75,
-                      }}
-                    >
-                      求职意向必须匹配目标岗位；具备 3
-                      年以上相关经验；拥有岗位要求的证书或技能；当前状态满足到岗要求。薪资越高或岗位越重要，条件应写得越明确。
-                    </Typography>
-                  </Box>
-                  <Box
-                    sx={{
                       border: "1px solid",
                       borderColor: "divider",
                       borderRadius: "8px",
@@ -1629,6 +1559,42 @@ export default function PositionsPage() {
                   </Box>
                 </Stack>
               </Box>
+            </>
+          ) : null}
+          {form.id ? (
+            <>
+              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+                选择哪种详情方式就只使用哪一种：DOM 最快，OCR
+                在本地识别截图文字，AI 能理解完整页面但耗时更长。
+              </Typography>
+              <ChoiceCards
+                label='详情信息筛选模式  (决定是否打招呼)'
+                value={form.detail_mode}
+                columns={3}
+                onChange={(value) => void selectDetailMode(String(value))}
+                options={[
+                  {
+                    value: "dom",
+                    label: "DOM 识别",
+                    description: "BOSS直聘不支持DOM识别，速度快，精度高，免费",
+                    disabled: form.platform_id === "boss",
+                  },
+                  {
+                    value: "ocr",
+                    label: "OCR 识别",
+                    description:
+                      "离线识别截图文字，速度快。电脑配置低就别选这个。",
+                    disabled: isDOMOnlyPlatform(form.platform_id),
+                  },
+                  {
+                    value: "ai",
+                    label: "AI 识别（会员功能）",
+                    description: "直接理解完整详情截图，效果最好但更慢。",
+                    disabled: isDOMOnlyPlatform(form.platform_id),
+                    memberOnly: true,
+                  },
+                ]}
+              />
             </>
           ) : null}
           <Divider />
@@ -1799,65 +1765,6 @@ function PromptField({
   );
 }
 
-/** PlatformTipCard 展示平台选择后的图文提醒。 */
-function PlatformTipCard({
-  iconSrc,
-  imageSrc,
-  title,
-  text,
-}: {
-  iconSrc?: string;
-  imageSrc?: string;
-  title: string;
-  text: string;
-}) {
-  return (
-    <Box
-      sx={{
-        display: "grid",
-        gridTemplateColumns: imageSrc
-          ? "minmax(92px, 130px) minmax(0, 1fr)"
-          : "40px minmax(0, 1fr)",
-        gap: 1.25,
-        alignItems: "center",
-        minHeight: 72,
-      }}
-    >
-      {imageSrc ? (
-        <Box
-          component='img'
-          src={imageSrc}
-          alt={title}
-          sx={{
-            width: "100%",
-            height: 70,
-            objectFit: "cover",
-            borderRadius: "6px",
-            border: "1px solid rgba(0,0,0,.08)",
-          }}
-        />
-      ) : (
-        <Box
-          component='img'
-          src={iconSrc}
-          alt={title}
-          sx={{ width: 34, height: 34, justifySelf: "center" }}
-        />
-      )}
-      <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ color: "text.primary", fontSize: 13, fontWeight: 780 }}>
-          {title}
-        </Typography>
-        <Typography
-          sx={{ mt: 0.35, color: "text.secondary", fontSize: 12.5, lineHeight: 1.55 }}
-        >
-          {text}
-        </Typography>
-      </Box>
-    </Box>
-  );
-}
-
 /** HLiepinHiddenCandidateFilters 配置猎聘搜索页需要自动勾选的候选人隐藏条件。 */
 function HLiepinHiddenCandidateFilters({
   hideViewed,
@@ -1981,6 +1888,7 @@ function createEmptyForm() {
   return {
     id: "",
     name: "",
+    label: "",
     platform_id: "boss",
     mode_default: "keyword",
     detail_mode: "ocr",
@@ -2028,6 +1936,7 @@ function formFromItem(
     {
       id: item.id || "",
       name: item.name || "",
+      label: item.label || "",
       platform_id: item.platform_id || "boss",
       mode_default: common.mode_default || "keyword",
       detail_mode: normalizeDetailMode(

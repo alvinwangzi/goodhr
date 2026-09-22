@@ -28,7 +28,7 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 	rows, err := s.db.QueryContext(
 		ctx,
 		`
-			SELECT u.email, p.id, COALESCE(p.platform_id, 'boss'), p.name, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
+			SELECT u.email, p.id, COALESCE(p.platform_id, 'boss'), p.name, p.label, p.keywords, p.exclude_keywords, p.description, p.greet_message, p.is_and_mode,
 			       p.common_config, p.ai_config, p.keyword_config, p.match_limit, p.status, p.scanned_count,
 			       p.daily_greeted_count, p.daily_greeted_date::text, p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking,
 			       p.created_at, p.updated_at, p.started_at, p.finished_at
@@ -64,6 +64,7 @@ func (s *PostgresPositionStore) ListPositions(tenantID, userEmail string, isAdmi
 			&item.ID,
 			&item.PlatformID,
 			&item.Name,
+			&item.Label,
 			&keywordsJSON,
 			&excludeKeywordsJSON,
 			&item.Description,
@@ -146,15 +147,16 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 		row = s.db.QueryRowContext(
 			ctx,
 			`
-			INSERT INTO positions (user_id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, match_limit, enable_sound, enable_thinking)
-			VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12, $13, $14)
-			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
+			INSERT INTO positions (user_id, platform_id, name, label, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, match_limit, enable_sound, enable_thinking)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13, $14, $15)
+			RETURNING id, platform_id, name, label, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
 			          match_limit, status, scanned_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
 			          created_at, updated_at, started_at, finished_at
 			`,
 			userID,
 			position.PlatformID,
 			position.Name,
+			position.Label,
 			string(keywordsJSON),
 			string(excludeKeywordsJSON),
 			position.Description,
@@ -175,20 +177,21 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			SET
 				platform_id = $3,
 				name = $4,
-				keywords = $5::jsonb,
-				exclude_keywords = $6::jsonb,
-				description = $7,
-				greet_message = $8,
-				is_and_mode = $9,
-				common_config = $10::jsonb,
-				ai_config = $11::jsonb,
-				keyword_config = $12::jsonb,
-				match_limit = $13,
-				enable_sound = $14,
-				enable_thinking = $15,
+				label = $5,
+				keywords = $6::jsonb,
+				exclude_keywords = $7::jsonb,
+				description = $8,
+				greet_message = $9,
+				is_and_mode = $10,
+				common_config = $11::jsonb,
+				ai_config = $12::jsonb,
+				keyword_config = $13::jsonb,
+				match_limit = $14,
+				enable_sound = $15,
+				enable_thinking = $16,
 				updated_at = now()
 			WHERE id = $1 AND user_id = $2
-			RETURNING id, platform_id, name, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
+			RETURNING id, platform_id, name, label, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config,
 			          match_limit, status, scanned_count, daily_greeted_count, daily_greeted_date::text, skipped_count, failed_count, enable_sound, enable_thinking,
 			          created_at, updated_at, started_at, finished_at
 			`,
@@ -196,6 +199,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 			userID,
 			position.PlatformID,
 			position.Name,
+			position.Label,
 			string(keywordsJSON),
 			string(excludeKeywordsJSON),
 			position.Description,
@@ -219,6 +223,7 @@ func (s *PostgresPositionStore) SavePosition(position Position) (Position, error
 		&saved.ID,
 		&saved.PlatformID,
 		&saved.Name,
+		&saved.Label,
 		&savedKeywordsJSON,
 		&savedExcludeKeywordsJSON,
 		&saved.Description,
@@ -277,7 +282,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 	err := s.db.QueryRowContext(
 		ctx,
 		`
-		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
+		SELECT p.id, COALESCE(p.platform_id, 'boss'), p.name, p.label, CAST(p.keywords AS text), CAST(p.exclude_keywords AS text),
 		       p.description, p.greet_message, p.is_and_mode, CAST(p.common_config AS text), CAST(p.ai_config AS text), CAST(p.keyword_config AS text),
 		       p.match_limit, p.status, p.scanned_count, p.daily_greeted_count, p.daily_greeted_date::text,
 		       p.skipped_count, p.failed_count, p.enable_sound, p.enable_thinking, p.created_at, p.updated_at, p.started_at, p.finished_at
@@ -287,7 +292,7 @@ func (s *PostgresPositionStore) PositionByID(tenantID, userEmail, positionID str
 		`,
 		userEmail, positionID,
 	).Scan(
-		&item.ID, &item.PlatformID, &item.Name, &rawKeywords, &rawExclude,
+		&item.ID, &item.PlatformID, &item.Name, &item.Label, &rawKeywords, &rawExclude,
 		&item.Description, &item.GreetMessage, &item.IsAndMode,
 		&rawCommonConfig, &rawAIConfig, &rawKeywordConfig,
 		&item.MatchLimit, &item.Status, &item.ScannedCount,

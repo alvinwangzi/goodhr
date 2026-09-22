@@ -40,6 +40,7 @@ type positionRequest struct {
 	ID              string         `json:"id"`
 	PlatformID      string         `json:"platform_id"`
 	Name            string         `json:"name"`
+	Label           string         `json:"label"`
 	Keywords        []string       `json:"keywords"`
 	ExcludeKeywords []string       `json:"exclude_keywords"`
 	Description     string         `json:"description"`
@@ -319,13 +320,19 @@ func (s *PositionService) positionRequirementOptimizePrompt(input string) string
 // callRequirementOptimizeAI 调用 OpenAI 兼容接口优化岗位要求。
 // r 为当前请求，aiConfig 为用户个人 AI 配置，prompt 为完整提示词。
 func (s *PositionService) callRequirementOptimizeAI(r *http.Request, aiConfig AIConfig, prompt string) (string, error) {
+	// 与 AI 配置测试入口一致，把用户填写的 OpenAI 兼容地址补全到 chat/completions 端点，
+	// 避免按 /v1 结尾的地址直连导致请求打不到用户配置的模型。
+	targetURL := normalizeAIChatCompletionsURL(aiConfig.BaseURL)
+	if targetURL == "" {
+		return "", fmt.Errorf("AI 接口地址为空")
+	}
 	reqBody := AIRequest{
 		Model:       strings.TrimSpace(aiConfig.Model),
 		Messages:    []AIMsg{{Role: "user", Content: prompt}},
 		Temperature: aiConfig.Temperature,
 	}
 	data, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, strings.TrimSpace(aiConfig.BaseURL), bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}
@@ -376,6 +383,7 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 		UserEmail:       userEmail,
 		PlatformID:      normalizePositionPlatformID(r.PlatformID),
 		Name:            strings.TrimSpace(r.Name),
+		Label:           strings.TrimSpace(r.Label),
 		Keywords:        trimStringList(r.Keywords),
 		ExcludeKeywords: trimStringList(r.ExcludeKeywords),
 		Description:     strings.TrimSpace(r.Description),
@@ -391,6 +399,11 @@ func (r positionRequest) toPosition(w http.ResponseWriter, userEmail string) (Po
 
 	if position.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return Position{}, false
+	}
+	// 岗位标签为选填字段，填写时限制最多 20 个字符，超限直接拒绝保存。
+	if len([]rune(position.Label)) > 20 {
+		writeError(w, http.StatusBadRequest, "岗位标签不能超过20字")
 		return Position{}, false
 	}
 	if position.MatchLimit <= 0 {
@@ -467,6 +480,7 @@ func publicPosition(item Position) map[string]any {
 		"creator_email":       item.UserEmail,
 		"platform_id":         normalizePositionPlatformID(item.PlatformID),
 		"name":                item.Name,
+		"label":               item.Label,
 		"keywords":            item.Keywords,
 		"exclude_keywords":    item.ExcludeKeywords,
 		"description":         item.Description,
