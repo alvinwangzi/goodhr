@@ -249,6 +249,96 @@ func TestCandidateInfoWithoutAIScoreSkipsRequester(t *testing.T) {
 	}
 }
 
+// candidateInfoSuccessRuntime 模拟打招呼和索要信息都成功的平台。
+type candidateInfoSuccessRuntime struct {
+	detailCloseProbeRuntime
+	greetCalls   int
+	requestCalls int
+	lastRequest  platformcore.CandidateInfoRequest
+}
+
+// GreetCandidate 记录调用并返回成功。
+func (r *candidateInfoSuccessRuntime) GreetCandidate(context.Context, platformcore.Executor, cloudapi.PlatformConfig, platformcore.Candidate) error {
+	r.greetCalls++
+	return nil
+}
+
+// RequestCandidateInfo 记录请求内容并返回成功。
+func (r *candidateInfoSuccessRuntime) RequestCandidateInfo(_ context.Context, _ platformcore.Executor, _ cloudapi.PlatformConfig, _ platformcore.Candidate, request platformcore.CandidateInfoRequest) error {
+	r.requestCalls++
+	r.lastRequest = request
+	return nil
+}
+
+// TestCandidateInfoSuccessWritesRequestedFlags 验证索要执行成功后按勾选项写入结果字段和已发送问候语。
+func TestCandidateInfoSuccessWritesRequestedFlags(t *testing.T) {
+	runner := newTestRunner(t, nil, &fakeWorker{})
+	runtime := &candidateInfoSuccessRuntime{}
+	position := localdb.Position{ID: "position-request-ok", PositionSnapshot: map[string]any{
+		"common_config": map[string]any{"request_phone": true, "request_resume": true},
+		"greet_message": "方便留个联系方式吗",
+		"ai_config":     map[string]any{"request_score_threshold": 70.0},
+	}}
+	candidate := map[string]any{"candidate_name": "王五", "status": "passed", "ai_greet_score": 80.0}
+	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
+		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if greeted != 1 || failed != 0 || skipped != 0 {
+		t.Fatalf("greeted=%d failed=%d skipped=%d", greeted, failed, skipped)
+	}
+	if !boolFromMap(candidate, "requested_phone") || !boolFromMap(candidate, "requested_resume") {
+		t.Fatalf("requested flags = %+v", candidate)
+	}
+	if _, exists := candidate["requested_wechat"]; exists {
+		t.Fatal("未勾选微信时不应写入 requested_wechat")
+	}
+	if got := stringFromMap(candidate, "greet_message_sent"); got != "方便留个联系方式吗" {
+		t.Fatalf("greet_message_sent = %q", got)
+	}
+}
+
+// TestCandidateInfoFailureSkipsRequestedFlags 验证索要执行失败时不写结果字段，候选人仍算打招呼成功。
+func TestCandidateInfoFailureSkipsRequestedFlags(t *testing.T) {
+	runner := newTestRunner(t, nil, &fakeWorker{})
+	runtime := &candidateInfoErrorRuntime{}
+	position := localdb.Position{ID: "position-request-fail", PositionSnapshot: map[string]any{
+		"common_config": map[string]any{"request_phone": true, "request_resume": true},
+		"greet_message": "方便留个联系方式吗",
+		"ai_config":     map[string]any{"request_score_threshold": 70.0},
+	}}
+	candidate := map[string]any{"candidate_name": "赵六", "status": "passed", "ai_greet_score": 80.0}
+	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
+		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if greeted != 1 || failed != 0 || skipped != 0 {
+		t.Fatalf("greeted=%d failed=%d skipped=%d", greeted, failed, skipped)
+	}
+	for _, key := range []string{"requested_phone", "requested_wechat", "requested_resume", "greet_message_sent"} {
+		if _, exists := candidate[key]; exists {
+			t.Fatalf("索要失败时不应写入 %s", key)
+		}
+	}
+}
+
+// TestCandidateInfoRequestLabel 验证索要项文案按勾选项拼接。
+func TestCandidateInfoRequestLabel(t *testing.T) {
+	if got := candidateInfoRequestLabel(platformcore.CandidateInfoRequest{RequestPhone: true, RequestResume: true}); got != "手机号、简历" {
+		t.Fatalf("label = %q", got)
+	}
+	if got := candidateInfoRequestLabel(platformcore.CandidateInfoRequest{GreetMessage: "你好"}); got != "追加问候语" {
+		t.Fatalf("label = %q", got)
+	}
+	if got := candidateInfoRequestLabel(platformcore.CandidateInfoRequest{}); got != "无" {
+		t.Fatalf("label = %q", got)
+	}
+}
+
 // TestCloneCandidateForCloudIncludesAIResult 验证同步云端前会组装 ai.detail 和 ai.greet。
 func TestCloneCandidateForCloudIncludesAIResult(t *testing.T) {
 	payload := cloneCandidateForCloud(localdb.Position{ID: "position-1", PlatformID: "boss"}, map[string]any{

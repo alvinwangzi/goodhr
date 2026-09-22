@@ -48,23 +48,38 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 	} else if requestConfigured && !requestAllowed {
 		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，要求评分严格大于索要分数", candidateLogName(candidate), requestScore, requestThreshold))
 	} else if requestConfigured {
-		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：评分通过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，准备调用平台索要信息接口", candidateLogName(candidate), requestScore, requestThreshold))
+		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：评分通过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，准备索要%s", candidateLogName(candidate), requestScore, requestThreshold, candidateInfoRequestLabel(request)))
 	}
 	var requestErr error
+	requestAttempted := false
 	if requestConfigured && requestAllowed {
 		requester, ok := platformRuntime.(platformcore.CandidateInfoRequester)
 		if !ok {
 			r.positionLog(position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
 		} else {
+			requestAttempted = true
 			requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
 				return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
 			})
 		}
 	}
 	if requestErr != nil {
-		r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：执行失败但继续后续候选人，候选人=%s，错误=%s", candidateLogName(candidate), requestErr.Error()))
-	} else if requestConfigured && requestAllowed {
-		r.positionLog(position.ID, "info", "索要信息：平台处理完成，候选人="+candidateLogName(candidate))
+		r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：执行失败但继续后续候选人，候选人=%s，索要项=%s，错误=%s", candidateLogName(candidate), candidateInfoRequestLabel(request), requestErr.Error()))
+	} else if requestAttempted {
+		// 索要动作真实执行成功后才写结果字段，云端据此落索要事件和已发送问候语事件。
+		if request.RequestPhone {
+			candidate["requested_phone"] = true
+		}
+		if request.RequestWechat {
+			candidate["requested_wechat"] = true
+		}
+		if request.RequestResume {
+			candidate["requested_resume"] = true
+		}
+		if message := strings.TrimSpace(request.GreetMessage); message != "" {
+			candidate["greet_message_sent"] = message
+		}
+		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：执行完成，候选人=%s，索要项=%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
 	}
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
@@ -90,6 +105,28 @@ func candidateInfoRequestFromPosition(position localdb.Position) platformcore.Ca
 // candidateInfoRequestConfigured 判断岗位是否配置了任一索要动作或追加问候语。
 func candidateInfoRequestConfigured(request platformcore.CandidateInfoRequest) bool {
 	return request.RequestPhone || request.RequestWechat || request.RequestResume || strings.TrimSpace(request.GreetMessage) != ""
+}
+
+// candidateInfoRequestLabel 按岗位勾选项生成索要项展示文案，如“手机号、微信、简历”。
+// request 为岗位索要配置，返回值用于日志展示，没有任何勾选时返回“追加问候语”或“无”。
+func candidateInfoRequestLabel(request platformcore.CandidateInfoRequest) string {
+	items := make([]string, 0, 4)
+	if request.RequestPhone {
+		items = append(items, "手机号")
+	}
+	if request.RequestWechat {
+		items = append(items, "微信")
+	}
+	if request.RequestResume {
+		items = append(items, "简历")
+	}
+	if strings.TrimSpace(request.GreetMessage) != "" {
+		items = append(items, "追加问候语")
+	}
+	if len(items) == 0 {
+		return "无"
+	}
+	return strings.Join(items, "、")
 }
 
 // candidateInfoScoreDecision 判断候选人最终 AI 评分是否严格大于岗位索要分数。
