@@ -11,7 +11,7 @@ const DEFAULT_CLOUD_API_BASE =
 export const CLOUD_API_BASE = (
   process.env.NEXT_PUBLIC_CLOUD_API_BASE || DEFAULT_CLOUD_API_BASE
 ).replace(/\/$/, "");
-export const LOCAL_AGENT_PORTS = [43129];
+export const LOCAL_AGENT_PORTS = [55271, 43129];
 const LOCAL_AGENT_DETECT_CACHE_MS = 2000;
 const LOCAL_AGENT_DETECT_CACHE_KEY = "goodhr5_local_agent_detect_cache";
 const LOCAL_AGENT_PORT_QUERY_KEY = "local_port";

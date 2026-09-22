@@ -20,6 +20,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/google/uuid"
+
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
@@ -118,6 +120,7 @@ func (s *Server) Run() error {
 // mux 为 HTTP 路由器。
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/api/v1/session/bind", s.handleSessionBind)
 	mux.HandleFunc("/api/v1/diagnostics", s.handleDiagnostics)
 	mux.HandleFunc("/api/v1/runtime/status", s.handleRuntimeStatus)
 	mux.HandleFunc("/api/v1/runtime/ensure", s.handleRuntimeEnsure)
@@ -188,6 +191,86 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"runtime":        s.runtime.Status(),
 		"ocr":            s.ocr.Status(),
 	})
+}
+
+// handleSessionBind 接收前端传来的登录令牌，读取或生成设备编号后请求云端绑定。
+// w 为响应对象，r 为请求对象。
+func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
+		return
+	}
+	payload, err := readPayload(r)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	token := stringValue(payload["token"])
+	if token == "" {
+		response.Error(w, http.StatusBadRequest, "缺少登录令牌，请重新登录后再试")
+		return
+	}
+	machineID, err := s.ensureMachineID()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("生成设备编号失败：%v", err))
+		return
+	}
+	client := cloudapi.New(s.cfg.CloudAPIBase)
+	resp, statusCode, err := client.BindDevice(r.Context(), token, machineID, version.Value, s.cfg.Port)
+	if err != nil {
+		response.Error(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	// 云端返回 409 表示设备已被其他账号绑定，透传错误码给前端。
+	if statusCode == http.StatusConflict {
+		errCode := "DEVICE_ALREADY_BOUND"
+		errMsg := "这台电脑已经绑定到其他账号，当前账号暂时不能再绑定"
+		if errObj, ok := resp["error"].(map[string]any); ok {
+			if code, _ := errObj["code"].(string); code != "" {
+				errCode = code
+			}
+			if msg, _ := errObj["message"].(string); msg != "" {
+				errMsg = msg
+			}
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   false,
+			"code": http.StatusConflict,
+			"msg":  errMsg,
+			"error": map[string]any{
+				"code":    errCode,
+				"message": errMsg,
+			},
+		})
+		return
+	}
+	if statusCode >= 400 {
+		response.Error(w, http.StatusBadGateway, cloudapi.ErrorMessage(resp, "设备绑定失败"))
+		return
+	}
+	response.Success(w, resp)
+}
+
+// ensureMachineID 读取或首次生成当前设备的稳定编号。
+// 设备编号保存在本地数据库 local_settings 表中，格式为 goodhr-device-v1-<sha1前16位>。
+func (s *Server) ensureMachineID() (string, error) {
+	settings, err := s.db.GetSettings()
+	if err != nil {
+		return "", err
+	}
+	if id, ok := settings["machine_id"].(string); ok && id != "" {
+		return id, nil
+	}
+	hostname, _ := os.Hostname()
+	sum := sha1.Sum([]byte(hostname + "+" + uuid.NewString()))
+	machineID := fmt.Sprintf("goodhr-device-v1-%x", sum[:8])
+	_, err = s.db.SaveSettings(map[string]any{"machine_id": machineID})
+	if err != nil {
+		return "", err
+	}
+	return machineID, nil
 }
 
 // handleRuntimeStatus 返回运行组件状态。
@@ -882,23 +965,17 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 }
 
-// consoleDevURL 返回开发环境前端地址。
-// 开发服务可用时，本地程序会直接代理它。
+// consoleDevURL 返回当前开发配置的前端源站，生产环境不探测本机开发服务。
+// 控制台路径由请求本身携带，代理目标只保留协议与主机，避免重复拼接 /admin。
 func (s *Server) consoleDevURL() string {
-	if value := strings.TrimSpace(os.Getenv("GOODHR_CONSOLE_DEV_URL")); value != "" {
-		return strings.TrimRight(value, "/")
-	}
-	target := "http://127.0.0.1:5173"
-	client := http.Client{Timeout: 120 * time.Millisecond}
-	resp, err := client.Get(target)
-	if err != nil {
+	if s.cfg.Environment != "dev" {
 		return ""
 	}
-	_ = resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-		return target
+	target, err := url.Parse(s.cfg.ConsoleURL)
+	if err != nil || !isConsoleURLAllowed(s.cfg.ConsoleURL) {
+		return ""
 	}
-	return ""
+	return (&url.URL{Scheme: target.Scheme, Host: target.Host}).String()
 }
 
 // consoleStaticDir 返回可用的前端构建目录。

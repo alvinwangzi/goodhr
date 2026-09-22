@@ -4,6 +4,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -39,7 +40,11 @@ func TestArchiveNameFromURL(t *testing.T) {
 // TestAssetIsCurrentWhenFileAndVersionMatch 验证文件存在且版本一致时会跳过下载。
 func TestAssetIsCurrentWhenFileAndVersionMatch(t *testing.T) {
 	manager := testRuntimeManager(t)
-	nodePath := filepath.Join(manager.cfg.RuntimeDir, "node", "bin", "node")
+	nodeName := "node"
+	if runtime.GOOS == "windows" {
+		nodeName = "node.exe"
+	}
+	nodePath := filepath.Join(manager.cfg.RuntimeDir, "node", "bin", nodeName)
 	if err := os.MkdirAll(filepath.Dir(nodePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +63,11 @@ func TestAssetIsCurrentWhenFileAndVersionMatch(t *testing.T) {
 // TestAssetIsCurrentRejectsVersionMismatch 验证版本不一致时不会跳过下载。
 func TestAssetIsCurrentRejectsVersionMismatch(t *testing.T) {
 	manager := testRuntimeManager(t)
-	nodePath := filepath.Join(manager.cfg.RuntimeDir, "node", "bin", "node")
+	nodeName := "node"
+	if runtime.GOOS == "windows" {
+		nodeName = "node.exe"
+	}
+	nodePath := filepath.Join(manager.cfg.RuntimeDir, "node", "bin", nodeName)
 	if err := os.MkdirAll(filepath.Dir(nodePath), 0o755); err != nil {
 		t.Fatal(err)
 	}

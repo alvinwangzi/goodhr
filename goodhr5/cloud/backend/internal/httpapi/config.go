@@ -33,6 +33,7 @@ type Config struct {
 	SMTPPassword                string
 	SMTPFrom                    string
 	UniversalLoginCodeOffsetMin int
+	AgentBindingEnabled         bool
 }
 
 // Env 返回标准化后的小写环境模式，未识别时回退为 dev。
@@ -58,13 +59,14 @@ func LoadConfigFromEnv() Config {
 		RedisAddr:                   os.Getenv("GOODHR_REDIS_ADDR"),
 		RedisPassword:               os.Getenv("GOODHR_REDIS_PASSWORD"),
 		RedisDB:                     envInt("GOODHR_REDIS_DB", 0),
-		SuperAdmins:                 envList("GOODHR_SUPER_ADMINS", []string{"1224299352@qq.com"}),
+		SuperAdmins:                 envList("GOODHR_SUPER_ADMINS", []string{"425942228@qq.com"}),
 		SMTPHost:                    os.Getenv("GOODHR_SMTP_HOST"),
 		SMTPPort:                    envInt("GOODHR_SMTP_PORT", 465),
 		SMTPUsername:                os.Getenv("GOODHR_SMTP_USERNAME"),
 		SMTPPassword:                os.Getenv("GOODHR_SMTP_PASSWORD"),
 		SMTPFrom:                    os.Getenv("GOODHR_SMTP_FROM"),
 		UniversalLoginCodeOffsetMin: envInt("GOODHR_UNIVERSAL_LOGIN_CODE_OFFSET_MINUTES", 0),
+		AgentBindingEnabled:         envBool("GOODHR_AGENT_BINDING_ENABLED", true),
 	}
 }
 
@@ -317,6 +319,22 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+// envBool 从环境变量读取布尔值，支持 true/false、1/0、yes/no，读取失败时返回默认值。
+func envBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "true", "1", "yes", "on":
+		return true
+	case "false", "0", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 // envString 从环境变量读取字符串，空值时返回默认值。

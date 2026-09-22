@@ -136,7 +136,7 @@ func (s *PositionService) OptimizeRequirement(w http.ResponseWriter, r *http.Req
 	}
 	aiConfig, err := s.aiConfigStore.UserConfig(session.Email)
 	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusConflict, "请先在个人配置里填写并启用 AI 配置")
+		writeError(w, http.StatusConflict, "请先在 AI 配置页填写并启用 AI 配置")
 		return
 	}
 	if err != nil {

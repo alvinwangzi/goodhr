@@ -1,8 +1,6 @@
-/** 本文件负责展示本地运行组件、扩展安装说明和组件更新入口。 */
+/** 本文件负责展示本地运行组件和组件更新入口。 */
 "use client";
 
-import ExtensionRoundedIcon from "@mui/icons-material/ExtensionRounded";
-import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
 import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
   Box,
@@ -48,23 +46,31 @@ const componentNames: Record<string, string> = {
   ocr: "OCR 组件",
 };
 
-/** AgentDownloadPage 展示组件状态、扩展安装方法并触发运行组件更新。 */
+/** AgentDownloadPage 展示组件状态并触发运行组件更新。 */
 export default function AgentDownloadPage() {
   const { agentBase, onboardingConfig, refreshAgent, notify } = useAdmin();
   const [runtime, setRuntime] = useState<UnknownRecord>({});
   const [loading, setLoading] = useState(false);
-  const [openingExtensions, setOpeningExtensions] = useState(false);
 
-  /** load 读取本地运行状态和云端组件配置。 */
+  /** load 读取本地运行状态，并从健康接口补齐程序版本和数据目录。 */
   async function load() {
     if (!agentBase) return;
     setLoading(true);
     try {
-      const result: unknown = await localRequest(
-        agentBase,
-        "/api/v1/runtime/status",
-      );
-      setRuntime(asRecord(result));
+      const [status, health] = await Promise.all([
+        localRequest(agentBase, "/api/v1/runtime/status"),
+        localRequest(agentBase, "/health").catch(() => null),
+      ]);
+      const statusRecord = asRecord(status);
+      const healthRecord = asRecord(health);
+      setRuntime({
+        ...statusRecord,
+        // 旧版本地程序的 runtime/status 不带版本和数据目录，回退用 /health 的值。
+        version:
+          textValue(statusRecord.version) || textValue(healthRecord.version),
+        data_dir:
+          textValue(statusRecord.data_dir) || textValue(healthRecord.dataDir),
+      });
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "组件信息读取失败",
@@ -112,38 +118,13 @@ export default function AgentDownloadPage() {
     }
   }
 
-  /** openExtensionsDirectory 请求本地程序打开固定的浏览器扩展目录。 */
-  async function openExtensionsDirectory() {
-    if (!agentBase) {
-      notify("本地程序还没连上，我暂时打不开扩展目录", "error");
-      return;
-    }
-    setOpeningExtensions(true);
-    try {
-      await localRequest(agentBase, "/api/v1/extensions/open-directory", {
-        method: "POST",
-      });
-      notify("扩展目录已打开，请放入文件", "success");
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "扩展目录打开失败，请重试",
-        "error",
-      );
-    } finally {
-      setOpeningExtensions(false);
-    }
-  }
-
   const components = buildComponents(runtime, onboardingConfig);
-  const extensionsDirectory = textValue(runtime.extensions_dir);
 
   return (
     <>
       <PageHeader
         title="组件信息"
-        description="查看本机运行组件、安装状态、版本和浏览器扩展说明。"
+        description="查看本机运行组件、安装状态和版本。"
         actions={
           <>
             <RefreshButton
@@ -218,64 +199,6 @@ export default function AgentDownloadPage() {
               </Typography>
             </SectionPanel>
           </Box>
-
-          <SectionPanel sx={{ mb: 2 }}>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={2}
-              sx={{ alignItems: { sm: "flex-start" } }}
-            >
-              <ExtensionRoundedIcon
-                color="primary"
-                sx={{ mt: { sm: 0.25 }, fontSize: 28 }}
-              />
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography component="h2" sx={{ fontSize: 19, fontWeight: 760 }}>
-                  加入浏览器扩展
-                </Typography>
-                <Typography
-                  sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.75 }}
-                >
-                  如果下载的是压缩包，请先解压；如果拿到的已经是扩展文件夹，直接放进下面的目录。扩展文件夹里面必须能看到
-                  manifest.json。
-                </Typography>
-                <Box
-                  sx={{
-                    mt: 1.5,
-                    p: 1.25,
-                    overflowWrap: "anywhere",
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: "6px",
-                    bgcolor: "action.hover",
-                    fontFamily: "monospace",
-                    fontSize: 12,
-                  }}
-                >
-                  {extensionsDirectory || "扩展目录暂时没拿到，请先刷新"}
-                </Box>
-                <Typography
-                  sx={{
-                    mt: 1.25,
-                    color: "#7a4d00",
-                    fontSize: 13,
-                    lineHeight: 1.7,
-                  }}
-                >
-                  放好后请关闭并重新打开 CloakBrowser。仅刷新招聘页面不会加载新扩展。
-                </Typography>
-              </Box>
-              <Button
-                variant="outlined"
-                startIcon={<FolderOpenRoundedIcon />}
-                disabled={openingExtensions || !extensionsDirectory}
-                onClick={() => void openExtensionsDirectory()}
-                sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
-              >
-                {openingExtensions ? "正在打开" : "打开扩展目录"}
-              </Button>
-            </Stack>
-          </SectionPanel>
 
           <Box
             sx={{

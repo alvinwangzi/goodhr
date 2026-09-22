@@ -1,21 +1,27 @@
 ; Purpose: build the GoodHR Go Local Agent Windows installer with Inno Setup.
-#define MyAppName "GoodHR Local Agent"
+#ifndef BuildEnvironment
+  #error "BuildEnvironment must be dev or prod"
+#endif
+#if (BuildEnvironment != "dev") && (BuildEnvironment != "prod")
+  #error "BuildEnvironment must be dev or prod"
+#endif
+#define MyAppName "HR+"
 #ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
 #endif
-#define MyAppPublisher "GoodHR"
-#define MyAppExeName "goodhr-local-agent.exe"
+#define MyAppPublisher "HR+"
+#define MyAppExeName "hrplus-agent.exe"
 
 [Setup]
 AppId={{A7F8D98D-9D3D-47E7-A1F6-50F333A1F6D2}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={localappdata}\Programs\GoodHRLocalAgent
-DefaultGroupName=GoodHR
+DefaultDirName={localappdata}\Programs\HRPlus
+DefaultGroupName=HRPlus
 DisableProgramGroupPage=yes
-OutputDir=..\dist-installer
-OutputBaseFilename=GoodHRLocalAgentGoSetup-{#MyAppVersion}
+OutputDir=..\dist\installers\{#BuildEnvironment}
+OutputBaseFilename=HRPlusSetup-{#BuildEnvironment}-{#MyAppVersion}
 Compression=zip
 SolidCompression=no
 WizardStyle=modern
@@ -38,24 +44,28 @@ Name: "{app}\data"
 Type: filesandordirs; Name: "{app}\worker-node"
 Type: filesandordirs; Name: "{app}\resources\worker-node"
 Type: filesandordirs; Name: "{app}\data\runtime\browser-worker"
+; 清理历史版本残留的旧 exe，防止升级后安装目录同时存在新旧两个主程序。
+Type: files; Name: "{app}\goodhr-local-agent.exe"
 
 [Files]
-Source: "..\dist\installer-input\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\installer-input\{#BuildEnvironment}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\icons\goodhr-logo.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\audio\*"; DestDir: "{app}\audio"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\dist\installer-input\worker-node\*"; DestDir: "{app}\worker-node"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\installer-input\{#BuildEnvironment}\worker-node\*"; DestDir: "{app}\worker-node"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 暂时不把 frontend-next 打进本地程序安装包，避免前端包影响本地程序打包。
 ; Source: "..\dist\installer-input\console\*"; DestDir: "{app}\data\console"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"
-Name: "{autodesktop}\GoodHR Local Agent"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
+Name: "{autoprograms}\HR+"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"
+Name: "{autodesktop}\HR+"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"""; IconFilename: "{app}\goodhr-logo.ico"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式（请务必勾选）"; GroupDescription: "快捷方式："
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"" --restart"; Description: "启动 GoodHR Local Agent"; Flags: nowait postinstall
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--data-dir ""{app}\data"" --restart"; Description: "启动 HR+"; Flags: nowait postinstall
+; 刷新 Windows 图标缓存，确保桌面快捷方式立即显示新图标。
+Filename: "ie4uinit.exe"; Parameters: "-show"; Flags: runhidden postinstall skipifsilent
 
 [Code]
 // StopProcessByImageName 静默结束指定进程，避免升级安装时文件被旧程序占用。
@@ -71,6 +81,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
   begin
+    StopProcessByImageName('hrplus-agent.exe');
     StopProcessByImageName('goodhr-local-agent.exe');
     StopProcessByImageName('XtaCache.exe');
     StopProcessByImageName('XtaCache');

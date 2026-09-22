@@ -1,7 +1,6 @@
 /** 本文件负责新版后台个人操作节奏和模拟休息配置。 */
 "use client";
 
-import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
@@ -13,7 +12,6 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { cloudRequest } from "@/lib/admin-api";
 import { PageHeader, SectionPanel } from "@/components/admin/AdminUI";
@@ -105,17 +103,6 @@ export default function PersonalConfigPage() {
           </>
         }
       />
-
-      <Box sx={{ mb: 2 }}>
-        <QuickLink
-          href='https://www.qianwenai.com/'
-          external
-          icon={<PsychologyAltRoundedIcon />}
-          eyebrow='AI 接入'
-          title='获取 AI 接口'
-          description='前往千问平台申请多模态模型和 API Key，然后在「AI配置」中填写。'
-        />
-      </Box>
 
       <Box
         sx={{
@@ -213,120 +200,6 @@ export default function PersonalConfigPage() {
         </SectionPanel>
       </Box>
     </>
-  );
-}
-
-/** QuickLink 展示个人配置页的外部帮助入口。 */
-function QuickLink({
-  href,
-  icon,
-  eyebrow,
-  title,
-  description,
-  external = false,
-  primary = false,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  eyebrow: string;
-  title: string;
-  description: string;
-  external?: boolean;
-  primary?: boolean;
-}) {
-  const content = (
-    <Stack
-      direction='row'
-      spacing={1.75}
-      sx={{
-        p: { xs: 2, md: primary ? 2.5 : 2 },
-        minHeight: primary ? 140 : 118,
-        height: "100%",
-        alignItems: "center",
-        border: "1px solid",
-        borderColor: primary ? "primary.main" : "divider",
-        borderRadius: "8px",
-        bgcolor: primary ? "action.selected" : "action.hover",
-        color: "text.primary",
-        boxShadow: primary ? "0 18px 44px rgba(17, 17, 17, .1)" : "none",
-        transition: "150ms ease",
-        "&:hover": {
-          borderColor: "primary.main",
-          bgcolor: primary ? "primary.light" : "action.hover",
-          transform: "translateY(-1px)",
-        },
-      }}
-    >
-      <Box
-        sx={{
-          width: primary ? 58 : 46,
-          height: primary ? 58 : 46,
-          borderRadius: "999px",
-          display: "grid",
-          placeItems: "center",
-          bgcolor: primary ? "primary.main" : "action.selected",
-          color: primary ? "primary.contrastText" : "primary.main",
-          flexShrink: 0,
-          "& .MuiSvgIcon-root": { fontSize: primary ? 31 : 24 },
-        }}
-      >
-        {icon}
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography
-          sx={{
-            mb: 0.45,
-            width: "fit-content",
-            px: 1,
-            py: 0.35,
-            borderRadius: "999px",
-            bgcolor: "action.selected",
-            color: "primary.dark",
-            fontSize: 12,
-            fontWeight: 760,
-          }}
-        >
-          {eyebrow}
-        </Typography>
-        <Typography
-          sx={{ fontSize: primary ? 22 : 17, fontWeight: 820, lineHeight: 1.2 }}
-        >
-          {title}
-        </Typography>
-        <Typography
-          sx={{
-            mt: 0.75,
-            color: "text.secondary",
-            fontSize: 13.5,
-            lineHeight: 1.65,
-          }}
-        >
-          {description}
-        </Typography>
-      </Box>
-      <ArrowOutwardRoundedIcon
-        sx={{
-          color: primary ? "primary.main" : "text.secondary",
-          fontSize: 22,
-          flexShrink: 0,
-        }}
-      />
-    </Stack>
-  );
-  return external ? (
-    <Box
-      component='a'
-      href={href}
-      target='_blank'
-      rel='noreferrer'
-      sx={{ textDecoration: "none" }}
-    >
-      {content}
-    </Box>
-  ) : (
-    <Link href={href} style={{ textDecoration: "none" }}>
-      {content}
-    </Link>
   );
 }
 

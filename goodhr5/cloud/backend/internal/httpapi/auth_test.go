@@ -148,11 +148,11 @@ func TestAuthSessionsKeepSeparateUsers(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 
-	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+	adminToken := loginForTest(t, routes, "425942228@qq.com")
 	userToken := loginForTest(t, routes, "normal-user@example.com")
 
 	adminEmail := currentUserEmailForTest(t, routes, adminToken)
-	if adminEmail != "1224299352@qq.com" {
+	if adminEmail != "425942228@qq.com" {
 		t.Fatalf("admin token email = %q", adminEmail)
 	}
 

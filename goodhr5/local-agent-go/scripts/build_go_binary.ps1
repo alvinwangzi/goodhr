@@ -2,21 +2,19 @@
 param(
   [string]$TargetOS = "windows",
   [string]$TargetArch = "amd64",
-  [string]$Version = "5.3.5"
+  [string]$Version = "0.1.0",
+  [string]$Environment = $env:GOODHR_APP_ENV,
+  [string]$ConfigFile = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $RootDir = Resolve-Path (Join-Path $PSScriptRoot "..")
-$DistDir = Join-Path $RootDir "dist\bin"
-$Ext = ""
-if ($TargetOS -eq "windows") {
-  $Ext = ".exe"
+if ($Environment -cnotin @("dev", "prod")) {
+  throw "请通过 -Environment dev 或 -Environment prod 选择打包环境。"
 }
-$Output = Join-Path $DistDir "goodhr-local-agent-$TargetOS-$TargetArch$Ext"
-$SubsystemFlag = ""
-if ($TargetOS -eq "windows") {
-  $SubsystemFlag = "-H windowsgui "
+if ($ConfigFile) {
+  $ConfigFile = (Resolve-Path -LiteralPath $ConfigFile).Path
 }
 
 # Write-Step prints the current build step.
@@ -26,25 +24,28 @@ function Write-Step {
   Write-Host "[GoodHR] $message" -ForegroundColor Cyan
 }
 
-New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
-
-Write-Step "Build Go local agent: GOOS=$TargetOS GOARCH=$TargetArch"
+Write-Step "构建本地程序：环境=$Environment GOOS=$TargetOS GOARCH=$TargetArch"
+$PreviousGOOS = $env:GOOS
+$PreviousGOARCH = $env:GOARCH
+$PreviousCGO = $env:CGO_ENABLED
 Push-Location $RootDir
 try {
+  # 构建工具在当前系统运行，目标系统由参数传递给统一构建入口。
+  $env:GOOS = go env GOHOSTOS
+  $env:GOARCH = go env GOHOSTARCH
   $env:CGO_ENABLED = "0"
-  $env:GOOS = $TargetOS
-  $env:GOARCH = $TargetArch
-  go build -trimpath -ldflags="$SubsystemFlag-X goodhr5/local-agent-go/internal/version.Value=$Version" -o $Output ./cmd/goodhr-local-agent
+  $BuildArgs = @("run", "./cmd/build-local-agent", "-env", $Environment, "-os", $TargetOS, "-arch", $TargetArch, "-version", $Version)
+  if ($ConfigFile) {
+    $BuildArgs += @("-config", $ConfigFile)
+  }
+  & go @BuildArgs
   if ($LASTEXITCODE -ne 0) {
-    throw "Go build failed with exit code $LASTEXITCODE."
+    throw "Go 构建失败，退出码：$LASTEXITCODE"
   }
 }
 finally {
+  $env:GOOS = $PreviousGOOS
+  $env:GOARCH = $PreviousGOARCH
+  $env:CGO_ENABLED = $PreviousCGO
   Pop-Location
 }
-
-if (!(Test-Path $Output)) {
-  throw "Go build output was not found: $Output"
-}
-
-Write-Step "Build completed: $Output"

@@ -466,6 +466,12 @@ func cloudMessage(payload map[string]any, fallback string) string {
 	return fallback
 }
 
+// ErrorMessage 提取云端响应中的用户可见错误消息。
+// payload 为云端返回体，fallback 为默认中文错误。
+func ErrorMessage(payload map[string]any, fallback string) string {
+	return cloudMessage(payload, fallback)
+}
+
 // stringFromMap 从 map 中读取字符串字段。
 // item 为原始字典，key 为字段名。
 func stringFromMap(item map[string]any, key string) string {
@@ -538,4 +544,48 @@ func (c *Client) SendPositionFailNotice(ctx context.Context, token string, posit
 		return fmt.Errorf("云端返回非预期状态码：%d，原因：%s", code, cloudMessage(resp, "未返回具体原因"))
 	}
 	return nil
+}
+
+// BindDevice 把当前设备绑定到云端账号。
+// ctx 为请求上下文，token 为登录令牌，machineID 为设备 ID，agentVersion 为本地程序版本，localPort 为本地端口。
+// 返回响应体、HTTP 状态码和错误。调用方可通过状态码判断冲突（409）等业务场景。
+func (c *Client) BindDevice(ctx context.Context, token string, machineID string, agentVersion string, localPort int) (map[string]any, int, error) {
+	baseURL, err := c.safeBaseURL()
+	if err != nil {
+		return nil, 0, err
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, 0, fmt.Errorf("登录已过期，请重新登录")
+	}
+	machineID = strings.TrimSpace(machineID)
+	if machineID == "" {
+		return nil, 0, fmt.Errorf("设备 ID 不能为空")
+	}
+	apiURL := strings.TrimSuffix(baseURL, "/") + "/api/agents/bind"
+	body := map[string]any{
+		"machine_id":    machineID,
+		"agent_version": agentVersion,
+		"local_port":    localPort,
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("请求内容不是有效 JSON：%w", err)
+	}
+	log.Printf("[设备绑定] 请求地址：%s", apiURL)
+	log.Printf("[设备绑定] 请求参数：%s", string(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, 0, fmt.Errorf("创建云端请求失败：%w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, code, err := c.doJSON(req)
+	if err != nil {
+		log.Printf("[设备绑定] 请求失败：%v", err)
+		return nil, 0, err
+	}
+	log.Printf("[设备绑定] 响应状态码：%d", code)
+	log.Printf("[设备绑定] 响应数据：%v", resp)
+	return resp, code, nil
 }

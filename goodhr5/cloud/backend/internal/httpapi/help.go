@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const helpAssistantAdminEmail = "1224299352@qq.com"
+const helpAssistantAdminEmail = "425942228@qq.com"
 
 // HelpService 处理帮助中心系统指南和 AI 助手请求。
 type HelpService struct {

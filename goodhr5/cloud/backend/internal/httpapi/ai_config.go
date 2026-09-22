@@ -382,7 +382,7 @@ func publicAIConfigForRequest(config AIConfig, r *http.Request) map[string]any {
 	return result
 }
 
-// publicUserAIConfig 返回个人配置页面使用的 AI 配置，并明文返回 API Key。
+// publicUserAIConfig 返回 AI 配置页使用的 AI 配置，并明文返回 API Key。
 // config 为用户自己的 AI 配置，返回值用于前端表单直接展示和编辑。
 func publicUserAIConfig(config AIConfig) map[string]any {
 	result := publicAIConfig(config)

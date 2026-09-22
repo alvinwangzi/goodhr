@@ -16,15 +16,13 @@ const (
 	// MaxPort 是本地程序端口自动探测的最大端口。
 	MaxPort = 55279
 	// AppName 是本地数据目录名称。
-	AppName = "GoodHR"
-	// DefaultConsoleManifestURL 是控制台前端包下载清单默认地址。
-	DefaultConsoleManifestURL = "https://goodhr5.58it.cn/downloads/goodhr-console-manifest.json"
-	// DefaultCloudAPIBase 是本地程序默认访问的云端接口地址。
-	DefaultCloudAPIBase = "https://goodhr5.58it.cn"
+	AppName = "HR+"
 )
 
 // Config 保存本地程序运行配置。
 type Config struct {
+	Environment        string
+	ConsoleURL         string
 	Host               string
 	Port               int
 	DataDir            string
@@ -49,6 +47,10 @@ func New(host string, port int) (*Config, error) {
 // NewWithDataDir 创建本地程序配置。
 // host 为监听地址，port 为优先监听端口，customDataDir 为用户指定数据目录。
 func NewWithDataDir(host string, port int, customDataDir string) (*Config, error) {
+	buildConfig, err := RuntimeBuildConfig()
+	if err != nil {
+		return nil, err
+	}
 	if host == "" {
 		host = DefaultHost
 	}
@@ -67,6 +69,8 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		}
 	}
 	cfg := &Config{
+		Environment:        buildConfig.Environment,
+		ConsoleURL:         buildConfig.ConsoleURL,
 		Host:               host,
 		Port:               port,
 		DataDir:            dataDir,
@@ -77,8 +81,8 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		ProfilesDir:        filepath.Join(dataDir, "profiles"),
 		DownloadsDir:       defaultDownloadsDir(),
 		ScreenshotsDir:     filepath.Join(dataDir, "screenshots"),
-		ConsoleManifestURL: envOrDefault("GOODHR_CONSOLE_MANIFEST_URL", DefaultConsoleManifestURL),
-		CloudAPIBase:       envOrDefault("GOODHR_CLOUD_API_BASE", DefaultCloudAPIBase),
+		ConsoleManifestURL: buildConfig.ConsoleManifestURL,
+		CloudAPIBase:       buildConfig.CloudAPIBase,
 		AutoOpenConsole:    envOrDefault("GOODHR_AUTO_OPEN_CONSOLE", "true") != "false",
 	}
 	if err := cfg.EnsureDirs(); err != nil {

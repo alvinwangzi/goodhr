@@ -55,7 +55,7 @@ func TestAdminUserManagementAdjustsSubscription(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
 	userToken := loginForTest(t, routes, "managed-user@example.com")
-	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+	adminToken := loginForTest(t, routes, "425942228@qq.com")
 
 	statusReq := httptest.NewRequest(http.MethodGet, "/api/subscription/status", nil)
 	statusReq.Header.Set("Authorization", "Bearer "+userToken)
@@ -232,7 +232,7 @@ func TestAdminUserManagementUnbindsAgent(t *testing.T) {
 	routes := server.Routes()
 	userToken := loginForTest(t, routes, "agent-unbind@example.com")
 	nextUserToken := loginForTest(t, routes, "agent-next@example.com")
-	adminToken := loginForTest(t, routes, "1224299352@qq.com")
+	adminToken := loginForTest(t, routes, "425942228@qq.com")
 
 	bindReq := httptest.NewRequest(
 		http.MethodPost,

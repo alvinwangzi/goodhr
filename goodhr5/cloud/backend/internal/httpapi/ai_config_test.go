@@ -41,7 +41,7 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestAIConfigEffectiveUserOnly(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
-	token := loginForTest(t, routes, "1224299352@qq.com")
+	token := loginForTest(t, routes, "425942228@qq.com")
 
 	// 调用用户配置接口，保存当前用户自己的 AI 服务参数。
 	updateUser := httptest.NewRequest(
@@ -153,7 +153,7 @@ func TestAIConfigRejectsAnonymous(t *testing.T) {
 func TestAIConfigTestProxy(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
-	token := loginForTest(t, routes, "1224299352@qq.com")
+	token := loginForTest(t, routes, "425942228@qq.com")
 
 	server.ai.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.String() != "https://token-plan.example.com/compatible-mode/v1/chat/completions" {
@@ -192,7 +192,7 @@ func TestAIConfigTestProxy(t *testing.T) {
 func TestAIConfigTestProxyNormalizesBaseURL(t *testing.T) {
 	server := mustNewServer(t)
 	routes := server.Routes()
-	token := loginForTest(t, routes, "1224299352@qq.com")
+	token := loginForTest(t, routes, "425942228@qq.com")
 	server.ai.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.String() != "https://token-plan.example.com/compatible-mode/v1/chat/completions" {
 			t.Fatalf("AI request URL = %q", req.URL.String())

@@ -29,8 +29,8 @@ const contacts = [
   {
     icon: EmailRoundedIcon,
     label: "电子邮箱",
-    value: "1224299352@qq.com",
-    href: "mailto:1224299352@qq.com",
+    value: "425942228@qq.com",
+    href: "mailto:425942228@qq.com",
     note: "可发送问题截图、日志和使用需求。",
   },
   {
