@@ -37,6 +37,7 @@ import {
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
 import { humanTypeText } from "./human-type.js";
+import { locatorActionHandler, createActionGate } from "./locator-actions.js";
 import {
   buildListClickScrollFailureDiagnostic,
   listClickViewDecision,
@@ -406,7 +407,7 @@ async function startBrowser(payload) {
       registerContext(context);
       registerPage(page);
       try {
-        const display = await calibrateBrowserDisplay(page, "reuse");
+        const display = await calibrateBrowserDisplay(page, "reuse", payload);
         logWorker("复用已有浏览器", { user_data_dir: currentUserDataDir });
         return {
           running: true,
@@ -491,7 +492,7 @@ async function startBrowser(payload) {
     registerContext(context);
     page = context.pages?.()[0] || (await context.newPage());
     registerPage(page);
-    const display = await calibrateBrowserDisplay(page, "persistent-launch");
+    const display = await calibrateBrowserDisplay(page, "persistent-launch", payload);
     logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
     return {
       running: true,
@@ -518,7 +519,7 @@ async function startBrowser(payload) {
   registerContext(context);
   page = context ? await context.newPage() : await browser.newPage();
   registerPage(page);
-  const display = await calibrateBrowserDisplay(page, "launch");
+  const display = await calibrateBrowserDisplay(page, "launch", payload);
   logWorker("浏览器页面已就绪", { elapsed_ms: Date.now() - startedAt });
   return {
     running: true,
@@ -741,14 +742,14 @@ async function openPage(payload) {
 }
 
 /** calibrateBrowserDisplay 测试期间只读取当前显示参数，不再修改视口或缩放。 */
-async function calibrateBrowserDisplay(currentPage, stage) {
+async function calibrateBrowserDisplay(currentPage, stage, options = {}) {
   // 测试期间取消启动时的 100% 缩放重置、固定视口设置和尺寸拦截。
   // const display = await normalizeBrowserDisplay(currentPage);
   // logWorker("浏览器显示校准", { stage, ...display });
   // if (!display.matches_fixed) {
   //   throw new Error(browserDisplayAdjustmentMessage(display));
   // }
-  const display = await readBrowserDisplayMetrics(currentPage);
+  const display = await readBrowserDisplayMetrics(currentPage, options);
   logWorker("浏览器显示读取（未限制窗口大小和缩放）", {
     stage,
     ...display,
@@ -6847,13 +6848,13 @@ const routes = {
   "/api/v1/page/list": listPages,
   "/api/v1/page/use": usePage,
   "/api/v1/page/open": openPage,
-  "/api/v1/page/click": clickPage,
+  "/api/v1/page/click": locatorActionHandler(() => page, clickPage, "click"),
   "/api/v1/page/ensure-visible": ensureElementVisible,
-  "/api/v1/page/type": typePage,
+  "/api/v1/page/type": locatorActionHandler(() => page, typePage, "type"),
   "/api/v1/page/press-key": pressKey,
-  "/api/v1/page/scroll": scrollPage,
-  "/api/v1/page/extract-text": extractText,
-  "/api/v1/page/find-elements": findElements,
+  "/api/v1/page/scroll": locatorActionHandler(() => page, scrollPage, "scroll"),
+  "/api/v1/page/extract-text": locatorActionHandler(() => page, extractText, "extract-text"),
+  "/api/v1/page/find-elements": locatorActionHandler(() => page, findElements, "find-elements"),
   "/api/v1/page/list-click-by-index": listClickByIndex,
   "/api/v1/page/click-by-text": clickByText,
   "/api/v1/page/ensure-checked-by-text": ensureCheckedByText,
@@ -6876,7 +6877,9 @@ const routes = {
   "/api/v1/hliepin/stable-click": hliepinStableClick,
 };
 
+const runBrowserAction = createActionGate();
 const server = http.createServer(async (req, res) => {
+  const actionController = new AbortController();
   const requestStartedAt = Date.now();
   const requestPath = req.url || "";
   const isBossDetailRequest =
@@ -6887,6 +6890,7 @@ const server = http.createServer(async (req, res) => {
   res.on("close", () => {
     if (res.writableEnded) return;
     clientDisconnected = true;
+    actionController.abort();
     const fields = {
       path: requestPath,
       elapsed_ms: Date.now() - requestStartedAt,
@@ -6965,7 +6969,10 @@ const server = http.createServer(async (req, res) => {
       ).trim(),
     });
     const handlerStartedAt = Date.now();
-    const data = await handler(requestPayload);
+    const data = await runBrowserAction(() => {
+      actionController.signal.throwIfAborted();
+      return handler(requestPayload, actionController.signal);
+    }, Object.hasOwn(requestPayload, "selector_spec") || requestPayload.no_script === true);
     const completionFields = {
       path: requestPath,
       handler_elapsed_ms: Date.now() - handlerStartedAt,

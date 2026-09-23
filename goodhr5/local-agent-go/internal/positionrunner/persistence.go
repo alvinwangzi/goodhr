@@ -214,7 +214,7 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 	if client == nil {
 		return PositionRuntimeSnapshot{}, fmt.Errorf("云端客户端未初始化")
 	}
-	requiresAI := positionRequiresAI(position)
+	requiresAI := positionRequiresAI(position) || options.TaskType == "auto_reply"
 	r.positionLog(positionID, "info", "岗位运行启动：正在校验会员状态")
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
@@ -255,20 +255,27 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 		r.positionLog(positionID, "info", fmt.Sprintf("岗位运行启动：AI 配置读取完成，模型=%s", options.AIConfig.Model))
 	}
 
-	r.updateProgress(positionID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
-	platformID := strings.ToLower(strings.TrimSpace(position.PlatformID))
-	if platformID == "" {
-		platformID = "boss"
+	var platformConfig cloudapi.PlatformConfig
+	if options.TaskType == "auto_reply" {
+		// 自动回复使用本地内嵌消息配置，不从云端读取或覆盖消息选择器。
+		r.positionLog(positionID, "info", "岗位运行启动：自动回复使用本地内嵌消息配置")
+	} else {
+		r.updateProgress(positionID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
+		platformID := strings.ToLower(strings.TrimSpace(position.PlatformID))
+		if platformID == "" {
+			platformID = "boss"
+		}
+		r.positionLog(positionID, "info", "岗位运行启动：正在读取平台配置，平台="+platformID)
+		fetched, err := client.FetchPlatformConfig(ctx, platformID)
+		if err != nil {
+			return PositionRuntimeSnapshot{}, fmt.Errorf("读取云端平台配置失败：%w", err)
+		}
+		if len(fetched) == 0 {
+			return PositionRuntimeSnapshot{}, fmt.Errorf("云端平台配置为空，岗位运行无法启动")
+		}
+		platformConfig = fetched
+		r.positionLog(positionID, "info", "岗位运行启动：平台配置读取完成，平台="+platformID)
 	}
-	r.positionLog(positionID, "info", "岗位运行启动：正在读取平台配置，平台="+platformID)
-	platformConfig, err := client.FetchPlatformConfig(ctx, platformID)
-	if err != nil {
-		return PositionRuntimeSnapshot{}, fmt.Errorf("读取云端平台配置失败：%w", err)
-	}
-	if len(platformConfig) == 0 {
-		return PositionRuntimeSnapshot{}, fmt.Errorf("云端平台配置为空，岗位运行无法启动")
-	}
-	r.positionLog(positionID, "info", "岗位运行启动：平台配置读取完成，平台="+platformID)
 
 	return PositionRuntimeSnapshot{
 		Position:       position,
@@ -354,6 +361,7 @@ func applyCloudPreferences(options StartOptions, preferences map[string]any) Sta
 // config 为云端 /api/config/effective-ai 返回的配置。
 func aiConfigFromCloud(config map[string]any) localdb.AIConfig {
 	return localdb.AIConfig{
+		ReplySystemPrompt: stringFromMap(config, "reply_system_prompt"),
 		ID:          "cloud",
 		BaseURL:     stringFromMap(config, "base_url"),
 		APIKey:      stringFromMap(config, "api_key"),

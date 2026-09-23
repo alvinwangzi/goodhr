@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/platformcore"
+	"goodhr5/local-agent-go/internal/platforms"
 	"goodhr5/local-agent-go/internal/power"
 	"strings"
 	"time"
@@ -23,6 +25,11 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	if options.Token == "" {
 		return nil, fmt.Errorf("请先登录后再校验会员")
 	}
+	taskType, err := normalizeTaskType(options.TaskType)
+	if err != nil {
+		return nil, err
+	}
+	options.TaskType = taskType
 	client := cloudapi.New(options.CloudAPIBase)
 	cloudPosition, err := client.FetchPosition(ctx, options.Token, positionID)
 	if err != nil {
@@ -31,6 +38,20 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	position, err := r.db.UpsertPositionSnapshot(localPositionSnapshotFromCloud(cloudPosition))
 	if err != nil {
 		return nil, err
+	}
+	if options.TaskType == "auto_reply" {
+		// 自动回复在取得任何浏览器动作前检查平台能力与本地内嵌配置。
+		platformRuntime, err := platforms.RuntimeFor(position.PlatformID)
+		if err != nil {
+			return nil, err
+		}
+		runtime, ok := platformRuntime.(platformcore.AutoReplyRuntime)
+		if !ok {
+			return nil, fmt.Errorf("当前平台暂不支持 AI 自动回复")
+		}
+		if err := runtime.AutoReplyAvailable(); err != nil {
+			return nil, fmt.Errorf("AI 自动回复暂未开放：%w", err)
+		}
 	}
 	r.positionLog(positionID, "info", "岗位运行启动：正在准备本地运行环境")
 	r.positionLog(positionID, "info", fmt.Sprintf("岗位运行启动：岗位运行配置读取完成，平台=%s，岗位=%s，模式=%s，轮次=%d", position.PlatformID, positionPositionName(position), position.Mode, scanRounds(options)))
@@ -57,6 +78,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	if err != nil {
 		cancel()
 		r.failStart(positionID, err.Error(), options)
+		r.clear(positionID)
 		return map[string]any{"position": positionStatusAfterStartFailure(r.db, positionID, position), "running": false}, err
 	}
 	position = snapshot.Position
@@ -69,7 +91,20 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		return nil, err
 	}
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if syncResult, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running", options.MachineID); syncErr != nil {
+	if options.TaskType == "auto_reply" {
+		// 自动回复必须得到云端明确许可和非空执行任务记录 ID，失败不沿用只记警告继续运行的行为。
+		syncResult, syncErr := client.SyncTaskStatus(syncCtx, options.Token, positionID, cloudapi.TaskStatusRequest{Status: "running", TaskType: "auto_reply", MachineID: options.MachineID})
+		if syncErr != nil {
+			syncCancel()
+			r.positionLog(positionID, "error", "岗位运行启动：云端未允许自动回复，错误="+syncErr.Error())
+			_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
+			r.clear(positionID)
+			return nil, fmt.Errorf("云端未允许自动回复，任务未开始：%w", syncErr)
+		}
+		snapshot.Options.CloudRunID = syncResult.RunID
+		options.CloudRunID = syncResult.RunID
+		r.positionLog(positionID, "info", "岗位运行启动：云端已许可自动回复，本次执行任务记录 ID="+syncResult.RunID)
+	} else if syncResult, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running", options.MachineID); syncErr != nil {
 		r.positionLog(positionID, "warning", "岗位运行启动：云端运行状态同步失败，错误="+syncErr.Error())
 	} else if strings.TrimSpace(syncResult.RunID) != "" {
 		// 云端本次运行对应的执行任务记录 ID 必须写回 snapshot.Options：
@@ -95,6 +130,12 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	options = snapshot.Options
 	options.EnableSound = position.EnableSound
 	r.updateRunOptions(positionID, options)
+	if options.TaskType == "auto_reply" {
+		// 自动回复独立编排：不进入候选人扫描、休息和收尾求简历流程。
+		r.updateProgress(positionID, Progress{Stage: "running", Message: "自动回复已开始执行", TotalRounds: scanRounds(options)})
+		r.runAutoReplyTask(ctx, position, options)
+		return
+	}
 	r.initRestState(positionID, options)
 	r.updateProgress(positionID, Progress{Stage: "running", Message: "岗位运行已开始执行", TotalRounds: totalRounds})
 	r.positionLog(positionID, "info", "岗位运行启动：本地岗位运行运行器已启动，准备进入扫描流程")
@@ -163,7 +204,12 @@ func (r *Runner) Stop(positionID string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if r.hasRunningLock(positionID) {
+	if r.autoReplyRunning(positionID) {
+		// 自动回复收到停止信号立即取消尚未发送的 AI 请求；已开始发送只做必要结果确认。
+		r.markUserStoppedAndCancel(positionID)
+		r.updateProgress(positionID, Progress{Stage: "stopped", Message: "自动回复已停止"})
+		r.positionLog(positionID, "info", "岗位运行停止：自动回复已立即停止，不再生成新回复")
+	} else if r.hasRunningLock(positionID) {
 		r.updateProgress(positionID, Progress{Stage: "running", Message: "正在处理当前候选人，处理完会停止"})
 		r.positionLog(positionID, "info", "岗位运行停止：正在等待当前候选人处理完成")
 		if !r.waitUntilStopped(positionID, stopGracefulTimeout) {
@@ -237,6 +283,10 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 	logs, _ := r.db.ListPositionLogs(positionID, 20)
 	positionMap := localPositionStatusMap(position)
 	positionMap["current_run_greeted_count"] = r.currentRunGreeted(positionID)
+	if stats, ok := r.currentReplyStats(positionID); ok {
+		positionMap["task_type"] = "auto_reply"
+		positionMap["reply_stats"] = stats
+	}
 	return map[string]any{
 		"position":      positionMap,
 		"running":       running,
@@ -327,7 +377,6 @@ func (r *Runner) waitUntilStopped(positionID string, timeout time.Duration) bool
 func (r *Runner) failStart(positionID string, msg string, options StartOptions) {
 	r.positionLog(positionID, "error", "岗位运行失败：环节=岗位运行运行，错误="+msg)
 	_, _ = r.db.UpdatePositionStatus(positionID, "failed")
-	r.clear(positionID)
 	// 自动播放失败提示音（如果岗位运行开启了提示音）
 	if position, err := r.db.GetPosition(positionID); err == nil && position.EnableSound {
 		r.playSound("failed.wav", positionID)
@@ -411,7 +460,7 @@ func (r *Runner) ensurePowerProtection(positionID string) error {
 // releasePowerProtectionIfIdle 在没有运行岗位运行时释放防睡眠保护。
 func (r *Runner) releasePowerProtectionIfIdle() {
 	r.mu.Lock()
-	if len(r.running) > 0 {
+	if len(r.running) > 0 || r.browserLease != nil {
 		r.mu.Unlock()
 		return
 	}
@@ -475,11 +524,12 @@ func (r *Runner) cancelRunningPositionsAfterSleep(gap time.Duration) {
 func (r *Runner) setRunning(positionID string, cancel context.CancelFunc, options StartOptions) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.running[positionID]; ok {
+	if len(r.running) > 0 || r.browserLease != nil {
 		return false
 	}
 	delete(r.userStopped, positionID)
-	r.running[positionID] = &runState{cancel: cancel, options: options, progress: Progress{Stage: "starting", Message: "岗位运行准备启动", TotalRounds: defaultScanRounds, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	r.browserLease = &browserLease{refs: 1}
+	r.running[positionID] = &runState{lease: r.browserLease, done: make(chan struct{}), cancel: cancel, options: options, progress: Progress{Stage: "starting", Message: "岗位运行准备启动", TotalRounds: defaultScanRounds, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	return true
 }
 
@@ -582,12 +632,43 @@ func (r *Runner) currentRunGreeted(positionID string) int {
 	return 0
 }
 
+// autoReplyRunning 判断岗位当前是否正在运行自动回复任务。
+// positionID 为岗位运行 ID。
+func (r *Runner) autoReplyRunning(positionID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.running[strings.TrimSpace(positionID)]
+	return state != nil && state.options.TaskType == "auto_reply"
+}
+
+// updateReplyStats 更新自动回复统计，供状态接口展示。
+// positionID 为岗位运行 ID，stats 为最新统计。
+func (r *Runner) updateReplyStats(positionID string, stats platformcore.ReplyStats) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if state := r.running[strings.TrimSpace(positionID)]; state != nil {
+		value := stats
+		state.replyStats = &value
+	}
+}
+
+// currentReplyStats 返回当前自动回复统计；无运行任务或非自动回复时返回 false。
+// positionID 为岗位运行 ID。
+func (r *Runner) currentReplyStats(positionID string) (platformcore.ReplyStats, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := r.running[strings.TrimSpace(positionID)]
+	if state == nil || state.replyStats == nil {
+		return platformcore.ReplyStats{}, false
+	}
+	return *state.replyStats, true
+}
+
 // cancel 取消正在运行的岗位运行。
 // positionID 为岗位运行 ID。
 func (r *Runner) cancel(positionID string) {
 	r.mu.Lock()
 	state := r.running[positionID]
-	delete(r.running, positionID)
 	r.mu.Unlock()
 	if state != nil && state.cancel != nil {
 		state.cancel()
@@ -607,7 +688,6 @@ func (r *Runner) markUserStopped(positionID string) {
 func (r *Runner) markUserStoppedAndCancel(positionID string) {
 	r.mu.Lock()
 	state := r.running[positionID]
-	delete(r.running, positionID)
 	r.userStopped[positionID] = true
 	r.mu.Unlock()
 	if state != nil && state.cancel != nil {
@@ -628,8 +708,44 @@ func (r *Runner) isUserStopped(positionID string) bool {
 // positionID 为岗位运行 ID。
 func (r *Runner) clear(positionID string) {
 	r.mu.Lock()
-	delete(r.running, positionID)
-	delete(r.userStopped, positionID)
+	if state := r.running[positionID]; state != nil {
+		if state.cancel != nil { state.cancel() }
+		if state.done != nil { close(state.done) }
+		r.releaseBrowserLocked(state.lease)
+		delete(r.running, positionID)
+		delete(r.userStopped, positionID)
+	}
 	r.mu.Unlock()
 	r.releasePowerProtectionIfIdle()
+}
+
+// releaseBrowserLocked 在持有状态锁时减少当前浏览器占用引用。
+func (r *Runner) releaseBrowserLocked(lease *browserLease) {
+	if lease == nil || r.browserLease != lease { return }
+	lease.refs--
+	if lease.refs == 0 { r.browserLease = nil }
+}
+
+// reserveResumeBrowser 在启动收尾协程前取得占用；继承时等待主任务全部页面清理结束。
+func (r *Runner) reserveResumeBrowser(positionID string) (func(), <-chan struct{}, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ready := make(chan struct{})
+	lease := r.browserLease
+	if state := r.running[positionID]; state != nil && state.lease == lease && lease != nil {
+		lease.refs++
+		ready = state.done
+	} else if lease == nil && len(r.running) == 0 {
+		lease = &browserLease{refs: 1}
+		r.browserLease = lease
+		close(ready)
+	} else {
+		return nil, nil, false
+	}
+	return func() {
+		r.mu.Lock()
+		r.releaseBrowserLocked(lease)
+		r.mu.Unlock()
+		r.releasePowerProtectionIfIdle()
+	}, ready, true
 }

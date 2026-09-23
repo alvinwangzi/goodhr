@@ -8,6 +8,23 @@ import (
 	"testing"
 )
 
+// TestSyncTaskStatus 验证任务类型和运行所有权透传，自动回复必须得到明确许可。
+func TestSyncTaskStatus(t *testing.T) {
+ for _, body := range []string{`{"ok":true,"status":"running","run_id":"run-1"}`, `{"ok":true,"status":"running"}`, `{"ok":false,"status":"running","run_id":"run-1"}`, `{"ok":true,"status":"stopped","run_id":"run-1"}`} {
+  t.Run(body, func(t *testing.T) {
+   server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    var got map[string]any
+    _ = json.NewDecoder(r.Body).Decode(&got)
+    if got["task_type"] != "auto_reply" || got["run_id"] != "run-1" || got["run_greeted_count"] != float64(0) { t.Errorf("任务参数错误：%v", got) }
+    _, _ = w.Write([]byte(body))
+   }))
+   defer server.Close()
+   _, err := New(server.URL).SyncTaskStatus(t.Context(), "token", "position", TaskStatusRequest{Status:"running", TaskType:"auto_reply", RunID:"run-1", Greeted:99})
+   if (err == nil) != (body == `{"ok":true,"status":"running","run_id":"run-1"}`) { t.Fatalf("许可判定错误：%v", err) }
+  })
+ }
+}
+
 // TestFetchPlatformConfig 验证公开平台配置读取和 JSON 字符串解码。
 func TestFetchPlatformConfig(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

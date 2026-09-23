@@ -317,6 +317,22 @@ func (c *Client) SyncPositionStatus(ctx context.Context, token string, positionI
 // SyncPositionStatusWithCounts 通知云端岗位状态并携带本次打招呼和跳过数量。
 // ctx 为请求上下文，其余参数为登录信息、岗位状态、本机设备机器码和本次统计。
 func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string, positionID string, status string, machineID string, greeted, skipped int) (PositionStatusSyncResult, error) {
+	return c.SyncTaskStatus(ctx, token, positionID, TaskStatusRequest{Status: status, MachineID: machineID, Greeted: greeted, Skipped: skipped})
+}
+
+// TaskStatusRequest 只上传任务类型、所有权和统计，不包含聊天或回复正文。
+type TaskStatusRequest struct {
+	Status string `json:"status"`
+	TaskType string `json:"task_type,omitempty"`
+	RunID string `json:"run_id,omitempty"`
+	MachineID string `json:"machine_id"`
+	Greeted int `json:"run_greeted_count"`
+	Skipped int `json:"run_skipped_count"`
+}
+
+// SyncTaskStatus 复用现有状态接口，自动回复要求云端明确许可和本次运行 ID。
+func (c *Client) SyncTaskStatus(ctx context.Context, token, positionID string, request TaskStatusRequest) (PositionStatusSyncResult, error) {
+	status := request.Status
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
 		return PositionStatusSyncResult{}, fmt.Errorf("岗位运行 ID 不能为空")
@@ -326,14 +342,24 @@ func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string,
 		return PositionStatusSyncResult{}, fmt.Errorf("岗位运行状态不能为空")
 	}
 	// machine_id 必须上报：云端在运行中状态会校验设备绑定，缺失会被拒绝并导致执行任务记录无法创建。
-	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/status", map[string]any{
-		"status": status, "machine_id": strings.TrimSpace(machineID), "run_greeted_count": max(0, greeted), "run_skipped_count": max(0, skipped),
-	})
+	request.Status = status
+	request.MachineID = strings.TrimSpace(request.MachineID)
+	request.Greeted = max(0, request.Greeted)
+	request.Skipped = max(0, request.Skipped)
+	if request.TaskType == "auto_reply" { request.Greeted = 0 }
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/status", request)
 	if err != nil {
 		return PositionStatusSyncResult{}, fmt.Errorf("同步云端岗位运行状态失败：%w", err)
 	}
 	if code >= 400 {
 		return PositionStatusSyncResult{}, fmt.Errorf("%s", cloudMessage(payload, "同步云端岗位运行状态失败"))
+	}
+	if request.TaskType == "auto_reply" {
+		allowed, _ := payload["ok"].(bool)
+		runID := strings.TrimSpace(stringFromMap(payload, "run_id"))
+		if !allowed || stringFromMap(payload, "status") != status || runID == "" || (request.RunID != "" && runID != request.RunID) {
+			return PositionStatusSyncResult{}, fmt.Errorf("云端未确认本次自动回复许可或运行记录")
+		}
 	}
 	noticeSent, _ := payload["notice_sent"].(bool)
 	return PositionStatusSyncResult{

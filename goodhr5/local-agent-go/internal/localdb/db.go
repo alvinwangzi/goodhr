@@ -221,7 +221,7 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	if err := db.migratePositionScannedCounts(); err != nil {
 		return err
 	}
-	return nil
+	return db.migrateAutoReply()
 }
 
 // migratePositionScannedCounts 一次性补回旧版累计扫描中漏记的跳过和失败人数。

@@ -34,7 +34,14 @@ func (r *Runner) enqueueResumeRequest(position localdb.Position, candidate map[s
 // asyncCheckResumeRequests 在后台协程执行回复检查，避免阻塞岗位停止或完成流程的返回。
 // position 为岗位运行记录，platformConfig 为云端平台配置，options 为启动参数。
 func (r *Runner) asyncCheckResumeRequests(position localdb.Position, platformConfig cloudapi.PlatformConfig, options StartOptions) {
+	release, ready, ok := r.reserveResumeBrowser(position.ID)
+	if !ok {
+		r.positionLog(position.ID, "info", "回复检查：浏览器繁忙，名单保留待下次检查")
+		return
+	}
 	go func() {
+		defer release()
+		<-ready
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				r.positionLog(position.ID, "warning", fmt.Sprintf("回复检查：执行过程中出现异常已忽略，细节=%v", recovered))

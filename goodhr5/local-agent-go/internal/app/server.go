@@ -190,7 +190,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"dbPath":         s.db.Path(),
 		"runtime":        s.runtime.Status(),
 		"ocr":            s.ocr.Status(),
+		"capabilities":   autoReplyCapabilities(),
 	})
+}
+
+// autoReplyCapabilities 返回本地程序支持的扩展能力标志；前端只在标志明确为 true 时开放入口。
+func autoReplyCapabilities() map[string]any {
+	return map[string]any{"auto_reply": true}
 }
 
 // handleSessionBind 接收前端传来的登录令牌，读取或生成设备编号后请求云端绑定。
@@ -509,10 +515,22 @@ func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, 
 	if machineErr != nil {
 		machineID = ""
 	}
-	result, err := s.runner.Start(r.Context(), positionID, positionrunner.StartOptions{
+	result, err := s.runner.Start(r.Context(), positionID, s.startOptionsFromPayload(payload, machineID))
+	if err != nil {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	response.Success(w, result)
+}
+
+// startOptionsFromPayload 将启动请求参数转换为运行器启动选项，任务类型由运行器规范化。
+// payload 为请求参数，machineID 为本机设备编号。
+func (s *Server) startOptionsFromPayload(payload map[string]any, machineID string) positionrunner.StartOptions {
+	return positionrunner.StartOptions{
 		CloudAPIBase:           s.cloudAPIBase(payload),
-		Token:                  token,
+		Token:                  stringValue(payload["token"]),
 		MachineID:              machineID,
+		TaskType:               stringValue(payload["task_type"]),
 		EnableGreet:            boolValueDefault(payload["enable_greet"], true),
 		GreetRetries:           0,
 		ScrollDelayMin:         3,
@@ -531,12 +549,7 @@ func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, 
 		RestTimesMax:           4,
 		RestDurationMin:        3,
 		RestDurationMax:        5,
-	})
-	if err != nil {
-		response.Error(w, http.StatusConflict, err.Error())
-		return
 	}
-	response.Success(w, result)
 }
 
 // handleLocalPositionStop 停止本地岗位运行运行器。

@@ -1556,6 +1556,11 @@ func (w *fakeWorker) Start(ctx context.Context) (browser.WorkerStatus, error) {
 	return browser.WorkerStatus{Running: true, BaseURL: "http://127.0.0.1:9101"}, nil
 }
 
+// CallOnce 转调 Call，保持旧测试行为。
+func (w *fakeWorker) CallOnce(ctx context.Context, path string, payload any) (map[string]any, error) {
+	return w.Call(ctx, path, payload)
+}
+
 // Call 模拟调用 Worker API。
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
@@ -1732,6 +1737,11 @@ func (r *detailCloseProbeRuntime) CleanCandidateDetailText(text string) string {
 // ctx 为请求上下文。
 func (w *blockingWorker) Start(ctx context.Context) (browser.WorkerStatus, error) {
 	return browser.WorkerStatus{Running: true}, nil
+}
+
+// CallOnce 转调 Call，保持旧测试行为。
+func (w *blockingWorker) CallOnce(ctx context.Context, path string, payload any) (map[string]any, error) {
+	return w.Call(ctx, path, payload)
 }
 
 // Call 模拟 Worker API，并在候选人提取时等待当前步骤完成。

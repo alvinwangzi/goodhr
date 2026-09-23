@@ -9,7 +9,9 @@ import (
 )
 
 // Runtime 实现 Boss 平台运行时能力。
-type Runtime struct{}
+type Runtime struct {
+	replyConfig *replyPageConfig
+}
 
 // NewRuntime 创建 Boss 平台运行时实例。
 func NewRuntime() *Runtime {
