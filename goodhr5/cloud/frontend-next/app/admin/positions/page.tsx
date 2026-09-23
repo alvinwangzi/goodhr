@@ -52,7 +52,15 @@ import PositionFloatingStatus, {
 import { cloudRequest, formatDate, getToken, localRequest } from "@/lib/admin-api";
 import { isPlatformOpen, type PlatformConfigLike } from "@/lib/platform-open";
 import { reportUserFlow } from "@/lib/user-flow";
-import { canUseAI, normalizeSubscription } from "@/lib/subscription";
+import { canUseAI, canUseAutoReply, normalizeSubscription } from "@/lib/subscription";
+import {
+  agentSupportsAutoReply,
+  autoReplyEnabledForPlatform,
+  mergeReplyPrompt,
+  normalizeReplyStats,
+  replyStatsText,
+  type ReplyStats,
+} from "@/lib/auto-reply";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
 import { evaluatePositionStartGuard, latestLocalAgentRelease, positionUsesAI } from "@/lib/position-start-guard";
 
@@ -117,6 +125,10 @@ export default function PositionsPage() {
   const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
+  const [startTaskType, setStartTaskType] = useState<"greeting" | "auto_reply">(
+    "greeting",
+  );
+  const [replyStats, setReplyStats] = useState<Record<string, ReplyStats>>({});
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
   const [startStatus, setStartStatus] = useState("");
@@ -142,6 +154,17 @@ export default function PositionsPage() {
     review_prompt: "",
   });
   const aiMembership = canUseAI(subscription);
+  const startAutoReplyPlatformOK = autoReplyEnabledForPlatform(
+    startPositionItem?.platform_id,
+  );
+  const startAutoReplyMembershipOK = canUseAutoReply(subscription);
+  const startAutoReplyOptionEnabled =
+    startAutoReplyPlatformOK && startAutoReplyMembershipOK;
+  const startAutoReplyDescription = !startAutoReplyPlatformOK
+    ? "该平台尚未开放 AI 自动回复。"
+    : !startAutoReplyMembershipOK
+      ? "当前会员不支持 AI 自动回复，请升级会员后使用。"
+      : "自动回复当前岗位的未读消息，不额外占用打招呼数量。";
 
   /** load 读取岗位模板和系统默认提示词。 */
   async function load() {
@@ -313,22 +336,29 @@ export default function PositionsPage() {
             request_wechat: form.request_wechat,
             request_resume: form.request_resume,
           },
-          ai_config: {
-            position_requirement: form.position_requirement,
-            filter_prompt: form.filter_prompt || defaults.filter_prompt,
-            greet_prompt: form.filter_prompt || defaults.filter_prompt,
-            click_prompt: form.filter_prompt || defaults.filter_prompt,
-            open_detail_prompt:
-              form.open_detail_prompt || defaults.open_detail_prompt,
-            review_prompt: normalizePrompt(form.review_prompt),
-            detail_score_threshold: Number(form.detail_score_threshold || 60),
-            greet_score_threshold: Number(form.greet_score_threshold || 70),
-            request_score_threshold: Number(
-              form.request_score_threshold ??
-                form.greet_score_threshold ??
-                70,
-            ),
-          },
+          ai_config: mergeReplyPrompt(
+            {
+              // 编辑时保留云端已有的其他 ai_config 键，表单键覆盖同名值。
+              ...(form.id
+                ? items.find((item) => item.id === form.id)?.ai_config || {}
+                : {}),
+              position_requirement: form.position_requirement,
+              filter_prompt: form.filter_prompt || defaults.filter_prompt,
+              greet_prompt: form.filter_prompt || defaults.filter_prompt,
+              click_prompt: form.filter_prompt || defaults.filter_prompt,
+              open_detail_prompt:
+                form.open_detail_prompt || defaults.open_detail_prompt,
+              review_prompt: normalizePrompt(form.review_prompt),
+              detail_score_threshold: Number(form.detail_score_threshold || 60),
+              greet_score_threshold: Number(form.greet_score_threshold || 70),
+              request_score_threshold: Number(
+                form.request_score_threshold ??
+                  form.greet_score_threshold ??
+                  70,
+              ),
+            },
+            form.reply_prompt,
+          ),
           keyword_config: {},
           match_limit: Number(form.match_limit || 50),
           enable_sound: form.enable_sound,
@@ -366,6 +396,7 @@ export default function PositionsPage() {
     setStartError("");
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
+    setStartTaskType("greeting");
     setStartPositionItem(item);
   }
 
@@ -377,6 +408,7 @@ export default function PositionsPage() {
     setStartError("");
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
+    setStartTaskType("greeting");
   }
 
   /** openStartPlatformForFiltering 打开当前岗位对应的招聘平台页面，供用户先手动设置基础筛选条件。 */
@@ -402,7 +434,7 @@ export default function PositionsPage() {
     }
   }
 
-  /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求。 */
+  /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求，通过时返回本地健康数据。 */
   async function checkPositionStartGuard(item: any) {
     const usesAI = positionUsesAI(item);
     setStartStatus(usesAI ? "正在检查 AI 余额和本地程序版本..." : "正在检查本地程序版本...");
@@ -428,10 +460,10 @@ export default function PositionsPage() {
         setStartStatus(guardFailure.message);
         setStartRequiresUpdate(guardFailure.code === "agent_version_outdated");
         setStartError(guardFailure.code === "agent_version_outdated" ? "" : guardFailure.message);
-        return false;
+        return null;
       }
       setStartRequiresUpdate(false);
-      return true;
+      return health;
     } catch (error) {
       const message = error instanceof Error
         ? `启动条件检查未完成：${error.message}。请刷新后重试。`
@@ -440,7 +472,7 @@ export default function PositionsPage() {
       setStartError(message);
       setStartRequiresUpdate(false);
       await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "position_start_guard_unavailable", message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
-      return false;
+      return null;
     }
   }
 
@@ -474,7 +506,8 @@ export default function PositionsPage() {
           skippedCount: 0,
         });
       }
-      if (!(await checkPositionStartGuard(item))) return;
+      const health = await checkPositionStartGuard(item);
+      if (!health) return;
       const subscriptionData = await cloudRequest("/api/subscription/status");
       const currentSubscription = normalizeSubscription(
         subscriptionData.subscription,
@@ -485,22 +518,40 @@ export default function PositionsPage() {
         setStartError(message);
         return;
       }
-      const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
-      setStartStatus("正在打开招聘平台，请确认账号已登录。");
-      await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
-      try {
-        await confirmPlatformLoggedInForPosition(agentBase, auth, (message) =>
-          setStartStatus(message),
-        );
-        await reportUserFlow({ step: "platform_login_verified", source: "position_start", position_id: item.id });
-      } catch (loginError) {
-        const message = loginError instanceof Error
-          ? loginError.message
-          : "招聘平台还没登录，请先在浏览器里完成登录。";
-        setStartStatus(message);
-        setStartError(message);
-        await reportUserFlow({ step: "platform_login_verified", status: "blocked", reason_code: "platform_not_logged_in", message, source: "position_start", position_id: item.id }).catch(() => undefined);
-        return;
+      if (startTaskType === "auto_reply") {
+        // AI 自动回复由本地程序准备消息页，前端只做能力和权限检查。
+        if (!agentSupportsAutoReply(health)) {
+          const message = "当前本地程序版本还不支持 AI 自动回复，请更新本地程序后重试。";
+          setStartStatus(message);
+          setStartError(message);
+          return;
+        }
+        if (!canUseAutoReply(currentSubscription)) {
+          const message = "AI 自动回复是会员功能，请订阅后重试。";
+          setStartStatus(message);
+          setStartError(message);
+          await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+          return;
+        }
+        setStartStatus("正在启动 AI 自动回复，本地程序会自动打开消息页...");
+      } else {
+        const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
+        setStartStatus("正在打开招聘平台，请确认账号已登录。");
+        await openPlatformPositionBrowser(agentBase, item.platform_id, auth);
+        try {
+          await confirmPlatformLoggedInForPosition(agentBase, auth, (message) =>
+            setStartStatus(message),
+          );
+          await reportUserFlow({ step: "platform_login_verified", source: "position_start", position_id: item.id });
+        } catch (loginError) {
+          const message = loginError instanceof Error
+            ? loginError.message
+            : "招聘平台还没登录，请先在浏览器里完成登录。";
+          setStartStatus(message);
+          setStartError(message);
+          await reportUserFlow({ step: "platform_login_verified", status: "blocked", reason_code: "platform_not_logged_in", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+          return;
+        }
       }
       const usesAI = positionUsesAI(item);
       if (usesAI && !canUseAI(currentSubscription)) {
@@ -511,10 +562,14 @@ export default function PositionsPage() {
         return;
       }
       if (!currentSubscription.active) notify("当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。", "info");
-      setStartStatus("登录确认好了，正在启动岗位...");
+      setStartStatus(startTaskType === "auto_reply" ? "正在启动 AI 自动回复..." : "登录确认好了，正在启动岗位...");
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/run`, {
         method: "POST",
-        body: { token: getToken(), enable_greet: true },
+        body: {
+          token: getToken(),
+          enable_greet: true,
+          ...(startTaskType === "auto_reply" ? { task_type: "auto_reply" } : {}),
+        },
       });
       started = true;
       setFloatingPositionTask((current) =>
@@ -631,6 +686,12 @@ export default function PositionsPage() {
           ...current,
           [item.id]: normalizePositionTaskStats(task),
         }));
+        if (task.reply_stats) {
+          setReplyStats((current) => ({
+            ...current,
+            [item.id]: normalizeReplyStats(task.reply_stats),
+          }));
+        }
       }
       const taskStatus = String(task?.status || "").trim();
       if (taskStatus) {
@@ -673,6 +734,7 @@ export default function PositionsPage() {
   async function loadLatestTaskStats(positionItems: any[]) {
     if (!agentBase) return;
     const next: Record<string, PositionTaskStats> = {};
+    const nextReplyStats: Record<string, ReplyStats> = {};
     await Promise.all(
       positionItems.filter((item) => isCurrentUserPosition(item, user?.email)).map(async (item) => {
         try {
@@ -681,12 +743,16 @@ export default function PositionsPage() {
             `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
           );
           next[item.id] = normalizePositionTaskStats(task);
+          if (task?.reply_stats) {
+            nextReplyStats[item.id] = normalizeReplyStats(task.reply_stats);
+          }
         } catch {
           // 没有本地任务记录时保留零值，不能影响岗位列表加载。
         }
       }),
     );
     setLatestTaskStats(next);
+    setReplyStats(nextReplyStats);
   }
 
   /** clearPositionLogs 二次确认后清空指定岗位保存在本地程序中的日志。 */
@@ -996,12 +1062,17 @@ export default function PositionsPage() {
               </Stack>
               <Typography sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}>
                 今日 {item.today_greeted_count || 0}
-                {isCurrentUserPosition(item, user?.email) ? <>
+                {isCurrentUserPosition(item, user?.email) ? < >
                   {" "}· 本次（扫描 {latestTaskStats[item.id]?.scanned_count || 0} · 打招呼{" "}
                   {latestTaskStats[item.id]?.greeted_count || 0} · 跳过{" "}
                   {latestTaskStats[item.id]?.skipped_count || 0}）
                 </> : null}
               </Typography>
+              {replyStats[item.id] ? (
+                <Typography sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}>
+                  AI 回复（{replyStatsText(replyStats[item.id])}）
+                </Typography>
+              ) : null}
               <Collapse in={isCurrentUserPosition(item, user?.email) && expandedLogPositionID === item.id}>
                 <PositionLogPanel
                   logs={logs[item.id] || []}
@@ -1022,7 +1093,7 @@ export default function PositionsPage() {
       <AdminDialog
         open={Boolean(startPositionItem)}
         title={startError ? "岗位还没启动成功" : "开始招聘岗位"}
-        confirmText={startError ? "我知道了" : startRequiresUpdate ? "立即更新" : "我已筛选好，立即开始"}
+        confirmText={startError ? "我知道了" : startRequiresUpdate ? "立即更新" : startTaskType === "auto_reply" ? "开始 AI 自动回复" : "我已筛选好，立即开始"}
         showCancel={!startError}
         loading={startLoading}
         loadingText='启动中'
@@ -1043,22 +1114,50 @@ export default function PositionsPage() {
           <Typography>
             确认开始“{startPositionItem?.name || ""}”吗？
           </Typography>
-          <Alert severity='warning' variant='outlined'>
-            <Typography sx={{ fontWeight: 700, lineHeight: 1.7 }}>
-              强烈建议您先点击下方“打开平台，并筛选条件”，在招聘平台中设置好年龄、学历、地区等基础筛选条件，再回来开始任务。基础筛选会直接影响候选人结果，此步骤非常重要。
+          <ChoiceCards
+            label='任务类型'
+            value={startTaskType}
+            onChange={(value) =>
+              setStartTaskType(value === "auto_reply" ? "auto_reply" : "greeting")
+            }
+            options={[
+              {
+                value: "greeting",
+                label: "打招呼",
+                description: "按岗位配置筛选候选人并自动打招呼。",
+              },
+              {
+                value: "auto_reply",
+                label: "AI 自动回复（会员功能）",
+                description: startAutoReplyDescription,
+                disabled: !startAutoReplyOptionEnabled,
+              },
+            ]}
+          />
+          {startTaskType === "greeting" ? (
+            <>
+              <Alert severity='warning' variant='outlined'>
+                <Typography sx={{ fontWeight: 700, lineHeight: 1.7 }}>
+                  强烈建议您先点击下方“打开平台，并筛选条件”，在招聘平台中设置好年龄、学历、地区等基础筛选条件，再回来开始任务。基础筛选会直接影响候选人结果，此步骤非常重要。
+                </Typography>
+              </Alert>
+              <Button
+                fullWidth
+                variant='outlined'
+                size='large'
+                disabled={startLoading || startOpeningPlatform}
+                startIcon={startOpeningPlatform ? <CircularProgress color='inherit' size={18} /> : <LaunchRoundedIcon />}
+                onClick={() => void openStartPlatformForFiltering()}
+                sx={{ py: 1.15, fontWeight: 760 }}
+              >
+                {startOpeningPlatform ? "正在打开招聘平台" : "打开平台，并筛选条件"}
+              </Button>
+            </>
+          ) : (
+            <Typography sx={{ color: "text.secondary", fontSize: 13, lineHeight: 1.7 }}>
+              本地程序会自动打开招聘平台消息页，只回复属于当前岗位的未读文字消息；如果招聘平台还没登录或岗位对不上，任务会停止并提示。已由 AI 回复过的消息不会重复回复。
             </Typography>
-          </Alert>
-          <Button
-            fullWidth
-            variant='outlined'
-            size='large'
-            disabled={startLoading || startOpeningPlatform}
-            startIcon={startOpeningPlatform ? <CircularProgress color='inherit' size={18} /> : <LaunchRoundedIcon />}
-            onClick={() => void openStartPlatformForFiltering()}
-            sx={{ py: 1.15, fontWeight: 760 }}
-          >
-            {startOpeningPlatform ? "正在打开招聘平台" : "打开平台，并筛选条件"}
-          </Button>
+          )}
           <Box sx={{ minHeight: 24 }}>
             {startStatus ? (
               <Typography color={isPositionStartErrorStatus(startStatus) ? "error" : "text.secondary"}>
@@ -1554,6 +1653,17 @@ export default function PositionsPage() {
                             setForm({ ...form, review_prompt: value })
                           }
                         />
+                        <PromptField
+                          label='AI 回复提示词（可选）'
+                          value={form.reply_prompt}
+                          defaultValue=''
+                          defaultActionLabel='清空'
+                          emptyPlaceholder='可留空，使用系统默认的回复规则'
+                          description='岗位开启 AI 自动回复时使用；写清回复语气、重点和禁忌，留空则按默认规则回复。'
+                          onChange={(value) =>
+                            setForm({ ...form, reply_prompt: value })
+                          }
+                        />
                       </Stack>
                     </Collapse>
                   </Box>
@@ -1903,6 +2013,7 @@ function createEmptyForm() {
     open_detail_prompt: "",
     filter_prompt: "",
     review_prompt: "",
+    reply_prompt: "",
     detail_score_threshold: 60,
     greet_score_threshold: 70,
     request_score_threshold: 70,
@@ -1962,6 +2073,7 @@ function formFromItem(
         ai.greet_prompt || ai.filter_prompt || ai.click_prompt,
       ),
       review_prompt: normalizePrompt(ai.review_prompt),
+      reply_prompt: normalizePrompt(ai.reply_prompt),
       detail_score_threshold: Number(ai.detail_score_threshold ?? 60),
       greet_score_threshold: Number(ai.greet_score_threshold ?? 70),
       request_score_threshold: Number(
