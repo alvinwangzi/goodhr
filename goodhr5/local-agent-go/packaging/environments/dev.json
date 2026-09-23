@@ -2,5 +2,6 @@
   "_comment": "本文件配置开发环境安装包的公开地址；修改地址后重新打包，不要填写密钥。",
   "environment": "dev",
   "console_url": "http://localhost:3000/admin",
-  "cloud_api_base": "http://localhost:8084"
+  "cloud_api_base": "http://localhost:8084",
+  "dev_scan_limit": 20
 }

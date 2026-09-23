@@ -79,6 +79,7 @@ type Runner struct {
 	screenshotsDir string
 	audioDir       string
 	cloudAPIBase   string
+	devScanLimit   int
 	mu             sync.Mutex
 	running        map[string]*runState
 	userStopped    map[string]bool
@@ -228,8 +229,8 @@ type StartOptions struct {
 
 // New 创建本地岗位运行运行器。
 // db 为本地 SQLite 数据库，worker 为浏览器 Worker 管理器，profilesDir、downloadsDir 和 screenshotsDir 为本机浏览器目录。
-func New(db *localdb.DB, worker BrowserWorker, ocr OCRRecognizer, profilesDir string, downloadsDir string, screenshotsDir string, audioDir string, cloudAPIBase string) *Runner {
-	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, audioDir: audioDir, cloudAPIBase: cloudAPIBase, running: map[string]*runState{}, userStopped: map[string]bool{}}
+func New(db *localdb.DB, worker BrowserWorker, ocr OCRRecognizer, profilesDir string, downloadsDir string, screenshotsDir string, audioDir string, cloudAPIBase string, devScanLimit int) *Runner {
+	return &Runner{db: db, worker: worker, ocr: ocr, profilesDir: profilesDir, downloadsDir: downloadsDir, screenshotsDir: screenshotsDir, audioDir: audioDir, cloudAPIBase: cloudAPIBase, devScanLimit: devScanLimit, running: map[string]*runState{}, userStopped: map[string]bool{}}
 }
 
 // safePathName 清理文件夹名中的危险字符。

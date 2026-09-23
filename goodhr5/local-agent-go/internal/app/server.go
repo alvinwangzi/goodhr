@@ -60,7 +60,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		worker:  workerManager,
 		ocr:     ocrEngine,
 		db:      db,
-		runner:  positionrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase),
+		runner:  positionrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase, cfg.DevScanLimit),
 	}, nil
 }
 

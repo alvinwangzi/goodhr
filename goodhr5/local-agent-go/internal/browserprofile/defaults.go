@@ -40,7 +40,7 @@ var (
 )
 
 var recruitBookmarks = []bookmarkSpec{
-	{Name: "goodhr5.58it.cn", URL: "https://goodhr5.58it.cn/"},
+	{Name: "maybly", URL: "https://www.maybly.com/"},
 	{Name: "BOSS直聘", URL: "https://www.zhipin.com/web/chat/recommend"},
 	{Name: "猎聘猎头端", URL: "https://h.liepin.com/"},
 	{Name: "猎聘", URL: "https://www.liepin.com/"},

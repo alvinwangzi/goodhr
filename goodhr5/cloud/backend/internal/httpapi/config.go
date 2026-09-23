@@ -59,7 +59,7 @@ func LoadConfigFromEnv() Config {
 		RedisAddr:                   os.Getenv("GOODHR_REDIS_ADDR"),
 		RedisPassword:               os.Getenv("GOODHR_REDIS_PASSWORD"),
 		RedisDB:                     envInt("GOODHR_REDIS_DB", 0),
-		SuperAdmins:                 envList("GOODHR_SUPER_ADMINS", []string{"425942228@qq.com"}),
+		SuperAdmins:                 envList("GOODHR_SUPER_ADMINS", []string{"425942228@qq.com", "wangweisainan@126.com"}),
 		SMTPHost:                    os.Getenv("GOODHR_SMTP_HOST"),
 		SMTPPort:                    envInt("GOODHR_SMTP_PORT", 465),
 		SMTPUsername:                os.Getenv("GOODHR_SMTP_USERNAME"),

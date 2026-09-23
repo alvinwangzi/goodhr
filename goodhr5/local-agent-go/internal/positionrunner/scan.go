@@ -20,6 +20,11 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 	if r.worker == nil {
 		return nil, fmt.Errorf("浏览器 Worker 未配置")
 	}
+	// 调试日志：打印打招呼上限值，用于排查 match_limit 是否正确加载
+	r.positionLog(position.ID, "info", fmt.Sprintf("扫描开始：岗位打招呼上限 match_limit=%d", position.MatchLimit))
+	if r.devScanLimit > 0 {
+		r.positionLog(position.ID, "warning", fmt.Sprintf("开发测试：dev_scan_limit=%d，扫描达到此数后自动停止", r.devScanLimit))
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -200,6 +205,11 @@ scanLoop:
 			queue = append(queue, candidates...)
 			r.syncProcessedResumeCount(ctx, position, len(candidates), options)
 			r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：读取完成，本次新增=%d，重复=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
+			// 开发测试：限制单次扫描的候选人总数，方便快速验证流程。
+			if r.devScanLimit > 0 && totalResult.Scanned >= r.devScanLimit {
+				r.positionLog(position.ID, "warning", fmt.Sprintf("开发测试：已达到开发环境扫描上限=%d（dev_scan_limit），停止继续扫描", r.devScanLimit))
+				break scanLoop
+			}
 		}
 		candidates := queue
 		queue = nil
@@ -404,6 +414,8 @@ scanLoop:
 					if greeted > 0 {
 						operationErrors.Reset("执行打招呼")
 						r.incrementRunGreeted(position.ID, greeted)
+						// 调试日志：打招呼成功后显示当前计数和上限
+						r.positionLog(position.ID, "info", fmt.Sprintf("打招呼成功：当前已打招呼=%d，上限=%d", totalResult.Greeted, position.MatchLimit))
 					}
 				}
 

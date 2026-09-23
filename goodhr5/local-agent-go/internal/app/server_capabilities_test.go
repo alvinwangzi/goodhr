@@ -38,7 +38,7 @@ func newCapabilityTestServer(t *testing.T) *Server {
 		worker:  browser.NewWorkerManager(runtimeManager),
 		ocr:     ocr.New(cfg),
 		db:      db,
-		runner:  positionrunner.New(db, browser.NewWorkerManager(runtimeManager), ocr.New(cfg), cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, cfg.DataDir, cfg.CloudAPIBase),
+		runner:  positionrunner.New(db, browser.NewWorkerManager(runtimeManager), ocr.New(cfg), cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, cfg.DataDir, cfg.CloudAPIBase, cfg.DevScanLimit),
 	}
 }
 

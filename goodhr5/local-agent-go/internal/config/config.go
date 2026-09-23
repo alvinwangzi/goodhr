@@ -37,6 +37,8 @@ type Config struct {
 	ConsoleManifestURL string
 	CloudAPIBase       string
 	AutoOpenConsole    bool
+	// DevScanLimit 仅开发环境生效，限制单次扫描的候选人总数，0 表示不限制。
+	DevScanLimit int
 }
 
 // New 创建本地程序配置。
@@ -85,6 +87,7 @@ func NewWithDataDir(host string, port int, customDataDir string) (*Config, error
 		ConsoleManifestURL: buildConfig.ConsoleManifestURL,
 		CloudAPIBase:       buildConfig.CloudAPIBase,
 		AutoOpenConsole:    envOrDefault("GOODHR_AUTO_OPEN_CONSOLE", "true") != "false",
+		DevScanLimit:       buildConfig.DevScanLimit,
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, err

@@ -23,6 +23,8 @@ type BuildConfig struct {
 	ConsoleURL         string `json:"console_url"`
 	CloudAPIBase       string `json:"cloud_api_base"`
 	ConsoleManifestURL string `json:"console_manifest_url,omitempty"`
+	// DevScanLimit 仅开发环境生效，限制单次扫描的候选人总数，0 表示不限制。
+	DevScanLimit int `json:"dev_scan_limit,omitempty"`
 }
 
 // LoadBuildConfig 读取指定配置文件并验证它与打包时选择的环境一致。

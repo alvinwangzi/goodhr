@@ -363,7 +363,7 @@ export default function PositionsPage() {
             form.reply_reject_template,
           ),
           keyword_config: {},
-          match_limit: Number(form.match_limit || 50),
+          match_limit: form.match_limit > 0 ? Number(form.match_limit) : 50,
           enable_sound: form.enable_sound,
           enable_thinking: form.enable_thinking,
         },

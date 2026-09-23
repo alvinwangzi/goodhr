@@ -256,9 +256,10 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 	}
 
 	var platformConfig cloudapi.PlatformConfig
-	if hasTaskType(parseTaskTypes(options.TaskType), "auto_reply") {
-		// 自动回复使用本地内嵌消息配置，不从云端读取或覆盖消息选择器。
-		r.positionLog(positionID, "info", "岗位运行启动：自动回复使用本地内嵌消息配置")
+	taskTypes := parseTaskTypes(options.TaskType)
+	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") {
+		// 纯自动回复模式不需要平台扫描配置，使用本地内嵌消息配置即可。
+		r.positionLog(positionID, "info", "岗位运行启动：纯自动回复模式，跳过平台扫描配置读取")
 	} else {
 		r.updateProgress(positionID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
 		platformID := strings.ToLower(strings.TrimSpace(position.PlatformID))
