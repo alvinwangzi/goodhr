@@ -1,18 +1,77 @@
 {
-  "verified": false,
-  "jobs": { "selectors": [] },
-  "job_fields": {},
-  "unavailable_reason": "Boss 当前页面的稳定会话、岗位及消息属性尚未完成只读验证，自动回复暂不可启动",
+  "verified": true,
+  "unavailable_reason": "",
   "messages_url": "https://www.zhipin.com/web/chat",
-  "unread": { "selectors": [] },
-  "conversation": { "selectors": [] },
-  "active": { "selectors": [] },
-  "messages": { "selectors": [] },
-  "input": { "selectors": [] },
-  "send": { "selectors": [] },
-  "identity_attribute": "",
-  "conversation_fields": {},
-  "message_fields": {},
-  "directions": {},
-  "kinds": {}
+  "identity_attribute": "data-id",
+
+  "jobs": {
+    "selectors": [".job-select .ui-dropmenu-list li"]
+  },
+  "job_fields": {
+    "id": {},
+    "name": {}
+  },
+
+  "unread": {
+    "selectors": [".user-list .geek-item"]
+  },
+  "conversation": {
+    "selectors": [".user-list .geek-item"]
+  },
+  "active": {
+    "selectors": [".chat-conversation"]
+  },
+
+  "messages": {
+    "selectors": [".chat-message-list .message-item"]
+  },
+  "input": {
+    "selectors": [".boss-chat-editor-input"]
+  },
+  "send": {
+    "selectors": [".conversation-editor .submit"]
+  },
+
+  "conversation_fields": {
+    "id": { "attribute": "data-id" },
+    "position_id": { "selector": { "selectors": [".source-job"] } },
+    "position_name": { "selector": { "selectors": [".source-job"] } },
+    "name": { "selector": { "selectors": [".geek-name"] } }
+  },
+
+  "message_fields": {
+    "id": { "selector": { "selectors": [".message-time .time"] } },
+    "direction": { "selector": { "selectors": [".item-myself, .item-friend, .item-system, .item-resume"] }, "attribute": "class" },
+    "kind": { "selector": { "selectors": [".item-myself, .item-friend, .item-system, .item-resume"] }, "attribute": "class" },
+    "timestamp": { "selector": { "selectors": [".message-time .time"] } },
+    "text": { "selector": { "selectors": [".item-myself, .item-friend"] } }
+  },
+
+  "directions": {
+    "item-myself": "outbound",
+    "item-friend": "inbound"
+  },
+  "kinds": {
+    "item-myself": "text",
+    "item-friend": "text",
+    "item-system": "system",
+    "item-resume": "system"
+  },
+
+  "resume_received": {
+    "selectors": [".resume-btn-file"]
+  },
+  "resume_requested_text": "简历请求已发送",
+  "resume_button": {
+    "selectors": [".operate-icon-item"]
+  },
+  "online_resume_button": {
+    "selectors": [".resume-btn-online"]
+  },
+  "online_resume_overlay": {
+    "selectors": [".resume-detail-wrap"]
+  },
+  "online_resume_close": {
+    "selectors": [".new-resume-online-main-ui .close-btn"]
+  }
 }

@@ -81,6 +81,11 @@ type AutoReplyRuntime interface {
 	StageReply(context.Context, Executor, ReplyTarget, ReplyContext, string) error
 	SendReply(context.Context, Executor, ReplyTarget, ReplyContext, string) (bool, error)
 	ConfirmReply(context.Context, Executor, ReplyTarget, ReplyConversation, string, string) (bool, error)
+	// ResumeAfterReply 在自动回复成功后判断是否索要简历。
+	// positionSnapshot 为岗位快照（含 common_config.request_resume 和 ai_config），
+	// aiClient 为 AI 客户端（用于截图评分），screenshotsDir 为截图存放目录。
+	// 返回动作类型：skipped/requested/ai_requested/ai_skipped/failed。
+	ResumeAfterReply(ctx context.Context, exec Executor, conversation ReplyConversation, positionSnapshot map[string]any, aiClient any, screenshotsDir string) (string, error)
 }
 
 // ReplyHash 返回正文或已规范化数据的摘要，不保留原文。
@@ -90,12 +95,19 @@ func ReplyHash(text string) string {
 }
 
 // ReplyPositionMatches 仅认可平台岗位 ID 或已经确认唯一的完整岗位名称。
+// Boss 下拉选项的岗位 ID 可能包含城市和薪资后缀，会话侧只有岗位名，
+// 因此 ID 比较同时支持包含匹配。
 func ReplyPositionMatches(conversation ReplyConversation, target ReplyTarget) bool {
 	if strings.TrimSpace(conversation.ID) == "" {
 		return false
 	}
 	if conversation.PositionID != "" && target.PositionID != "" {
-		return conversation.PositionID == target.PositionID
+		if conversation.PositionID == target.PositionID {
+			return true
+		}
+		// 下拉文本 "Java开发工程师 _ 南京 8-12K" 包含会话岗位名 "Java开发工程师"
+		return strings.Contains(target.PositionID, conversation.PositionID) ||
+			strings.Contains(conversation.PositionID, target.PositionID)
 	}
 	return target.NameUnique && target.PositionName != "" && conversation.PositionName == target.PositionName
 }

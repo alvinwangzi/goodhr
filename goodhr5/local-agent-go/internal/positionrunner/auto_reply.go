@@ -29,16 +29,19 @@ type replyGenerator interface { GenerateReply(context.Context, localai.ReplyRequ
 
 // replyFlow 保存本轮固定依赖，不在公共流程按平台名称分支。
 type replyFlow struct {
- db *localdb.DB
- runtime platformcore.AutoReplyRuntime
- exec platformcore.Executor
- generator replyGenerator
- target platformcore.ReplyTarget
- scope, platform, positionID, runID string
- request localai.ReplyRequest
- rejectTemplate string // 岗位自定义拒绝话术，留空用系统默认
- cloudClient *cloudapi.Client
- token string
+	db               *localdb.DB
+	runtime          platformcore.AutoReplyRuntime
+	exec             platformcore.Executor
+	generator        replyGenerator
+	aiClient         *localai.Client
+	target           platformcore.ReplyTarget
+	scope, platform, positionID, runID string
+	request          localai.ReplyRequest
+	rejectTemplate   string // 岗位自定义拒绝话术，留空用系统默认
+	cloudClient      *cloudapi.Client
+	token            string
+	positionSnapshot map[string]any // 岗位快照，供回复后索要简历的 AI 评估使用
+	screenshotsDir   string         // 截图目录，供在线简历截图使用
 }
 
 // normalizeTaskType 保持省略时为打招呼，拒绝未知流程。
@@ -176,13 +179,24 @@ func (f *replyFlow) confirm(ctx context.Context,c platformcore.ReplyConversation
  return "unknown",nil
 }
 
+// resumeAfterReplyIfNeeded 在自动回复成功后判断是否需要索要简历。
+// 委托给平台能力的 ResumeAfterReply 执行具体判断和动作。
+func (f *replyFlow) resumeAfterReplyIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation) (string, error) {
+ if f.runtime == nil || f.positionSnapshot == nil {
+  return "", nil
+ }
+ resumeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+ defer cancel()
+ return f.runtime.ResumeAfterReply(resumeCtx, f.exec, conversation, f.positionSnapshot, f.aiClient, f.screenshotsDir)
+}
+
 // replyGeneratorFor 根据启动配置构建自动回复使用的 AI 客户端。
-// options 为岗位运行启动参数。
-func replyGeneratorFor(options StartOptions) (replyGenerator, error) {
- if err:=validateAIConfig(options.AIConfig);err!=nil { return nil,err }
+// options 为岗位运行启动参数，同时返回具体客户端供回复后索要简历的 AI 评估使用。
+func replyGeneratorFor(options StartOptions) (replyGenerator, *localai.Client, error) {
+ if err:=validateAIConfig(options.AIConfig);err!=nil { return nil,nil,err }
  client:=localai.New(options.AIConfig)
  client.EnableThinking=false
- return client,nil
+ return client,client,nil
 }
 
 // positionReplyPrompt 读取岗位级回复提示词，存于岗位快照 ai_config.reply_prompt。
@@ -237,17 +251,17 @@ func (r *Runner) runAutoReplyTask(ctx context.Context, position localdb.Position
   r.failStart(position.ID,"当前平台暂不支持 AI 自动回复",options)
   return
  }
- generator,err:=replyGeneratorFor(options)
+ generator,aiClient,err:=replyGeneratorFor(options)
  if err!=nil {
   r.failStart(position.ID,err.Error(),options)
   return
  }
- r.runAutoReply(ctx,position,options,runtime,generator)
+ r.runAutoReply(ctx,position,options,runtime,generator,aiClient)
 }
 
 // runAutoReply 执行自动回复任务；浏览器动作只走不重试调用，错误分类决定整任务去留。
-// ctx 为运行上下文，position 为岗位运行记录，options 为启动参数，runtime 为平台自动回复能力，generator 为回复生成器。
-func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, options StartOptions, runtime platformcore.AutoReplyRuntime, generator replyGenerator) platformcore.ReplyStats {
+// ctx 为运行上下文，position 为岗位运行记录，options 为启动参数，runtime 为平台自动回复能力，generator 为回复生成器，aiClient 为 AI 客户端。
+func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, options StartOptions, runtime platformcore.AutoReplyRuntime, generator replyGenerator, aiClient *localai.Client) platformcore.ReplyStats {
  positionID:=position.ID
  totalRounds:=scanRounds(options)
  stats:=platformcore.ReplyStats{}
@@ -293,7 +307,7 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
   return stats
  }
  flow:=&replyFlow{
-  db:r.db,runtime:runtime,exec:exec,generator:generator,target:target,
+  db:r.db,runtime:runtime,exec:exec,generator:generator,aiClient:aiClient,target:target,
   scope:platformcore.ReplyHash("profile:"+safePathName(profileName)),
   platform:strings.ToLower(strings.TrimSpace(position.PlatformID)),
   positionID:positionID,
@@ -301,6 +315,8 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
   rejectTemplate:positionRejectTemplate(position),
   cloudClient:cloudapi.New(strings.TrimSpace(options.CloudAPIBase)),
   token:options.Token,
+  positionSnapshot:position.PositionSnapshot,
+  screenshotsDir:r.screenshotsDir,
   request:localai.ReplyRequest{
    PositionName:name,
    PositionRequirement:positionRequirement(position),
@@ -331,6 +347,12 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
     stats.Checked++
     switch outcome {
     case "sent": stats.Replied++;failures=0
+     // 回复成功后判断是否需要索要简历
+     if resumeAction,resumeErr:=flow.resumeAfterReplyIfNeeded(ctx,current.Conversation);resumeErr!=nil {
+      r.positionLog(positionID,"warning",fmt.Sprintf("自动回复索要简历：动作=%s，错误=%s",resumeAction,resumeErr.Error()))
+     } else if resumeAction!="" {
+      r.positionLog(positionID,"info",fmt.Sprintf("自动回复索要简历：动作=%s，候选人=%s",resumeAction,current.Conversation.Name))
+     }
     case "skipped": stats.Skipped++
     case "unknown": stats.Unknown++
     default: stats.Failed++;failures++
