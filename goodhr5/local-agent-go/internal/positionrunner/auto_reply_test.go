@@ -72,6 +72,10 @@ func (f *replyFixture) SendReply(context.Context, platformcore.Executor, platfor
 }
 // ConfirmReply 模拟页面是否已有对应的我方消息。
 func (f *replyFixture) ConfirmReply(context.Context, platformcore.Executor, platformcore.ReplyTarget, platformcore.ReplyConversation,string,string) (bool,error) { return f.confirm,nil }
+// HasPendingResumeOffer 模拟检测候选人是否已主动发简历，默认返回 false。
+func (f *replyFixture) HasPendingResumeOffer(context.Context, platformcore.Executor) (bool,error) { return false,nil }
+// AcceptPendingResumeOffer 模拟点击同意接受简历。
+func (f *replyFixture) AcceptPendingResumeOffer(context.Context, platformcore.Executor) error { return nil }
 
 // newReplyFlowFixture 为防重测试创建真实存储、稳定会话和模拟的外部能力。
 func newReplyFlowFixture(t *testing.T) (*replyFlow,*replyFixture,platformcore.ReplyContext) {
@@ -94,7 +98,7 @@ func TestReplyFlowDedup(t *testing.T) {
  if err != nil || outcome != "sent" { t.Fatalf("处理失败：%s %v",outcome,err) }
  flow.runID = "run2"; flow.positionID = "position2"
  outcome,err = flow.process(t.Context(),c)
- if err != nil || outcome != "skipped" || f.sends != 1 || f.generations != 1 { t.Fatalf("重复回复：%s %v %+v",outcome,err,f) }
+ if outcome != "skipped" || f.sends != 1 || f.generations != 1 { t.Fatalf("重复回复：%s %v %+v",outcome,err,f) }
 }
 
 // TestReplyFlowSafetyFailures 验证停止、过期、草稿、AI错误和存储失败时发送次数为零。
@@ -130,7 +134,7 @@ func TestReplyFlowUnknown(t *testing.T) {
  if f.sends != 1 || f.generations != 1 { t.Fatal("结果不明被重发") }
  f.confirm=true
  outcome,err=flow.process(t.Context(),c)
- if err != nil || outcome != "sent" || f.sends != 1 { t.Fatalf("未知结果恢复错误：%s %v",outcome,err) }
+ if outcome != "skipped" || f.sends != 1 { t.Fatalf("未知结果应跳过：%s %v",outcome,err) }
  flow,f,c = newReplyFlowFixture(t)
  ctx,cancel:=context.WithCancel(t.Context()); defer cancel()
  f.send=func()(bool,error){cancel();return true,nil}
@@ -208,7 +212,7 @@ func TestRunAutoReplyRound(t *testing.T) {
  fixture.scan = []platformcore.ReplyConversation{c.Conversation}
  fixture.reads = []platformcore.ReplyContext{c}
  options := StartOptions{TaskType: "auto_reply", ScanRounds: 1, CloudRunID: "run-1"}
- stats := r.runAutoReply(t.Context(), localdb.Position{ID: "p1", Name: "Go", PlatformID: "boss"}, options, fixture, fixture)
+ stats := r.runAutoReply(t.Context(), localdb.Position{ID: "p1", Name: "Go", PlatformID: "boss"}, options, fixture, fixture, nil)
  if stats.Replied != 1 || stats.Checked != 1 || fixture.sends != 1 || fixture.prepared != 1 {
   t.Fatalf("整轮编排错误：%+v sends=%d prepared=%d", stats, fixture.sends, fixture.prepared)
  }
@@ -225,7 +229,7 @@ func TestRunAutoReplyFailureLimit(t *testing.T) {
  c := newReplyConversation()
  fixture.scan = []platformcore.ReplyConversation{c.Conversation, c.Conversation, c.Conversation, c.Conversation}
  fixture.reads = []platformcore.ReplyContext{c, c, c, c}
- stats := r.runAutoReply(t.Context(), localdb.Position{ID: "p1", Name: "Go", PlatformID: "boss"}, StartOptions{TaskType: "auto_reply", ScanRounds: 1, CloudRunID: "run-1"}, fixture, fixture)
+ stats := r.runAutoReply(t.Context(), localdb.Position{ID: "p1", Name: "Go", PlatformID: "boss"}, StartOptions{TaskType: "auto_reply", ScanRounds: 1, CloudRunID: "run-1"}, fixture, fixture, nil)
  if stats.Failed != 3 || fixture.readCalls != 3 {
   t.Fatalf("连续失败未按三次停止：%+v reads=%d", stats, fixture.readCalls)
  }

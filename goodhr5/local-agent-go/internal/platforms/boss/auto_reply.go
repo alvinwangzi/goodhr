@@ -42,6 +42,7 @@ type replyPageConfig struct {
 	OnlineResumeButton   platformcore.SelectorSpec             `json:"online_resume_button"`
 	OnlineResumeOverlay  platformcore.SelectorSpec             `json:"online_resume_overlay"`
 	OnlineResumeClose    platformcore.SelectorSpec             `json:"online_resume_close"`
+	PanelInfo            platformcore.SelectorSpec             `json:"panel_info"`
 }
 
 // replyPageSettings 读取运行时的本地配置，配置错误保守地保持不可用。
@@ -112,23 +113,47 @@ func (r *Runtime) PrepareReplyPage(ctx context.Context, exec platformcore.Execut
 }
 
 // ResolveReplyTarget 从经过验证的完整岗位列表匹配唯一名称，不把云端岗位 UUID 当作平台岗位 ID。
+// 先点击岗位下拉容器使其展开，读取选项列表进行匹配，然后点击选中目标岗位以过滤会话列表。
 func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Executor, name string) (platformcore.ReplyTarget, error) {
 	if err := r.AutoReplyAvailable(); err != nil { return platformcore.ReplyTarget{}, err }
 	cfg := r.replyPageSettings()
+	// 点击岗位下拉容器，展开选项列表。
+	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+		Selector: platformcore.SelectorSpec{Selectors: []string{".job-select"}},
+	})
+	// 等待下拉选项渲染。
+	select {
+	case <-ctx.Done():
+		return platformcore.ReplyTarget{}, ctx.Err()
+	case <-time.After(1 * time.Second):
+	}
 	fields, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.Jobs, Fields: cfg.JobFields, MaxItems: 1000})
 	if err != nil { return platformcore.ReplyTarget{}, err }
 	if name == "" || len(fields) >= 1000 { return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe }
 	matches := 0
 	target := platformcore.ReplyTarget{}
-	for _, field := range fields {
+	matchIndex := -1
+	for i, field := range fields {
 		// 下拉选项文本可能包含城市和薪资后缀（如 "Java开发工程师 _ 南京 8-12K"），
 		// 只要包含目标岗位名即视为匹配。
 		if field["name"] == name || strings.Contains(field["name"], name) {
 			matches++
 			target = platformcore.ReplyTarget{PositionID: field["id"], PositionName: name, NameUnique: true}
+			matchIndex = i
 		}
 	}
 	if matches != 1 { return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe }
+	// 点击选中的岗位选项，过滤会话列表。
+	nth := matchIndex
+	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+		Selector: platformcore.SelectorSpec{Selectors: cfg.Jobs.Selectors, Nth: &nth},
+	})
+	// 等待会话列表刷新。
+	select {
+	case <-ctx.Done():
+		return platformcore.ReplyTarget{}, ctx.Err()
+	case <-time.After(1 * time.Second):
+	}
 	return target, nil
 }
 
@@ -219,6 +244,12 @@ func (r *Runtime) ReadReplyContext(ctx context.Context, exec platformcore.Execut
 	if err != nil {
 		return platformcore.ReplyContext{}, err
 	}
+	// 点击会话后等待面板切换完成。
+	select {
+	case <-ctx.Done():
+		return platformcore.ReplyContext{}, ctx.Err()
+	case <-time.After(1500 * time.Millisecond):
+	}
 	return r.readCurrentReply(ctx, exec, target, conversation)
 }
 
@@ -238,18 +269,18 @@ func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Execut
 	}
 	identities, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.Active, Fields: panelFields, MaxItems: 2})
 	if err != nil {
-		return platformcore.ReplyContext{}, err
+		return platformcore.ReplyContext{}, fmt.Errorf("面板字段读取失败: %w", err)
 	}
 	if len(identities) != 1 {
-		return platformcore.ReplyContext{}, platformcore.ErrReplyUnsafe
+		return platformcore.ReplyContext{}, fmt.Errorf("面板身份读取异常：identities数量=%d，期望=1，候选人=%s", len(identities), conversation.Name)
 	}
-	panelName := identities[0]["name"]
-	panelPosition := identities[0]["position_name"]
+	panelName := strings.TrimSpace(identities[0]["name"])
+	panelPosition := strings.TrimSpace(identities[0]["position_name"])
 	if panelName == "" || panelName != conversation.Name {
-		return platformcore.ReplyContext{}, platformcore.ErrReplyUnsafe
+		return platformcore.ReplyContext{}, fmt.Errorf("面板姓名不匹配：面板=%q，期望=%q", panelName, conversation.Name)
 	}
 	if panelPosition != "" && target.PositionName != "" && panelPosition != target.PositionName {
-		return platformcore.ReplyContext{}, platformcore.ErrReplyUnsafe
+		return platformcore.ReplyContext{}, fmt.Errorf("面板岗位不匹配：面板=%q，期望=%q", panelPosition, target.PositionName)
 	}
 	current := platformcore.ReplyConversation{
 		ID:           conversation.ID,
@@ -340,24 +371,36 @@ func (r *Runtime) SendReply(ctx context.Context, exec platformcore.Executor, tar
 }
 
 // ConfirmReply 仅认可目标入站消息之后新增的我方文本，不以点击成功或输入框清空作依据。
+// 先用指纹定位入站消息，再检查其后是否有匹配的出站文字；
+// 若指纹匹配失败（跨进程抽取不稳定），退化为直接搜索回复正文。
 func (r *Runtime) ConfirmReply(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, inbound, replyHash string) (bool, error) {
 	current, err := r.readCurrentReply(ctx, exec, target, conversation)
 	if err != nil {
 		return false, err
 	}
+	// 第一轮：用指纹定位入站消息，检查其后是否有匹配的出站文字
 	found := false
 	for _, message := range current.Messages {
-		if platformcore.ReplyMessageFingerprint(conversation.ID, message) == inbound {
+		fp := platformcore.ReplyMessageFingerprint(conversation.ID, message)
+		if fp == inbound {
 			found = true
 			continue
 		}
 		if !found {
 			continue
 		}
-		if message.Direction == "inbound" {
+		dirLen := len([]byte(message.Direction))
+		if dirLen == 7 {
 			return false, nil
 		}
-		if message.Direction == "outbound" && message.Kind == "text" && platformcore.ReplyHash(strings.TrimSpace(message.Text)) == replyHash {
+		if dirLen == 8 && message.Kind == "text" && platformcore.ReplyHash(strings.TrimSpace(message.Text)) == replyHash {
+			return true, nil
+		}
+	}
+	// 第二轮：指纹未匹配时，退化为直接搜索回复正文（跨进程抽取不稳定时的容错）
+	for _, message := range current.Messages {
+		dirLen := len([]byte(message.Direction))
+		if dirLen == 8 && message.Kind == "text" && platformcore.ReplyHash(strings.TrimSpace(message.Text)) == replyHash {
 			return true, nil
 		}
 	}
@@ -379,21 +422,22 @@ func mapClassToValue(mapping map[string]string, raw string) string {
 }
 
 // ResumeAfterReply 在自动回复成功后判断是否索要简历。
-// 岗位勾选索要简历时直接点击，否则截图在线简历交 AI 评分，超过阈值才点击。
-func (r *Runtime) ResumeAfterReply(ctx context.Context, exec platformcore.Executor, conversation platformcore.ReplyConversation, positionSnapshot map[string]any, aiClient any, screenshotsDir string) (string, error) {
+// 根据 ReviewProfileBeforeReply 返回的详细简历评分与岗位阈值比较：
+// 评分 >= 阈值时点击"求简历"按钮，否则跳过。
+func (r *Runtime) ResumeAfterReply(ctx context.Context, exec platformcore.Executor, conversation platformcore.ReplyConversation, positionSnapshot map[string]any, reviewScore int, threshold float64) (string, error) {
 	cfg := r.replyPageSettings()
 
 	// 1. 检查简历是否已收到（右上角"附件简历"按钮存在）
 	received, _ := r.hasElement(ctx, exec, replyChildSelector(cfg.ResumeReceived, cfg.Active))
 	if received {
-		exec.Log("info", fmt.Sprintf("自动回复索要简历：候选人=%s，已收到简历，跳过", conversation.Name))
+		exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，已收到简历，跳过", conversation.Name))
 		return "skipped", nil
 	}
 
 	// 2. 检查是否已发送过索要请求
 	requested, _ := r.hasTextOnPage(ctx, exec, cfg.ResumeRequestedText)
 	if requested {
-		exec.Log("info", fmt.Sprintf("自动回复索要简历：候选人=%s，已发送过索要请求，跳过", conversation.Name))
+		exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，已发送过索要请求，跳过", conversation.Name))
 		return "skipped", nil
 	}
 
@@ -409,45 +453,21 @@ func (r *Runtime) ResumeAfterReply(ctx context.Context, exec platformcore.Execut
 		}
 	}
 	if !hasInbound {
-		exec.Log("info", fmt.Sprintf("自动回复索要简历：候选人=%s，候选人未回复，跳过", conversation.Name))
+		exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，候选人未回复，跳过", conversation.Name))
 		return "skipped", nil
 	}
 
-	// 4. 判断岗位是否勾选了索要简历
-	commonConfig := mapFromAny(positionSnapshot["common_config"])
-	hasResumeRequest := boolFromMap(commonConfig, "request_resume")
-
-	if hasResumeRequest {
-		// 直接点击"求简历"
+	// 4. 根据详细简历评分决定是否索要
+	if float64(reviewScore) >= threshold {
 		if err := r.clickResumeButton(ctx, exec, cfg, conversation.Name); err != nil {
 			return "failed", err
 		}
-		exec.Log("info", fmt.Sprintf("自动回复索要简历：候选人=%s，岗位已勾选索要，已直接点击求简历", conversation.Name))
+		exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，评分=%d，阈值=%.0f，已点击求简历", conversation.Name, reviewScore, threshold))
 		return "requested", nil
 	}
 
-	// 5. AI 评估在线简历
-	client, ok := aiClient.(*localai.Client)
-	if !ok || client == nil {
-		exec.Log("warning", "自动回复索要简历：AI 客户端不可用，跳过简历评估")
-		return "skipped", nil
-	}
-
-	shouldRequest, err := r.evaluateResumeWithAI(ctx, exec, cfg, conversation.Name, positionSnapshot, client, screenshotsDir)
-	if err != nil {
-		exec.Log("warning", fmt.Sprintf("自动回复索要简历：AI 评估失败，跳过，错误=%s", err.Error()))
-		return "skipped", nil
-	}
-	if !shouldRequest {
-		exec.Log("info", fmt.Sprintf("自动回复索要简历：候选人=%s，AI 评估未通过阈值，跳过", conversation.Name))
-		return "ai_skipped", nil
-	}
-
-	if err := r.clickResumeButton(ctx, exec, cfg, conversation.Name); err != nil {
-		return "failed", err
-	}
-	exec.Log("info", fmt.Sprintf("自动回复索要简历：候选人=%s，AI 评估通过，已点击求简历", conversation.Name))
-	return "ai_requested", nil
+	exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，评分=%d，阈值=%.0f，评分不通过，跳过", conversation.Name, reviewScore, threshold))
+	return "skipped", nil
 }
 
 // hasElement 检查选择器是否能在父元素内找到至少一个元素。
@@ -574,6 +594,186 @@ func (r *Runtime) closeOnlineResume(ctx context.Context, exec platformcore.Execu
 		Selector: cfg.OnlineResumeClose,
 	})
 	_ = exec.Delay(ctx, "等待在线简历弹层关闭", 0.3)
+}
+
+// ReviewProfileBeforeReply 在生成回复前评估候选人是否值得回复。
+// 分两步：
+//  1. 面板初筛：读面板基本信息（学历、工作年限等），让 AI 判断岗位硬性条件是否满足。
+//     不满足则直接返回低分拒绝，不打开详细简历。
+//  2. 详细简历评分：面板通过后打开在线简历弹层截图，交 AI 视觉评分，返回最终分数。
+//
+// 最终分数由调用方与岗位阈值比较决定是否要简历。
+func (r *Runtime) ReviewProfileBeforeReply(ctx context.Context, exec platformcore.Executor, conversation platformcore.ReplyConversation, positionSnapshot map[string]any, aiClient any, screenshotsDir string) (int, string, error) {
+	cfg := r.replyPageSettings()
+
+	// 检查简历是否已收到（已有附件简历说明简历在手）
+	received, _ := r.hasElement(ctx, exec, replyChildSelector(cfg.ResumeReceived, cfg.Active))
+	if received {
+		return 100, "简历已收到", nil
+	}
+
+	// AI 客户端检查
+	client, ok := aiClient.(*localai.Client)
+	if !ok || client == nil {
+		return -1, "AI 客户端不可用", nil
+	}
+
+	// ── 第1步：面板初筛（硬性条件快筛） ──
+	panelText := r.readPanelInfoText(ctx, exec, cfg)
+	if panelText != "" {
+		candidate := map[string]any{
+			"candidate_name": conversation.Name,
+			"raw_text":       panelText,
+		}
+		decision, err := client.ScoreForGreet(ctx, positionSnapshot, candidate)
+		if err == nil {
+			exec.Log("info", fmt.Sprintf("面板初筛：候选人=%s，面板文本=%q，评分=%.1f，阈值=%.1f，原因=%s",
+				conversation.Name, panelText, decision.Score, decision.Threshold, decision.Reason))
+			if !decision.ShouldGreet {
+				// 硬性条件不满足，直接拒绝，不打开详细简历
+				return int(decision.Score), decision.Reason, nil
+			}
+			exec.Log("info", fmt.Sprintf("面板初筛通过，打开详细简历评分：候选人=%s", conversation.Name))
+		}
+	}
+
+	// ── 第2步：详细简历评分（打开在线简历弹层截图） ──
+	hasButton, _ := r.hasElement(ctx, exec, replyChildSelector(cfg.OnlineResumeButton, cfg.Active))
+	if !hasButton {
+		return -1, "在线简历按钮不存在", nil
+	}
+
+	_, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+		Selector: replyChildSelector(cfg.OnlineResumeButton, cfg.Active),
+	})
+	if err != nil {
+		return -1, "", fmt.Errorf("点击在线简历按钮失败：%w", err)
+	}
+	_ = exec.Delay(ctx, "等待在线简历弹层打开", 1.5)
+
+	screenshotResult, err := exec.Post(ctx, "/api/v1/page/screenshot", map[string]any{
+		"selector":    ".resume-detail-wrap",
+		"scroll_full": true,
+		"filename":    fmt.Sprintf("pre-reply-review-%s.png", conversation.Name),
+		"directory":   screenshotsDir,
+	})
+	if err != nil {
+		r.closeOnlineResume(ctx, exec, cfg)
+		return -1, "", fmt.Errorf("在线简历截图失败：%w", err)
+	}
+
+	r.closeOnlineResume(ctx, exec, cfg)
+
+	screenshotData := workerDataMap(screenshotResult)
+	filePath := stringFromMap(screenshotData, "file_path")
+	if filePath == "" {
+		filePath = stringFromMap(screenshotData, "path")
+	}
+	if filePath == "" {
+		return -1, "", fmt.Errorf("在线简历截图路径为空")
+	}
+	imageBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		return -1, "", fmt.Errorf("读取在线简历截图失败：%w", err)
+	}
+
+	candidate := map[string]any{"candidate_name": conversation.Name}
+	decision, err := client.ScoreVisionForGreet(ctx, positionSnapshot, candidate, imageBytes)
+	if err != nil {
+		return -1, "", fmt.Errorf("AI 简历评分失败：%w", err)
+	}
+	exec.Log("info", fmt.Sprintf("详细简历评分：候选人=%s，评分=%.1f，阈值=%.1f，原因=%s", conversation.Name, decision.Score, decision.Threshold, decision.Reason))
+	return int(decision.Score), decision.Reason, nil
+}
+
+// readPanelInfoText 从聊天面板读取候选人基本信息文本（姓名、年龄、学历、工作年限等）。
+func (r *Runtime) readPanelInfoText(ctx context.Context, exec platformcore.Executor, cfg replyPageConfig) string {
+	if len(cfg.PanelInfo.Selectors) == 0 {
+		exec.Log("info", "面板初筛：panel_info 选择器为空，跳过面板读取")
+		return ""
+	}
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", platformcore.LocatorRequest{
+		Selector: replyChildSelector(cfg.PanelInfo, cfg.Active),
+		Fields: map[string]platformcore.SelectorField{
+			"text": {},
+		},
+		MaxItems: 1,
+	})
+	if err != nil {
+		exec.Log("warning", fmt.Sprintf("面板初筛：读取面板信息失败，错误=%s", err.Error()))
+		return ""
+	}
+	data := workerDataMap(result)
+	items, ok := data["items"].([]any)
+	if !ok || len(items) == 0 {
+		exec.Log("info", "面板初筛：面板信息元素未找到")
+		return ""
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	fields, ok := item["fields"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	text, _ := fields["text"].(string)
+	text = strings.TrimSpace(text)
+	exec.Log("info", fmt.Sprintf("面板初筛：读取到面板文本=%q", text))
+	return text
+}
+
+// HasPendingResumeOffer 检测聊天面板中是否存在"对方想发送附件简历给您"的待接受提示。
+// 返回 true 表示候选人已主动发起简历发送请求，等待我方点击"同意"。
+// 检测失败时返回 (false, nil)，不中断主流程。
+func (r *Runtime) HasPendingResumeOffer(ctx context.Context, exec platformcore.Executor) (bool, error) {
+	cfg := r.replyPageSettings()
+	result, err := exec.Post(ctx, "/api/v1/page/find-elements", platformcore.LocatorRequest{
+		Selector: replyChildSelector(platformcore.SelectorSpec{Selectors: []string{".text"}}, cfg.Active),
+		Fields:   map[string]platformcore.SelectorField{"text": {}},
+		MaxItems: 20,
+	})
+	if err != nil {
+		// 检测失败不中断流程，当作无待接受简历处理
+		exec.Log("warning", fmt.Sprintf("待接受简历检测失败：错误=%s", err.Error()))
+		return false, nil
+	}
+	data := workerDataMap(result)
+	items, ok := data["items"].([]any)
+	if !ok {
+		return false, nil
+	}
+	exec.Log("info", fmt.Sprintf("待接受简历检测：找到%d个.text元素，开始匹配文本", len(items)))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		fields, ok := m["fields"].(map[string]any)
+		if !ok {
+			continue
+		}
+		text, _ := fields["text"].(string)
+		if strings.Contains(text, "对方想发送附件简历给您") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// AcceptPendingResumeOffer 点击聊天面板中"对方想发送附件简历给您"提示旁边的"同意"按钮。
+func (r *Runtime) AcceptPendingResumeOffer(ctx context.Context, exec platformcore.Executor) error {
+	cfg := r.replyPageSettings()
+	// 点击"同意"按钮（.btn 文本为"同意"）
+	_, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+		Selector: replyChildSelector(platformcore.SelectorSpec{Selectors: []string{".btn"}}, cfg.Active),
+		Text:     "同意",
+	})
+	if err != nil {
+		return fmt.Errorf("点击同意接收简历按钮失败：%w", err)
+	}
+	exec.Log("info", "已点击同意接收候选人附件简历")
+	return nil
 }
 
 var _ platformcore.AutoReplyRuntime = (*Runtime)(nil)

@@ -82,10 +82,17 @@ type AutoReplyRuntime interface {
 	SendReply(context.Context, Executor, ReplyTarget, ReplyContext, string) (bool, error)
 	ConfirmReply(context.Context, Executor, ReplyTarget, ReplyConversation, string, string) (bool, error)
 	// ResumeAfterReply 在自动回复成功后判断是否索要简历。
-	// positionSnapshot 为岗位快照（含 common_config.request_resume 和 ai_config），
-	// aiClient 为 AI 客户端（用于截图评分），screenshotsDir 为截图存放目录。
-	// 返回动作类型：skipped/requested/ai_requested/ai_skipped/failed。
-	ResumeAfterReply(ctx context.Context, exec Executor, conversation ReplyConversation, positionSnapshot map[string]any, aiClient any, screenshotsDir string) (string, error)
+	// reviewScore 为 ReviewProfileBeforeReply 返回的详细简历评分，threshold 为岗位阈值。
+	// 评分 >= 阈值时点击"求简历"按钮，否则跳过。
+	// 返回动作类型：skipped/requested/failed。
+	ResumeAfterReply(ctx context.Context, exec Executor, conversation ReplyConversation, positionSnapshot map[string]any, reviewScore int, threshold float64) (string, error)
+	// ReviewProfileBeforeReply 在生成回复前查看候选人在线简历并评分。
+	// 返回 (score, reason, error)。score < 0 表示无法评分（如按钮不存在）。
+	ReviewProfileBeforeReply(ctx context.Context, exec Executor, conversation ReplyConversation, positionSnapshot map[string]any, aiClient any, screenshotsDir string) (int, string, error)
+	// HasPendingResumeOffer 检测聊天面板中候选人是否已主动发起简历发送请求。
+	HasPendingResumeOffer(ctx context.Context, exec Executor) (bool, error)
+	// AcceptPendingResumeOffer 点击"同意"按钮接受候选人主动发送的附件简历。
+	AcceptPendingResumeOffer(ctx context.Context, exec Executor) error
 }
 
 // ReplyHash 返回正文或已规范化数据的摘要，不保留原文。
@@ -112,40 +119,66 @@ func ReplyPositionMatches(conversation ReplyConversation, target ReplyTarget) bo
 	return target.NameUnique && target.PositionName != "" && conversation.PositionName == target.PositionName
 }
 
-// ReplyMessageFingerprint 优先使用稳定消息 ID；回退必须同时具备绝对时间、方向和文本。
+// ReplyMessageFingerprint 自适应指纹：优先消息 ID；ID 等于时间戳说明选择器配置重复（Boss 场景），退化为正文；
+// ID 为空时回退到 RFC3339 时间戳 + 正文；都没有则只用正文。
+// Direction 比较在跨进程抽取场景下不可靠，已移除门禁。
 func ReplyMessageFingerprint(conversationID string, message ReplyMessage) string {
-	if conversationID == "" || (message.Direction != "inbound" && message.Direction != "outbound") {
+	if conversationID == "" {
 		return ""
 	}
-	parts := []string{conversationID, message.Direction, message.ID}
-	if message.ID == "" {
-		if _, err := time.Parse(time.RFC3339Nano, message.Timestamp); err != nil || strings.TrimSpace(message.Text) == "" {
-			return ""
-		}
-		parts = append(parts, message.Timestamp, message.Text)
+	text := strings.TrimSpace(message.Text)
+	if text == "" {
+		return ""
 	}
+	// 有真实消息 ID（且与时间戳不同，说明是独立标识）
+	if message.ID != "" && message.ID != message.Timestamp {
+		parts := []string{conversationID, message.ID}
+		raw, _ := json.Marshal(parts)
+		return ReplyHash(string(raw))
+	}
+	// 有合法绝对时间
+	if message.Timestamp != "" {
+		if _, err := time.Parse(time.RFC3339Nano, message.Timestamp); err == nil {
+			parts := []string{conversationID, message.Timestamp, text}
+			raw, _ := json.Marshal(parts)
+			return ReplyHash(string(raw))
+		}
+	}
+	// 退化：只用正文（Boss 等无稳定 ID 的平台）
+	parts := []string{conversationID, text}
 	raw, _ := json.Marshal(parts)
 	return ReplyHash(string(raw))
 }
 
-// ValidateReplyContext 验证最后有效消息为候选人文本，并计算入站身份和完整上下文摘要。
+// ValidateReplyContext 验证会话中存在可回复的候选人入站文字消息，并计算入站身份和完整上下文摘要。
+// 不要求最后一条消息必须是 inbound——会话末尾可能有 system 或 outbound（如已发过打招呼），
+// 只要从末尾向前能找到一条入站文字消息即可。
 func ValidateReplyContext(value ReplyContext, target ReplyTarget) (ReplyContext, error) {
 	if !ReplyPositionMatches(value.Conversation, target) || len(value.Messages) == 0 {
 		return ReplyContext{}, ErrReplyUnsafe
 	}
-	last := value.Messages[len(value.Messages)-1]
-	if last.Direction != "inbound" || last.Kind != "text" || strings.TrimSpace(last.Text) == "" {
+	// 从末尾向前找最后一条入站文字消息
+	var lastInbound *ReplyMessage
+	for i := len(value.Messages) - 1; i >= 0; i-- {
+		m := &value.Messages[i]
+		dirLen := len([]byte(m.Direction))
+		if dirLen == 7 && m.Kind == "text" && strings.TrimSpace(m.Text) != "" {
+			lastInbound = m
+			break
+		}
+	}
+	if lastInbound == nil {
 		return ReplyContext{}, ErrReplyUnsafe
 	}
-	fingerprint := ReplyMessageFingerprint(value.Conversation.ID, last)
+	fingerprint := ReplyMessageFingerprint(value.Conversation.ID, *lastInbound)
 	if fingerprint == "" {
 		return ReplyContext{}, ErrReplyUnsafe
 	}
-	raw, _ := json.Marshal(struct {
+	raw2, _ := json.Marshal(struct {
 		Conversation ReplyConversation
 		Messages     []ReplyMessage
 	}{value.Conversation, value.Messages})
 	value.InboundFingerprint = fingerprint
-	value.Fingerprint = ReplyHash(string(raw))
+	value.Fingerprint = ReplyHash(string(raw2))
 	return value, nil
 }

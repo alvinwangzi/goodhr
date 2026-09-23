@@ -23,7 +23,8 @@ func TestReplyContextRejectsUnsafeMessages(t *testing.T) {
 		{"附件", func(c *ReplyContext) { c.Messages[0].Kind = "attachment" }},
 		{"系统通知", func(c *ReplyContext) { c.Messages[0].Kind = "system" }},
 		{"空消息", func(c *ReplyContext) { c.Messages[0].Text = " " }},
-		{"无消息证据", func(c *ReplyContext) { c.Messages[0].ID = "" }},
+		// 注意：ID 为空不再拒绝——自适应指纹会退化为正文哈希（Boss 等无稳定 ID 平台需要此回退）
+		// 只有会话 ID 为空（没有稳定会话）才拒绝
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			value := validReplyContext()
@@ -66,8 +67,14 @@ func TestReplyFingerprints(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed.Messages[0].Timestamp = "刚刚"
+	// 不稳定时间 + 空 ID：自适应指纹退化为正文哈希，仍然有效（Boss 场景）
+	if _, err := ValidateReplyContext(changed, target); err != nil {
+		t.Fatalf("正文回退指纹应有效: %v", err)
+	}
+	// 正文为空时才真正无法生成指纹
+	changed.Messages[0].Text = ""
 	if _, err := ValidateReplyContext(changed, target); err == nil {
-		t.Fatal("不稳定时间不能代替消息 ID")
+		t.Fatal("正文为空时不应生成指纹")
 	}
 }
 

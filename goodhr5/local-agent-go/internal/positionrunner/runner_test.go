@@ -1860,7 +1860,7 @@ func openRunnerTestDB(t *testing.T) *localdb.DB {
 func newTestRunner(t *testing.T, db *localdb.DB, worker BrowserWorker) *Runner {
 	t.Helper()
 	root := t.TempDir()
-	return New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots", root+"/audio", "")
+	return New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots", root+"/audio", "", 0)
 }
 
 // newTestRunnerWithDB 创建带临时 SQLite 数据库的测试运行器。
@@ -1874,6 +1874,6 @@ func newTestRunnerWithDB(t *testing.T, worker BrowserWorker) (*Runner, *localdb.
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	root := t.TempDir()
-	runner := New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots", root+"/audio", "")
+	runner := New(db, worker, fakeOCR{}, root+"/profiles", root+"/downloads", root+"/screenshots", root+"/audio", "", 0)
 	return runner, db
 }

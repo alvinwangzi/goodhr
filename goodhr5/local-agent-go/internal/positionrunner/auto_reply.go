@@ -42,6 +42,8 @@ type replyFlow struct {
 	token            string
 	positionSnapshot map[string]any // 岗位快照，供回复后索要简历的 AI 评估使用
 	screenshotsDir   string         // 截图目录，供在线简历截图使用
+	reviewScore      int            // 回复前详细简历评分，供回复后索要简历使用
+	acceptedResume   bool           // 已直接接受候选人主动发送的简历，跳过索要流程
 }
 
 // normalizeTaskType 保持省略时为打招呼，拒绝未知流程。
@@ -81,49 +83,112 @@ func hasTaskType(types []string, target string) bool {
 
 // process 对一个已读取会话执行新消息判断、生成、复核、落库、发送和页面确认。
 func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyContext) (string,error) {
+ f.flowLog("info",fmt.Sprintf("自动回复处理开始：候选人=%s，会话ID=%s，消息数=%d",current.Conversation.Name,current.Conversation.ID,len(current.Messages)))
  if err:=ctx.Err(); err!=nil { return "skipped",err }
- if !platformcore.ReplyPositionMatches(current.Conversation,f.target) { return "skipped",nil }
+ if !platformcore.ReplyPositionMatches(current.Conversation,f.target) { return "skipped",fmt.Errorf("岗位不匹配：conv.PositionID=%q conv.PositionName=%q target.PositionID=%q target.PositionName=%q", current.Conversation.PositionID, current.Conversation.PositionName, f.target.PositionID, f.target.PositionName) }
  inbound:=""
- for i:=len(current.Messages)-1;i>=0;i-- {
-  if current.Messages[i].Direction=="inbound" { inbound=platformcore.ReplyMessageFingerprint(current.Conversation.ID,current.Messages[i]);break }
+ if len(current.Messages) > 0 {
+  // 从末尾向前找最后一条入站消息，用 ReplyMessageFingerprint 计算指纹
+  for i := len(current.Messages) - 1; i >= 0; i-- {
+   m := current.Messages[i]
+   fp := platformcore.ReplyMessageFingerprint(current.Conversation.ID, m)
+   if fp != "" {
+    inbound = fp
+    break
+   }
+  }
  }
- if inbound=="" { return "skipped",nil }
+ if inbound=="" {
+  return "skipped",fmt.Errorf("无入站消息：共%d条消息", len(current.Messages))
+ }
  key:=localdb.AutoReplyRecord{ProfileScope:f.scope,Platform:f.platform,ConversationID:current.Conversation.ID,InboundFingerprint:inbound}
  existing,err:=f.db.FindAutoReply(ctx,key)
  if err!=nil && !errors.Is(err,sql.ErrNoRows) { return "failed",errReplyStorage }
  if err==nil {
   switch existing.Status {
-  case "sent": return "skipped",nil
-  case "sending","unknown":
-   if existing.Status=="sending" {
-    if err:=f.transition(existing.ID,"sending","unknown","interrupted");err!=nil{return "failed",err}
-   }
+  case "sent","unknown": return "skipped",fmt.Errorf("去重：已处理过（status=%s）", existing.Status)
+  case "sending":
+   if err:=f.transition(existing.ID,"sending","unknown","interrupted");err!=nil{return "failed",err}
    return f.confirm(ctx,current.Conversation,existing,"unknown")
   case "prepared","obsolete":
-  default: return "skipped",nil
+  default: return "skipped",fmt.Errorf("去重：状态=%s", existing.Status)
   }
  }
  current,err=platformcore.ValidateReplyContext(current,f.target)
- if err!=nil || strings.TrimSpace(current.Draft)!="" { return "skipped",nil }
+ if err!=nil { return "skipped",fmt.Errorf("上下文验证失败: %w", err) }
+ if strings.TrimSpace(current.Draft)!="" { return "skipped",nil }
+
+ // ── 特殊分支：候选人已主动发简历 → 直接点"同意"接受，不生成文字回复 ──
+ hasPendingOffer,pendingErr:=f.runtime.HasPendingResumeOffer(ctx,f.exec)
+ f.flowLog("info",fmt.Sprintf("待接受简历检测：候选人=%s，hasPending=%v，err=%v",current.Conversation.Name,hasPendingOffer,pendingErr))
+ if pendingErr==nil && hasPendingOffer {
+  if acceptErr:=f.runtime.AcceptPendingResumeOffer(ctx,f.exec);acceptErr!=nil {
+   return "failed",fmt.Errorf("接受简历失败：%w",acceptErr)
+  }
+  f.acceptedResume=true
+  f.flowLog("info",fmt.Sprintf("候选人已主动发简历，已点击同意接受：候选人=%s",current.Conversation.Name))
+  return "accepted_resume",nil
+ }
+
  request:=f.request
  request.CandidateName=current.Conversation.Name
- // 查表分流：检查打招呼阶段的扫描记录，评分 < 50 的候选人使用拒绝话术。
+ // 查表分流：检查打招呼阶段的扫描记录。
+ // 有记录且评分 >= 阈值 = 我们主动打过招呼的候选人，跳过看简历，直接回复 + 要简历。
+ // 无记录 = 候选人主动找我们，需要先面板初筛→在线简历评分，再决定回复还是拒绝。
+ threshold := f.greetThreshold()
+ f.flowLog("info",fmt.Sprintf("自动回复阈值：候选人=%s，阈值=%.0f",current.Conversation.Name,threshold))
+ skipReview := false
  if f.cloudClient!=nil && strings.TrimSpace(f.token)!="" {
   screening,screenErr:=f.cloudClient.FindScreeningByName(ctx,f.token,f.positionID,f.platform,current.Conversation.Name)
-  if screenErr==nil && screening!=nil && screening.Score<50 {
+  if screenErr!=nil {
+   f.flowLog("warning",fmt.Sprintf("扫描记录查询失败：候选人=%s，错误=%s，将走回复前简历评估",current.Conversation.Name,screenErr.Error()))
+  } else if screening!=nil {
+   f.flowLog("info",fmt.Sprintf("扫描记录命中：候选人=%s，打招呼阶段评分=%d，阈值=%.0f",current.Conversation.Name,screening.Score,threshold))
+   if float64(screening.Score)<threshold {
+    // 打招呼阶段评分就不够，理论上不该打招呼，用拒绝话术
+    request.RejectTemplate=f.rejectTemplate
+    if request.RejectTemplate=="" { request.RejectTemplate=defaultRejectTemplate() }
+    request.FAQ=nil
+    f.flowLog("info",fmt.Sprintf("打招呼阶段评分不通过：候选人=%s，评分=%d，阈值=%.0f，使用拒绝话术",current.Conversation.Name,screening.Score,threshold))
+   } else {
+    // 我们主动打过招呼的，跳过看简历，直接回复 + 要简历
+    skipReview = true
+    f.flowLog("info",fmt.Sprintf("我们主动打过招呼的候选人：候选人=%s，跳过看简历，直接回复",current.Conversation.Name))
+   }
+  } else {
+   f.flowLog("info",fmt.Sprintf("扫描记录未命中：候选人=%s，将走回复前简历评估",current.Conversation.Name))
+  }
+ }
+ // 无扫描记录时，回复前先评估候选人。
+ // 第1步：面板初筛（硬性条件快筛）→ 第2步：详细简历评分。
+ if !skipReview {
+  score,reason,reviewErr:=f.reviewProfileBeforeReply(ctx,current.Conversation)
+  f.reviewScore = score
+  if reviewErr!=nil {
+   f.flowLog("warning",fmt.Sprintf("回复前简历查看失败：候选人=%s，错误=%s，将按正常回复处理",current.Conversation.Name,reviewErr.Error()))
+  } else if score>=0 && float64(score)<threshold {
+   // 评分不通过，使用拒绝话术
    request.RejectTemplate=f.rejectTemplate
    if request.RejectTemplate=="" { request.RejectTemplate=defaultRejectTemplate() }
    request.FAQ=nil
+   f.flowLog("info",fmt.Sprintf("简历评分不通过：候选人=%s，评分=%d，阈值=%.0f，原因=%s",current.Conversation.Name,score,threshold,reason))
+  } else if float64(score)>=threshold {
+   f.flowLog("info",fmt.Sprintf("简历评分通过：候选人=%s，评分=%d，阈值=%.0f，原因=%s",current.Conversation.Name,score,threshold,reason))
   }
+ } else {
+  // 跳过看简历时，reviewScore 设为满分，确保回复后会点击"求简历"
+  f.reviewScore = 100
  }
  var history strings.Builder
  for _,message:=range current.Messages { fmt.Fprintf(&history,"[%s/%s] %s\n",message.Direction,message.Kind,message.Text) }
  request.History=history.String()
+ f.flowLog("info",fmt.Sprintf("开始生成AI回复：候选人=%s，历史消息数=%d",current.Conversation.Name,len(current.Messages)))
  text,err:=f.generator.GenerateReply(ctx,request)
  if ctx.Err()!=nil { return "skipped",ctx.Err() }
- if err!=nil { return "failed",fmt.Errorf("AI 回复生成失败，未发送") }
+ if err!=nil { return "failed",fmt.Errorf("AI 回复生成失败：%w",err) }
  text=strings.TrimSpace(text)
- if text=="" || utf8.RuneCountInString(text)>1000 { return "failed",fmt.Errorf("AI 回复内容不符合发送要求") }
+ if text=="" || utf8.RuneCountInString(text)>1000 { return "failed",fmt.Errorf("AI 回复内容不符合发送要求：长度=%d",utf8.RuneCountInString(text)) }
+ f.flowLog("info",fmt.Sprintf("AI回复已生成：候选人=%s，内容长度=%d，内容前50字=%q",current.Conversation.Name,utf8.RuneCountInString(text),truncateForLog(text,50)))
  checked,err:=f.runtime.RecheckReplyContext(ctx,f.exec,f.target,current)
  if err!=nil { return replyOutcome(err),err }
  if strings.TrimSpace(checked.Draft)!="" { return "skipped",nil }
@@ -137,13 +202,29 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
  if err=ctx.Err();err!=nil { return f.obsolete(record,"prepared",err) }
  if err=f.db.TransitionAutoReply(ctx,record.ID,"prepared","sending","");err!=nil { return "failed",errReplyStorage }
  if err=ctx.Err();err!=nil { return f.obsolete(record,"sending",err) }
+ f.flowLog("info",fmt.Sprintf("开始发送回复：候选人=%s",current.Conversation.Name))
  attempted,sendErr:=f.runtime.SendReply(ctx,f.exec,f.target,current,text)
  if !attempted {
   if sendErr==nil { sendErr=platformcore.ErrReplyUnsafe }
   return f.obsolete(record,"sending",sendErr)
  }
+ f.flowLog("info",fmt.Sprintf("回复已发送，等待确认：候选人=%s",current.Conversation.Name))
  // 发送动作已开始：停止信号不取消必要的结果确认，不再执行新的发送动作。
  return f.confirm(context.WithoutCancel(ctx),current.Conversation,record,"sending")
+}
+
+// truncateForLog 截断字符串用于日志输出，避免刷屏。
+func truncateForLog(s string, maxRunes int) string {
+ if utf8.RuneCountInString(s) <= maxRunes { return s }
+ runes := []rune(s)
+ return string(runes[:maxRunes]) + "..."
+}
+
+// flowLog 安全地通过 exec 记录日志，exec 为 nil 时静默。
+func (f *replyFlow) flowLog(level, message string) {
+ if f.exec != nil {
+  f.exec.Log(level, message)
+ }
 }
 
 // replyOutcome 将安全跳过与会话错误区分，原始页面或模型错误不进入日志。
@@ -180,14 +261,26 @@ func (f *replyFlow) confirm(ctx context.Context,c platformcore.ReplyConversation
 }
 
 // resumeAfterReplyIfNeeded 在自动回复成功后判断是否需要索要简历。
-// 委托给平台能力的 ResumeAfterReply 执行具体判断和动作。
+// 根据回复前的详细简历评分与岗位阈值比较决定是否点击"求简历"按钮。
+// 已直接接受候选人主动发送的简历时跳过。
 func (f *replyFlow) resumeAfterReplyIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation) (string, error) {
- if f.runtime == nil || f.positionSnapshot == nil {
+ if f.runtime == nil || f.positionSnapshot == nil || f.acceptedResume {
   return "", nil
  }
  resumeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
  defer cancel()
- return f.runtime.ResumeAfterReply(resumeCtx, f.exec, conversation, f.positionSnapshot, f.aiClient, f.screenshotsDir)
+ return f.runtime.ResumeAfterReply(resumeCtx, f.exec, conversation, f.positionSnapshot, f.reviewScore, f.greetThreshold())
+}
+
+// reviewProfileBeforeReply 在生成回复前查看候选人在线简历并评分。
+// 委托给平台能力的 ReviewProfileBeforeReply 执行截图和 AI 评分。
+func (f *replyFlow) reviewProfileBeforeReply(ctx context.Context, conversation platformcore.ReplyConversation) (int, string, error) {
+ if f.runtime == nil || f.positionSnapshot == nil {
+  return -1, "", nil
+ }
+ reviewCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+ defer cancel()
+ return f.runtime.ReviewProfileBeforeReply(reviewCtx, f.exec, conversation, f.positionSnapshot, f.aiClient, f.screenshotsDir)
 }
 
 // replyGeneratorFor 根据启动配置构建自动回复使用的 AI 客户端。
@@ -213,6 +306,12 @@ func positionRequirement(position localdb.Position) string {
 // positionRejectTemplate 读取岗位自定义拒绝话术，留空时使用系统默认。
 func positionRejectTemplate(position localdb.Position) string {
  return strings.TrimSpace(stringFromMap(mapValue(position.PositionSnapshot["ai_config"]),"reply_reject_template"))
+}
+
+// greetThreshold 读取岗位配置的打招呼阈值，默认 70。
+func (f *replyFlow) greetThreshold() float64 {
+ aiConfig := mapValue(f.positionSnapshot["ai_config"])
+ return floatFromMapOr(aiConfig, "greet_score_threshold", 70)
 }
 
 // positionFAQ 读取岗位常见问答语料，最多返回 10 条。
@@ -301,11 +400,14 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
   return stats
  }
  name:=positionPositionName(position)
+ r.positionLog(positionID,"info","自动回复核对岗位：岗位名="+name)
  target,err:=runtime.ResolveReplyTarget(ctx,exec,name)
  if err!=nil {
+  r.positionLog(positionID,"error","自动回复岗位核对失败：岗位名="+name+"，错误="+err.Error())
   r.failStart(positionID,"页面岗位核对失败："+err.Error(),options)
   return stats
  }
+ r.positionLog(positionID,"info","自动回复岗位核对成功：positionID="+target.PositionID)
  flow:=&replyFlow{
   db:r.db,runtime:runtime,exec:exec,generator:generator,aiClient:aiClient,target:target,
   scope:platformcore.ReplyHash("profile:"+safePathName(profileName)),
@@ -334,13 +436,16 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
    r.failStart(positionID,"未读会话扫描失败："+err.Error(),options)
    return stats
   }
+  convNames := make([]string, 0, len(conversations))
+  for _, c := range conversations { convNames = append(convNames, c.Name) }
+  r.positionLog(positionID, "info", fmt.Sprintf("自动回复扫描到 %d 个未读会话：%v", len(conversations), convNames))
   for _,conversation:=range conversations {
    if err:=ctx.Err();err!=nil { stopped("自动回复已按停止请求结束"); return stats }
    current,err:=runtime.ReadReplyContext(ctx,exec,target,conversation)
    if err!=nil {
     stats.Checked++;stats.Failed++;failures++
     r.updateReplyStats(positionID,stats)
-    r.positionLog(positionID,"warning","自动回复：会话读取失败，已跳过")
+    r.positionLog(positionID,"warning",fmt.Sprintf("自动回复：会话读取失败，已跳过（候选人=%s，错误=%s）", conversation.Name, err.Error()))
     if fatal(err) { return stats }
    } else {
     outcome,err:=flow.process(ctx,current)
@@ -353,9 +458,24 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
      } else if resumeAction!="" {
       r.positionLog(positionID,"info",fmt.Sprintf("自动回复索要简历：动作=%s，候选人=%s",resumeAction,current.Conversation.Name))
      }
+    case "accepted_resume": stats.Replied++;failures=0
+     r.positionLog(positionID,"info",fmt.Sprintf("已直接接受候选人附件简历：候选人=%s",current.Conversation.Name))
     case "skipped": stats.Skipped++
+     // 调试：输出跳过原因（消息方向、数量、去重状态）
+     msgSummary := make([]string, 0, len(current.Messages))
+     for _, m := range current.Messages { msgSummary = append(msgSummary, fmt.Sprintf("%s/%s", m.Direction, m.Kind)) }
+     if err != nil {
+      r.positionLog(positionID, "info", fmt.Sprintf("自动回复跳过（候选人=%s，错误=%s，消息=%v）", current.Conversation.Name, err.Error(), msgSummary))
+     } else {
+      r.positionLog(positionID, "info", fmt.Sprintf("自动回复跳过（候选人=%s，消息=%v，草稿=%q）", current.Conversation.Name, msgSummary, current.Draft))
+     }
     case "unknown": stats.Unknown++
     default: stats.Failed++;failures++
+     if err != nil {
+      r.positionLog(positionID,"error",fmt.Sprintf("自动回复处理失败：候选人=%s，错误=%s，连续失败=%d",current.Conversation.Name,err.Error(),failures))
+     } else {
+      r.positionLog(positionID,"error",fmt.Sprintf("自动回复处理失败：候选人=%s，outcome=%s，连续失败=%d",current.Conversation.Name,outcome,failures))
+     }
     }
     r.updateReplyStats(positionID,stats)
     // 自动回复流程：上报所有遇到的候选人扫描记录。
