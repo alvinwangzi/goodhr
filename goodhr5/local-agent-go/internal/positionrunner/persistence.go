@@ -214,7 +214,7 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 	if client == nil {
 		return PositionRuntimeSnapshot{}, fmt.Errorf("云端客户端未初始化")
 	}
-	requiresAI := positionRequiresAI(position) || options.TaskType == "auto_reply"
+	requiresAI := positionRequiresAI(position) || hasTaskType(parseTaskTypes(options.TaskType), "auto_reply")
 	r.positionLog(positionID, "info", "岗位运行启动：正在校验会员状态")
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
@@ -256,7 +256,7 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 	}
 
 	var platformConfig cloudapi.PlatformConfig
-	if options.TaskType == "auto_reply" {
+	if hasTaskType(parseTaskTypes(options.TaskType), "auto_reply") {
 		// 自动回复使用本地内嵌消息配置，不从云端读取或覆盖消息选择器。
 		r.positionLog(positionID, "info", "岗位运行启动：自动回复使用本地内嵌消息配置")
 	} else {

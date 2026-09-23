@@ -43,6 +43,9 @@ export function replyStatsText(stats: ReplyStats) {
   return `检查 ${stats.checked} · 回复 ${stats.replied} · 跳过 ${stats.skipped} · 失败 ${stats.failed} · 未知 ${stats.unknown}`;
 }
 
+/** FAQEntry 表示岗位常见问答的一条语料。 */
+export type FAQEntry = { q: string; a: string };
+
 /** mergeReplyPrompt 把岗位回复提示词并入 ai_config，保留其他现有配置键。 */
 export function mergeReplyPrompt(aiConfig: unknown, replyPrompt: string) {
   const source =
@@ -51,4 +54,43 @@ export function mergeReplyPrompt(aiConfig: unknown, replyPrompt: string) {
       : {};
   source.reply_prompt = String(replyPrompt || "").trim();
   return source;
+}
+
+/** mergeReplyConfig 把回复提示词、FAQ 语料和拒绝话术一并写入 ai_config。 */
+export function mergeReplyConfig(
+  aiConfig: unknown,
+  replyPrompt: string,
+  faq: FAQEntry[],
+  rejectTemplate: string,
+) {
+  const source = mergeReplyPrompt(aiConfig, replyPrompt) as Record<string, unknown>;
+  // FAQ 最多保留 10 条，过滤掉问题和回答都为空的条目。
+  const validFaq = faq
+    .filter((item) => item.q.trim() || item.a.trim())
+    .slice(0, 10)
+    .map((item) => ({ q: item.q.trim(), a: item.a.trim() }));
+  if (validFaq.length > 0) {
+    source.reply_faq = validFaq;
+  } else {
+    delete source.reply_faq;
+  }
+  const trimmed = String(rejectTemplate || "").trim();
+  if (trimmed) {
+    source.reply_reject_template = trimmed;
+  } else {
+    delete source.reply_reject_template;
+  }
+  return source;
+}
+
+/** normalizeFAQList 将云端数据转换为安全的 FAQ 列表。 */
+export function normalizeFAQList(value: unknown): FAQEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item && typeof item === "object")
+    .slice(0, 10)
+    .map((item) => ({
+      q: String((item as any).q || "").slice(0, 20),
+      a: String((item as any).a || "").slice(0, 50),
+    }));
 }

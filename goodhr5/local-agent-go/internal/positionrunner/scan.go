@@ -423,6 +423,8 @@ scanLoop:
 					r.positionLog(position.ID, "error", fmt.Sprintf("候选人处理：超时，姓名=%s，超过=%s", candidateName, candidateTotalTimeout.Round(time.Second)))
 				}
 				flushPositionCounts(ctx)
+				// 打招呼流程：评分 >= 50 的候选人异步上报扫描记录，供自动回复查表分流。
+				r.reportCandidateScreening(ctx, position, candidate, options, "greeting")
 				candidateCancel()
 				if err := r.maybeRestAfterCandidate(ctx, position, platformRuntime, exec, platformConfig, options); err != nil {
 					return nil, err
@@ -781,4 +783,47 @@ func positionPositionName(position localdb.Position) string {
 // value 为原始岗位名称。
 func normalizePositionName(value string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(value)), "")
+}
+
+// reportCandidateScreening 异步上报候选人扫描记录到云端。
+// 打招呼流程只上报评分 >= 50 的候选人；自动回复流程上报全部候选人。
+// ctx 为运行上下文，position 为岗位运行记录，candidate 为候选人数据，options 为启动参数，source 为来源（greeting 或 auto_reply）。
+func (r *Runner) reportCandidateScreening(ctx context.Context, position localdb.Position, candidate map[string]any, options StartOptions, source string) {
+	if strings.TrimSpace(options.Token) == "" {
+		return
+	}
+	score := intFromMap(candidate, "ai_greet_score")
+	if source == "greeting" && score < 50 {
+		return
+	}
+	platform := strings.ToLower(strings.TrimSpace(position.PlatformID))
+	candidateID := stringFromMap(candidate, "id")
+	if candidateID == "" {
+		return
+	}
+	// 提前复制需要的值，避免闭包读取时被下一轮循环覆盖。
+	name := stringFromMap(candidate, "candidate_name")
+	if name == "" {
+		name = candidateLogName(candidate)
+	}
+	status := stringFromMap(candidate, "status")
+	baseURL := strings.TrimSpace(options.CloudAPIBase)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(r.cloudAPIBase)
+	}
+	go func() {
+		syncCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		record := cloudapi.ScreeningRecord{
+			Platform:            platform,
+			PlatformCandidateID: candidateID,
+			CandidateName:       name,
+			Score:               score,
+			Status:              status,
+			Source:              source,
+		}
+		if err := cloudapi.New(baseURL).ReportScreenings(syncCtx, options.Token, position.ID, []cloudapi.ScreeningRecord{record}); err != nil {
+			r.positionLog(position.ID, "warning", "扫描记录上报失败："+err.Error())
+		}
+	}()
 }

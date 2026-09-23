@@ -29,7 +29,10 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	if err != nil {
 		return nil, err
 	}
-	options.TaskType = taskType
+	// 保留原始多选值供 runPosition 解析，只用 normalized 做启动阶段的即时判断。
+	_ = taskType
+	taskTypes := parseTaskTypes(options.TaskType)
+	onlyAutoReply := hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting")
 	client := cloudapi.New(options.CloudAPIBase)
 	cloudPosition, err := client.FetchPosition(ctx, options.Token, positionID)
 	if err != nil {
@@ -39,7 +42,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	if err != nil {
 		return nil, err
 	}
-	if options.TaskType == "auto_reply" {
+	if onlyAutoReply {
 		// 自动回复在取得任何浏览器动作前检查平台能力与本地内嵌配置。
 		platformRuntime, err := platforms.RuntimeFor(position.PlatformID)
 		if err != nil {
@@ -91,8 +94,8 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		return nil, err
 	}
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if options.TaskType == "auto_reply" {
-		// 自动回复必须得到云端明确许可和非空执行任务记录 ID，失败不沿用只记警告继续运行的行为。
+	if onlyAutoReply {
+		// 纯自动回复必须得到云端明确许可和非空执行任务记录 ID，失败不沿用只记警告继续运行的行为。
 		syncResult, syncErr := client.SyncTaskStatus(syncCtx, options.Token, positionID, cloudapi.TaskStatusRequest{Status: "running", TaskType: "auto_reply", MachineID: options.MachineID})
 		if syncErr != nil {
 			syncCancel()
@@ -130,8 +133,9 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	options = snapshot.Options
 	options.EnableSound = position.EnableSound
 	r.updateRunOptions(positionID, options)
-	if options.TaskType == "auto_reply" {
-		// 自动回复独立编排：不进入候选人扫描、休息和收尾求简历流程。
+	taskTypes := parseTaskTypes(options.TaskType)
+	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") {
+		// 纯自动回复独立编排：不进入候选人扫描、休息和收尾求简历流程。
 		r.updateProgress(positionID, Progress{Stage: "running", Message: "自动回复已开始执行", TotalRounds: scanRounds(options)})
 		r.runAutoReplyTask(ctx, position, options)
 		return
@@ -175,6 +179,13 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 		r.positionLog(positionID, "info", "岗位运行停止：岗位运行已被用户停止，忽略扫描完成结果")
 		// 用户停止岗位后浏览器保持打开，后台继续检查待索要名单中候选人是否已回复。
 		r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
+		return
+	}
+	// 多选场景：打招呼完成后，如果同时选择了自动回复，则接着执行自动回复。
+	if hasTaskType(taskTypes, "auto_reply") {
+		r.positionLog(positionID, "info", "岗位运行：打招呼已完成，开始执行自动回复")
+		r.updateProgress(positionID, Progress{Stage: "running", Message: "打招呼已完成，自动回复已开始执行", TotalRounds: scanRounds(options)})
+		r.runAutoReplyTask(ctx, position, options)
 		return
 	}
 	r.updateProgress(positionID, Progress{Stage: "completed", Message: "岗位运行已完成", Round: totalRounds, TotalRounds: totalRounds})
@@ -638,7 +649,7 @@ func (r *Runner) autoReplyRunning(positionID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	state := r.running[strings.TrimSpace(positionID)]
-	return state != nil && state.options.TaskType == "auto_reply"
+	return state != nil && hasTaskType(parseTaskTypes(state.options.TaskType), "auto_reply")
 }
 
 // updateReplyStats 更新自动回复统计，供状态接口展示。

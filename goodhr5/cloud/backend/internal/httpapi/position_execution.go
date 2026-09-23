@@ -26,6 +26,7 @@ type PositionExecutionService struct {
 	tenantStore    TenantStore
 	accounts       PlatformAccountStore
 	candidateStore CandidateStore
+	screeningStore CandidateScreeningStore
 	subscriptions  SubscriptionStore
 	systemConfigs  SystemConfigStore
 	aiWallet       AIWalletStore
@@ -38,10 +39,11 @@ type PositionExecutionService struct {
 
 // NewPositionExecutionService 创建岗位运行服务。
 // 运行状态归属岗位展示，同时每次启动在 task_runs 记录一条执行任务。
-func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore, runStore TaskRunStore) *PositionExecutionService {
+func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, accounts PlatformAccountStore, candidateStore CandidateStore, screeningStore CandidateScreeningStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore, runStore TaskRunStore) *PositionExecutionService {
 	return &PositionExecutionService{
 		auth: auth, store: store, positionLogs: positionLogs, tenantStore: tenantStore,
-		accounts: accounts, candidateStore: candidateStore, subscriptions: subscriptions,
+		accounts: accounts, candidateStore: candidateStore, screeningStore: screeningStore,
+		subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
 		aiWallet:      aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
 		runStore: runStore,

@@ -71,6 +71,7 @@ func NewServer() (*Server, error) {
 	}
 	dailyStatsStore := config.SystemDailyStatsStore(db)
 	candidateStore := config.CandidateStore(db)
+	screeningStore := config.CandidateScreeningStore(db)
 	agentStore := config.AgentStore(db)
 	if !config.AgentBindingEnabled {
 		log.Printf("[Agent] 设备绑定冲突检测已关闭（GOODHR_AGENT_BINDING_ENABLED=false），同一台电脑可以绑定多个账号")
@@ -106,7 +107,7 @@ func NewServer() (*Server, error) {
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore),
 		positionLogs:        positionLogs,
 		taskRuns:            NewTaskRunService(auth, taskRunStore, tenantStore),
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
@@ -249,6 +250,21 @@ func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/resume-requests") {
 		s.positionExecution.NotifyResumeRequests(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/screenings/find") {
+		s.positionExecution.FindScreening(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/screenings") {
+		switch r.Method {
+		case http.MethodGet:
+			s.positionExecution.ListScreenings(w, r)
+		case http.MethodPost:
+			s.positionExecution.UpsertScreenings(w, r)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/counts") {

@@ -36,14 +36,44 @@ type replyFlow struct {
  target platformcore.ReplyTarget
  scope, platform, positionID, runID string
  request localai.ReplyRequest
+ rejectTemplate string // 岗位自定义拒绝话术，留空用系统默认
+ cloudClient *cloudapi.Client
+ token string
 }
 
 // normalizeTaskType 保持省略时为打招呼，拒绝未知流程。
+// 支持逗号分隔的多选值（如 "greeting,auto_reply"），返回第一个有效值作为主类型。
 func normalizeTaskType(value string) (string,error) {
  value=strings.TrimSpace(value)
  if value=="" { value="greeting" }
+ // 多选时取第一个有效类型作为主类型，其余类型由 lifecycle 串行调度。
+ if idx:=strings.Index(value,",");idx>0 { value=strings.TrimSpace(value[:idx]) }
  if value!="greeting" && value!="auto_reply" { return "",fmt.Errorf("不支持的任务类型") }
  return value,nil
+}
+
+// parseTaskTypes 解析逗号分隔的任务类型列表，返回去重后的有效类型。
+func parseTaskTypes(value string) []string {
+ value=strings.TrimSpace(value)
+ if value=="" { return []string{"greeting"} }
+ parts:=strings.Split(value,",")
+ seen:=map[string]bool{}
+ var result []string
+ for _,part:=range parts {
+  part=strings.TrimSpace(part)
+  if part=="" || seen[part] { continue }
+  if part!="greeting" && part!="auto_reply" { continue }
+  seen[part]=true
+  result=append(result,part)
+ }
+ if len(result)==0 { return []string{"greeting"} }
+ return result
+}
+
+// hasTaskType 判断任务类型列表是否包含指定类型。
+func hasTaskType(types []string, target string) bool {
+ for _,t:=range types { if t==target { return true } }
+ return false
 }
 
 // process 对一个已读取会话执行新消息判断、生成、复核、落库、发送和页面确认。
@@ -74,6 +104,15 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
  if err!=nil || strings.TrimSpace(current.Draft)!="" { return "skipped",nil }
  request:=f.request
  request.CandidateName=current.Conversation.Name
+ // 查表分流：检查打招呼阶段的扫描记录，评分 < 50 的候选人使用拒绝话术。
+ if f.cloudClient!=nil && strings.TrimSpace(f.token)!="" {
+  screening,screenErr:=f.cloudClient.FindScreeningByName(ctx,f.token,f.positionID,f.platform,current.Conversation.Name)
+  if screenErr==nil && screening!=nil && screening.Score<50 {
+   request.RejectTemplate=f.rejectTemplate
+   if request.RejectTemplate=="" { request.RejectTemplate=defaultRejectTemplate() }
+   request.FAQ=nil
+  }
+ }
  var history strings.Builder
  for _,message:=range current.Messages { fmt.Fprintf(&history,"[%s/%s] %s\n",message.Direction,message.Kind,message.Text) }
  request.History=history.String()
@@ -157,6 +196,34 @@ func positionRequirement(position localdb.Position) string {
  return strings.TrimSpace(stringFromMap(position.PositionSnapshot,"requirement"))
 }
 
+// positionRejectTemplate 读取岗位自定义拒绝话术，留空时使用系统默认。
+func positionRejectTemplate(position localdb.Position) string {
+ return strings.TrimSpace(stringFromMap(mapValue(position.PositionSnapshot["ai_config"]),"reply_reject_template"))
+}
+
+// positionFAQ 读取岗位常见问答语料，最多返回 10 条。
+func positionFAQ(position localdb.Position) []localai.FAQEntry {
+ aiConfig:=mapValue(position.PositionSnapshot["ai_config"])
+ raw,ok:=aiConfig["reply_faq"].([]any)
+ if !ok { return nil }
+ var result []localai.FAQEntry
+ for _,item:=range raw {
+  entry,ok:=item.(map[string]any)
+  if !ok { continue }
+  q:=strings.TrimSpace(stringFromMap(entry,"q"))
+  a:=strings.TrimSpace(stringFromMap(entry,"a"))
+  if q=="" || a=="" { continue }
+  result=append(result,localai.FAQEntry{Q:q,A:a})
+  if len(result)>=10 { break }
+ }
+ return result
+}
+
+// defaultRejectTemplate 返回系统默认拒绝话术。
+func defaultRejectTemplate() string {
+ return "感谢你的关注，我们看了你的信息，跟我们的岗位要求不匹配。下次有机会再合作。"
+}
+
 // runAutoReplyTask 组装自动回复依赖并执行整轮编排。
 // ctx 为运行上下文，position 为岗位运行记录，options 为启动参数。
 func (r *Runner) runAutoReplyTask(ctx context.Context, position localdb.Position, options StartOptions) {
@@ -231,11 +298,15 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
   platform:strings.ToLower(strings.TrimSpace(position.PlatformID)),
   positionID:positionID,
   runID:options.CloudRunID,
+  rejectTemplate:positionRejectTemplate(position),
+  cloudClient:cloudapi.New(strings.TrimSpace(options.CloudAPIBase)),
+  token:options.Token,
   request:localai.ReplyRequest{
    PositionName:name,
    PositionRequirement:positionRequirement(position),
    ReplyPrompt:positionReplyPrompt(position),
    ReplySystemPrompt:options.AIConfig.ReplySystemPrompt,
+   FAQ:positionFAQ(position),
   },
  }
  failures:=0
@@ -265,6 +336,8 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
     default: stats.Failed++;failures++
     }
     r.updateReplyStats(positionID,stats)
+    // 自动回复流程：上报所有遇到的候选人扫描记录。
+    r.reportAutoReplyScreening(ctx,position,options,conversation,outcome)
     if errors.Is(err,errReplyStorage) {
      r.failStart(positionID,err.Error(),options)
      return stats
@@ -310,4 +383,31 @@ func (r *Runner) notifyCloudAutoReplyStatus(positionID string, options StartOpti
  if _,err:=cloudapi.New(baseURL).SyncTaskStatus(ctx,options.Token,positionID,request);err!=nil {
   r.positionLog(positionID,"warning","自动回复状态同步失败："+err.Error())
  }
+}
+
+// reportAutoReplyScreening 异步上报自动回复遇到的候选人扫描记录。
+// position 为岗位运行记录，options 为启动参数，conversation 为当前会话，outcome 为处理结果。
+func (r *Runner) reportAutoReplyScreening(ctx context.Context, position localdb.Position, options StartOptions, conversation platformcore.ReplyConversation, outcome string) {
+ if strings.TrimSpace(options.Token)=="" { return }
+ platform:=strings.ToLower(strings.TrimSpace(position.PlatformID))
+ // 使用会话 ID 作为平台候选人标识，自动回复场景下无法获取打招呼阶段的名片指纹。
+ candidateID:=conversation.ID
+ if candidateID=="" { return }
+ name:=conversation.Name
+ baseURL:=strings.TrimSpace(options.CloudAPIBase)
+ if baseURL=="" { baseURL=strings.TrimSpace(r.cloudAPIBase) }
+ go func() {
+  syncCtx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
+  defer cancel()
+  record:=cloudapi.ScreeningRecord{
+   Platform:platform,
+   PlatformCandidateID:candidateID,
+   CandidateName:name,
+   Status:outcome,
+   Source:"auto_reply",
+  }
+  if err:=cloudapi.New(baseURL).ReportScreenings(syncCtx,options.Token,position.ID,[]cloudapi.ScreeningRecord{record});err!=nil {
+   r.positionLog(position.ID,"warning","自动回复扫描记录上报失败："+err.Error())
+  }
+ }()
 }

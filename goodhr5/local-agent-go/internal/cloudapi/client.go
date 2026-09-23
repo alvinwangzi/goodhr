@@ -398,6 +398,118 @@ func (c *Client) NotifyResumeRequested(ctx context.Context, token string, positi
 	return nil
 }
 
+// ScreeningRecord 表示上报给云端的候选人扫描记录。
+type ScreeningRecord struct {
+	Platform            string `json:"platform"`
+	PlatformCandidateID string `json:"platform_candidate_id"`
+	CandidateName       string `json:"candidate_name"`
+	Score               int    `json:"score"`
+	Status              string `json:"status"`
+	ResumeStatus        string `json:"resume_status,omitempty"`
+	Source              string `json:"source"`
+}
+
+// ScreeningResult 表示云端返回的扫描记录。
+type ScreeningResult struct {
+	ID                  string `json:"id"`
+	PositionID          string `json:"position_id"`
+	Platform            string `json:"platform"`
+	PlatformCandidateID string `json:"platform_candidate_id"`
+	CandidateName       string `json:"candidate_name"`
+	Score               int    `json:"score"`
+	Status              string `json:"status"`
+	ResumeStatus        string `json:"resume_status"`
+	Source              string `json:"source"`
+}
+
+// ReportScreenings 批量上报候选人扫描记录到云端。
+// 上报失败不阻塞业务流程，调用方可选择记日志后继续。
+func (c *Client) ReportScreenings(ctx context.Context, token string, positionID string, records []ScreeningRecord) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位 ID 不能为空")
+	}
+	if len(records) == 0 {
+		return nil
+	}
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/screenings", map[string]any{
+		"items": records,
+	})
+	if err != nil {
+		return fmt.Errorf("上报扫描记录失败：%w", err)
+	}
+	if code >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "上报扫描记录失败"))
+	}
+	return nil
+}
+
+// FindScreening 查询单个候选人的扫描记录，找不到时返回空 result 和 nil error。
+func (c *Client) FindScreening(ctx context.Context, token string, positionID string, platform string, candidateID string) (*ScreeningResult, error) {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return nil, fmt.Errorf("岗位 ID 不能为空")
+	}
+	path := fmt.Sprintf("/api/positions/%s/screenings/find?platform=%s&candidate_id=%s",
+		url.PathEscape(positionID), url.QueryEscape(platform), url.QueryEscape(candidateID))
+	payload, code, err := c.getAuthed(ctx, token, path)
+	if err != nil {
+		return nil, fmt.Errorf("查询扫描记录失败：%w", err)
+	}
+	if code >= 400 {
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "查询扫描记录失败"))
+	}
+	data, _ := payload["item"].(map[string]any)
+	if data == nil {
+		return nil, nil
+	}
+	result := &ScreeningResult{
+		ID:                  stringFromMap(data, "id"),
+		PositionID:          stringFromMap(data, "position_id"),
+		Platform:            stringFromMap(data, "platform"),
+		PlatformCandidateID: stringFromMap(data, "platform_candidate_id"),
+		CandidateName:       stringFromMap(data, "candidate_name"),
+		Score:               intFromMap(data, "score"),
+		Status:              stringFromMap(data, "status"),
+		ResumeStatus:        stringFromMap(data, "resume_status"),
+		Source:              stringFromMap(data, "source"),
+	}
+	return result, nil
+}
+
+// FindScreeningByName 按候选人姓名查询扫描记录，找不到时返回空 result 和 nil error。
+func (c *Client) FindScreeningByName(ctx context.Context, token string, positionID string, platform string, candidateName string) (*ScreeningResult, error) {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return nil, fmt.Errorf("岗位 ID 不能为空")
+	}
+	path := fmt.Sprintf("/api/positions/%s/screenings/find?platform=%s&name=%s",
+		url.PathEscape(positionID), url.QueryEscape(platform), url.QueryEscape(candidateName))
+	payload, code, err := c.getAuthed(ctx, token, path)
+	if err != nil {
+		return nil, fmt.Errorf("查询扫描记录失败：%w", err)
+	}
+	if code >= 400 {
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "查询扫描记录失败"))
+	}
+	data, _ := payload["item"].(map[string]any)
+	if data == nil {
+		return nil, nil
+	}
+	result := &ScreeningResult{
+		ID:                  stringFromMap(data, "id"),
+		PositionID:          stringFromMap(data, "position_id"),
+		Platform:            stringFromMap(data, "platform"),
+		PlatformCandidateID: stringFromMap(data, "platform_candidate_id"),
+		CandidateName:       stringFromMap(data, "candidate_name"),
+		Score:               intFromMap(data, "score"),
+		Status:              stringFromMap(data, "status"),
+		ResumeStatus:        stringFromMap(data, "resume_status"),
+		Source:              stringFromMap(data, "source"),
+	}
+	return result, nil
+}
+
 // getAuthed 使用 Bearer Token 请求云端接口。
 // ctx 为请求上下文，token 为登录令牌，path 为以 / 开头的云端路径。
 func (c *Client) getAuthed(ctx context.Context, token string, path string) (map[string]any, int, error) {
@@ -541,6 +653,22 @@ func stringFromMap(item map[string]any, key string) string {
 		return strings.TrimSpace(value)
 	}
 	return ""
+}
+
+// intFromMap 安全提取 map 中的数字字段，类型不匹配时返回 0。
+func intFromMap(item map[string]any, key string) int {
+	if item == nil {
+		return 0
+	}
+	switch v := item[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	}
+	return 0
 }
 
 // translateKnownMessage 把常见英文错误改成中文。

@@ -22,6 +22,7 @@ import {
   CircularProgress,
   Divider,
   FormControlLabel,
+  IconButton,
   Stack,
   Switch,
   TextField,
@@ -56,10 +57,12 @@ import { canUseAI, canUseAutoReply, normalizeSubscription } from "@/lib/subscrip
 import {
   agentSupportsAutoReply,
   autoReplyEnabledForPlatform,
-  mergeReplyPrompt,
+  mergeReplyConfig,
+  normalizeFAQList,
   normalizeReplyStats,
   replyStatsText,
   type ReplyStats,
+  type FAQEntry,
 } from "@/lib/auto-reply";
 import { confirmPlatformLoggedInForPosition, openPlatformPositionBrowser, pickPlatformAuthConfig } from "@/lib/platform-login";
 import { evaluatePositionStartGuard, latestLocalAgentRelease, positionUsesAI } from "@/lib/position-start-guard";
@@ -125,9 +128,7 @@ export default function PositionsPage() {
   const [allLogPosition, setAllLogPosition] = useState<any | null>(null);
   const [allLogLoading, setAllLogLoading] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
-  const [startTaskType, setStartTaskType] = useState<"greeting" | "auto_reply">(
-    "greeting",
-  );
+  const [startTaskType, setStartTaskType] = useState<string[]>(["greeting"]);
   const [replyStats, setReplyStats] = useState<Record<string, ReplyStats>>({});
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
@@ -336,7 +337,7 @@ export default function PositionsPage() {
             request_wechat: form.request_wechat,
             request_resume: form.request_resume,
           },
-          ai_config: mergeReplyPrompt(
+          ai_config: mergeReplyConfig(
             {
               // 编辑时保留云端已有的其他 ai_config 键，表单键覆盖同名值。
               ...(form.id
@@ -358,6 +359,8 @@ export default function PositionsPage() {
               ),
             },
             form.reply_prompt,
+            form.reply_faq,
+            form.reply_reject_template,
           ),
           keyword_config: {},
           match_limit: Number(form.match_limit || 50),
@@ -396,7 +399,7 @@ export default function PositionsPage() {
     setStartError("");
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
-    setStartTaskType("greeting");
+    setStartTaskType(["greeting"]);
     setStartPositionItem(item);
   }
 
@@ -408,7 +411,7 @@ export default function PositionsPage() {
     setStartError("");
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
-    setStartTaskType("greeting");
+    setStartTaskType(["greeting"]);
   }
 
   /** openStartPlatformForFiltering 打开当前岗位对应的招聘平台页面，供用户先手动设置基础筛选条件。 */
@@ -518,8 +521,8 @@ export default function PositionsPage() {
         setStartError(message);
         return;
       }
-      if (startTaskType === "auto_reply") {
-        // AI 自动回复由本地程序准备消息页，前端只做能力和权限检查。
+      if (startTaskType.includes("auto_reply") && !startTaskType.includes("greeting")) {
+        // 仅自动回复：由本地程序准备消息页，前端只做能力和权限检查。
         if (!agentSupportsAutoReply(health)) {
           const message = "当前本地程序版本还不支持 AI 自动回复，请更新本地程序后重试。";
           setStartStatus(message);
@@ -562,13 +565,17 @@ export default function PositionsPage() {
         return;
       }
       if (!currentSubscription.active) notify("当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。", "info");
-      setStartStatus(startTaskType === "auto_reply" ? "正在启动 AI 自动回复..." : "登录确认好了，正在启动岗位...");
+      setStartStatus(startTaskType.includes("auto_reply") && !startTaskType.includes("greeting") ? "正在启动 AI 自动回复..." : "登录确认好了，正在启动岗位...");
+      // 构造 task_type：多选时传逗号分隔字符串，单选打招呼时不传（默认行为）。
+      const taskTypePayload = startTaskType.length === 1 && startTaskType[0] === "greeting"
+        ? undefined
+        : startTaskType.join(",");
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/run`, {
         method: "POST",
         body: {
           token: getToken(),
           enable_greet: true,
-          ...(startTaskType === "auto_reply" ? { task_type: "auto_reply" } : {}),
+          ...(taskTypePayload ? { task_type: taskTypePayload } : {}),
         },
       });
       started = true;
@@ -1093,7 +1100,7 @@ export default function PositionsPage() {
       <AdminDialog
         open={Boolean(startPositionItem)}
         title={startError ? "岗位还没启动成功" : "开始招聘岗位"}
-        confirmText={startError ? "我知道了" : startRequiresUpdate ? "立即更新" : startTaskType === "auto_reply" ? "开始 AI 自动回复" : "我已筛选好，立即开始"}
+        confirmText={startError ? "我知道了" : startRequiresUpdate ? "立即更新" : startTaskType.length > 1 ? "开始运行" : startTaskType.includes("auto_reply") ? "开始 AI 自动回复" : "我已筛选好，立即开始"}
         showCancel={!startError}
         loading={startLoading}
         loadingText='启动中'
@@ -1114,27 +1121,50 @@ export default function PositionsPage() {
           <Typography>
             确认开始“{startPositionItem?.name || ""}”吗？
           </Typography>
-          <ChoiceCards
-            label='任务类型'
-            value={startTaskType}
-            onChange={(value) =>
-              setStartTaskType(value === "auto_reply" ? "auto_reply" : "greeting")
-            }
-            options={[
-              {
-                value: "greeting",
-                label: "打招呼",
-                description: "按岗位配置筛选候选人并自动打招呼。",
-              },
-              {
-                value: "auto_reply",
-                label: "AI 自动回复（会员功能）",
-                description: startAutoReplyDescription,
-                disabled: !startAutoReplyOptionEnabled,
-              },
-            ]}
-          />
-          {startTaskType === "greeting" ? (
+          <Box>
+            <Typography sx={{ mb: 0.5, fontSize: 14, fontWeight: 600 }}>任务类型（可多选）</Typography>
+            <Stack direction='row' spacing={2} sx={{ flexWrap: "wrap" }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size='small'
+                    checked={startTaskType.includes("greeting")}
+                    onChange={(e) =>
+                      setStartTaskType((prev) =>
+                        e.target.checked
+                          ? [...prev, "greeting"]
+                          : prev.filter((t) => t !== "greeting"),
+                      )
+                    }
+                  />
+                }
+                label='打招呼'
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size='small'
+                    checked={startTaskType.includes("auto_reply")}
+                    disabled={!startAutoReplyOptionEnabled}
+                    onChange={(e) =>
+                      setStartTaskType((prev) =>
+                        e.target.checked
+                          ? [...prev, "auto_reply"]
+                          : prev.filter((t) => t !== "auto_reply"),
+                      )
+                    }
+                  />
+                }
+                label='AI 自动回复（会员功能）'
+              />
+            </Stack>
+            {!startAutoReplyOptionEnabled ? (
+              <Typography sx={{ fontSize: 12, color: "text.secondary", mt: 0.25 }}>
+                {startAutoReplyDescription}
+              </Typography>
+            ) : null}
+          </Box>
+          {startTaskType.includes("greeting") ? (
             <>
               <Alert severity='warning' variant='outlined'>
                 <Typography sx={{ fontWeight: 700, lineHeight: 1.7 }}>
@@ -1664,6 +1694,86 @@ export default function PositionsPage() {
                             setForm({ ...form, reply_prompt: value })
                           }
                         />
+                        {/* FAQ 语料编辑区 */}
+                        <Box>
+                          <Typography sx={{ mb: 0.5, fontSize: 14, fontWeight: 600 }}>
+                            常见问答语料（可选，最多 10 条）
+                          </Typography>
+                          <Typography sx={{ mb: 1, fontSize: 12, color: "text.secondary" }}>
+                            候选人可能问到的问题和标准答案，AI 回复时会参考这些内容。
+                          </Typography>
+                          <Stack spacing={1}>
+                            {form.reply_faq.map((entry, index) => (
+                              <Stack key={index} direction='row' spacing={1} sx={{ alignItems: "flex-start" }}>
+                                <TextField
+                                  size='small'
+                                  label={`问题 ${index + 1}`}
+                                  value={entry.q}
+                                  placeholder='如：上下班时间'
+                                  slotProps={{ htmlInput: { maxLength: 20 } }}
+                                  helperText={`${entry.q.length}/20`}
+                                  sx={{ flex: 2 }}
+                                  onChange={(e) => {
+                                    const next = [...form.reply_faq];
+                                    next[index] = { ...next[index], q: e.target.value.slice(0, 20) };
+                                    setForm({ ...form, reply_faq: next });
+                                  }}
+                                />
+                                <TextField
+                                  size='small'
+                                  label={`回答 ${index + 1}`}
+                                  value={entry.a}
+                                  placeholder='如：9:00-18:00'
+                                  slotProps={{ htmlInput: { maxLength: 50 } }}
+                                  helperText={`${entry.a.length}/50`}
+                                  sx={{ flex: 3 }}
+                                  onChange={(e) => {
+                                    const next = [...form.reply_faq];
+                                    next[index] = { ...next[index], a: e.target.value.slice(0, 50) };
+                                    setForm({ ...form, reply_faq: next });
+                                  }}
+                                />
+                                <IconButton
+                                  size='small'
+                                  sx={{ mt: 0.5 }}
+                                  onClick={() => {
+                                    const next = form.reply_faq.filter((_, i) => i !== index);
+                                    setForm({ ...form, reply_faq: next });
+                                  }}
+                                >
+                                  <DeleteOutlineRoundedIcon fontSize='small' />
+                                </IconButton>
+                              </Stack>
+                            ))}
+                            {form.reply_faq.length < 10 && (
+                              <Button
+                                size='small'
+                                startIcon={<AddRoundedIcon />}
+                                onClick={() =>
+                                  setForm({
+                                    ...form,
+                                    reply_faq: [...form.reply_faq, { q: "", a: "" }],
+                                  })
+                                }
+                              >
+                                添加问答
+                              </Button>
+                            )}
+                          </Stack>
+                        </Box>
+                        {/* 拒绝话术 */}
+                        <TextField
+                          multiline
+                          minRows={2}
+                          maxRows={4}
+                          label='拒绝话术（可选）'
+                          value={form.reply_reject_template}
+                          placeholder='感谢你的关注，我们看了你的信息，跟我们的岗位要求不匹配。下次有机会再合作。'
+                          helperText='候选人不符合岗位要求时发送此消息，留空使用系统默认。'
+                          onChange={(e) =>
+                            setForm({ ...form, reply_reject_template: e.target.value.slice(0, 200) })
+                          }
+                        />
                       </Stack>
                     </Collapse>
                   </Box>
@@ -2014,6 +2124,8 @@ function createEmptyForm() {
     filter_prompt: "",
     review_prompt: "",
     reply_prompt: "",
+    reply_faq: [] as { q: string; a: string }[],
+    reply_reject_template: "",
     detail_score_threshold: 60,
     greet_score_threshold: 70,
     request_score_threshold: 70,
@@ -2074,6 +2186,8 @@ function formFromItem(
       ),
       review_prompt: normalizePrompt(ai.review_prompt),
       reply_prompt: normalizePrompt(ai.reply_prompt),
+      reply_faq: normalizeFAQList(ai.reply_faq),
+      reply_reject_template: String(ai.reply_reject_template || ""),
       detail_score_threshold: Number(ai.detail_score_threshold ?? 60),
       greet_score_threshold: Number(ai.greet_score_threshold ?? 70),
       request_score_threshold: Number(

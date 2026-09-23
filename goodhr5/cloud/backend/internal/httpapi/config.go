@@ -307,6 +307,14 @@ func (c Config) CandidateStore(db *sql.DB) CandidateStore {
 	return NewMemoryCandidateStore()
 }
 
+// CandidateScreeningStore 创建候选人扫描记录存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
+func (c Config) CandidateScreeningStore(db *sql.DB) CandidateScreeningStore {
+	if db != nil {
+		return NewPostgresCandidateScreeningStore(db)
+	}
+	return NewMemoryCandidateScreeningStore()
+}
+
 // TaskRunStore 创建执行任务存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) TaskRunStore(db *sql.DB) TaskRunStore {
 	if db != nil {

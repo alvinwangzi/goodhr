@@ -184,7 +184,7 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 
 // StartOptions 表示本地岗位运行启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
-	TaskType       string `json:"task_type"` // greeting 或 auto_reply，省略时打招呼
+	TaskType       string `json:"task_type"` // greeting 或 auto_reply，支持逗号分隔多选，省略时打招呼
 	CloudAPIBase   string
 	Token          string
 	AIConfig       localdb.AIConfig
@@ -347,7 +347,7 @@ func minInt(a int, b int) int {
 // options 为岗位运行启动参数，保留该函数用于兼容前端旧进度字段。
 func scanRounds(options StartOptions) int {
 	if options.ScanRounds <= 0 {
-		if options.TaskType == "auto_reply" { return 1 }
+		if hasTaskType(parseTaskTypes(options.TaskType), "auto_reply") { return 1 }
 		return defaultScanRounds
 	}
 	if options.ScanRounds > 20 {
