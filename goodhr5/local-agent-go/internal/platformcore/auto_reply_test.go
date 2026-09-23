@@ -3,6 +3,49 @@ package platformcore
 
 import "testing"
 
+// TestReplyInboundIdentity 验证我方与系统消息不改变入站标识，同文新消息仍可区分。
+func TestReplyInboundIdentity(t *testing.T) {
+	target := ReplyTarget{PositionID: "job1"}
+	c := validReplyContext()
+	c.Messages[0].ID = ""
+	first, err := ValidateReplyContext(c, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Messages = append(c.Messages,
+		ReplyMessage{Direction: "outbound", Kind: "text", Text: "你好"},
+		ReplyMessage{Direction: "system", Kind: "system", Text: "对方已读"},
+	)
+	after, err := ValidateReplyContext(c, target)
+	if err != nil || after.InboundFingerprint != first.InboundFingerprint {
+		t.Fatalf("我方回复改变去重标识：%v", err)
+	}
+	c.Messages = append(c.Messages, ReplyMessage{Direction: "inbound", Kind: "text", Text: "你好"})
+	next, err := ValidateReplyContext(c, target)
+	if err != nil || next.InboundFingerprint == first.InboundFingerprint {
+		t.Fatalf("候选人再次发送同文被当成旧消息：%v", err)
+	}
+	c.Messages[len(c.Messages)-1].Timestamp = "刚刚"
+	stable, _ := ValidateReplyContext(c, target)
+	if stable.InboundFingerprint != next.InboundFingerprint {
+		t.Fatal("相对时间改变了去重标识")
+	}
+}
+
+// TestReplyLatestUnsupportedStopsOldAnswer 验证未知方向和最新非文字消息不能借旧问题触发回答。
+func TestReplyLatestUnsupportedStopsOldAnswer(t *testing.T) {
+	for _, message := range []ReplyMessage{
+		{Direction: "invalid", Kind: "text", Text: "不能识别来源"},
+		{Direction: "inbound", Kind: "attachment", Text: "附件"},
+	} {
+		c := validReplyContext()
+		c.Messages = append(c.Messages, message)
+		if _, err := ValidateReplyContext(c, ReplyTarget{PositionID: "job1"}); err == nil {
+			t.Fatalf("不明确的新消息未被阻止：%+v", message)
+		}
+	}
+}
+
 // validReplyContext 返回具有稳定标识的文本会话。
 func validReplyContext() ReplyContext {
 	return ReplyContext{Conversation: ReplyConversation{ID: "c1", PositionID: "job1", PositionName: "Go", Name: "同名"}, Messages: []ReplyMessage{{ID: "m1", Direction: "inbound", Kind: "text", Text: "你好"}}}

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -59,6 +60,7 @@ type ReplyContext struct {
 	Draft              string
 	InboundFingerprint string
 	Fingerprint        string
+	ResumeStatus       string // none、requested、received；空值表示页面状态未知。
 }
 
 // ReplyStats 保存自动回复统计，不计入打招呼数量。
@@ -121,7 +123,7 @@ func ReplyPositionMatches(conversation ReplyConversation, target ReplyTarget) bo
 
 // ReplyMessageFingerprint 自适应指纹：优先消息 ID；ID 等于时间戳说明选择器配置重复（Boss 场景），退化为正文；
 // ID 为空时回退到 RFC3339 时间戳 + 正文；都没有则只用正文。
-// Direction 比较在跨进程抽取场景下不可靠，已移除门禁。
+// 此函数仅计算单条消息摘要；回复触发使用 ReplyInboundFingerprint 校验方向和消息批次。
 func ReplyMessageFingerprint(conversationID string, message ReplyMessage) string {
 	if conversationID == "" {
 		return ""
@@ -150,6 +152,43 @@ func ReplyMessageFingerprint(conversationID string, message ReplyMessage) string
 	return ReplyHash(string(raw))
 }
 
+// ReplyInboundFingerprint 选取最新候选人文字消息，忽略我方与系统消息。
+// 无稳定消息 ID 时以相同入站正文在已读取历史中的出现次数区分再次提问；
+// 首次出现保留旧摘要，兼容既有已发送和结果未知记录，不使用相对时间或 DOM 下标。
+func ReplyInboundFingerprint(conversationID string, messages []ReplyMessage) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Direction != "inbound" {
+			continue
+		}
+		if m.Kind != "text" {
+			return ""
+		}
+		base := ReplyMessageFingerprint(conversationID, m)
+		if base == "" {
+			return ""
+		}
+		if m.ID != "" && m.ID != m.Timestamp {
+			return base
+		}
+		if _, err := time.Parse(time.RFC3339Nano, m.Timestamp); err == nil {
+			return base
+		}
+		occurrence := 0
+		for _, previous := range messages[:i+1] {
+			if previous.Direction == "inbound" && previous.Kind == "text" && strings.TrimSpace(previous.Text) == strings.TrimSpace(m.Text) {
+				occurrence++
+			}
+		}
+		if occurrence <= 1 {
+			return base
+		}
+		raw, _ := json.Marshal([]string{"inbound-occurrence-v1", base, strconv.Itoa(occurrence)})
+		return ReplyHash(string(raw))
+	}
+	return ""
+}
+
 // ValidateReplyContext 验证会话中存在可回复的候选人入站文字消息，并计算入站身份和完整上下文摘要。
 // 不要求最后一条消息必须是 inbound——会话末尾可能有 system 或 outbound（如已发过打招呼），
 // 只要从末尾向前能找到一条入站文字消息即可。
@@ -157,27 +196,20 @@ func ValidateReplyContext(value ReplyContext, target ReplyTarget) (ReplyContext,
 	if !ReplyPositionMatches(value.Conversation, target) || len(value.Messages) == 0 {
 		return ReplyContext{}, ErrReplyUnsafe
 	}
-	// 从末尾向前找最后一条入站文字消息
-	var lastInbound *ReplyMessage
-	for i := len(value.Messages) - 1; i >= 0; i-- {
-		m := &value.Messages[i]
-		dirLen := len([]byte(m.Direction))
-		if dirLen == 7 && m.Kind == "text" && strings.TrimSpace(m.Text) != "" {
-			lastInbound = m
-			break
+	for _, message := range value.Messages {
+		if message.Direction != "inbound" && message.Direction != "outbound" && message.Direction != "system" {
+			return ReplyContext{}, ErrReplyUnsafe
 		}
 	}
-	if lastInbound == nil {
-		return ReplyContext{}, ErrReplyUnsafe
-	}
-	fingerprint := ReplyMessageFingerprint(value.Conversation.ID, *lastInbound)
+	fingerprint := ReplyInboundFingerprint(value.Conversation.ID, value.Messages)
 	if fingerprint == "" {
 		return ReplyContext{}, ErrReplyUnsafe
 	}
 	raw2, _ := json.Marshal(struct {
 		Conversation ReplyConversation
 		Messages     []ReplyMessage
-	}{value.Conversation, value.Messages})
+		ResumeStatus string
+	}{value.Conversation, value.Messages, value.ResumeStatus})
 	value.InboundFingerprint = fingerprint
 	value.Fingerprint = ReplyHash(string(raw2))
 	return value, nil

@@ -20,29 +20,30 @@ var replyConfigJSON []byte
 
 // replyPageConfig 保存经过页面验证的消息配置，不接受云端选择器覆盖。
 type replyPageConfig struct {
-	Jobs                 platformcore.SelectorSpec             `json:"jobs"`
-	JobFields            map[string]platformcore.SelectorField `json:"job_fields"`
-	Verified             bool                                  `json:"verified"`
-	UnavailableReason    string                                `json:"unavailable_reason"`
-	MessagesURL          string                                `json:"messages_url"`
-	Unread               platformcore.SelectorSpec             `json:"unread"`
-	Conversation         platformcore.SelectorSpec             `json:"conversation"`
-	Active               platformcore.SelectorSpec             `json:"active"`
-	Messages             platformcore.SelectorSpec             `json:"messages"`
-	Input                platformcore.SelectorSpec             `json:"input"`
-	Send                 platformcore.SelectorSpec             `json:"send"`
-	IdentityAttribute    string                                `json:"identity_attribute"`
-	ConversationFields   map[string]platformcore.SelectorField `json:"conversation_fields"`
-	MessageFields        map[string]platformcore.SelectorField `json:"message_fields"`
-	Directions           map[string]string                     `json:"directions"`
-	Kinds                map[string]string                     `json:"kinds"`
-	ResumeReceived       platformcore.SelectorSpec             `json:"resume_received"`
-	ResumeRequestedText  string                                `json:"resume_requested_text"`
-	ResumeButton         platformcore.SelectorSpec             `json:"resume_button"`
-	OnlineResumeButton   platformcore.SelectorSpec             `json:"online_resume_button"`
-	OnlineResumeOverlay  platformcore.SelectorSpec             `json:"online_resume_overlay"`
-	OnlineResumeClose    platformcore.SelectorSpec             `json:"online_resume_close"`
-	PanelInfo            platformcore.SelectorSpec             `json:"panel_info"`
+	Jobs                platformcore.SelectorSpec             `json:"jobs"`
+	JobFields           map[string]platformcore.SelectorField `json:"job_fields"`
+	Verified            bool                                  `json:"verified"`
+	UnavailableReason   string                                `json:"unavailable_reason"`
+	MessagesURL         string                                `json:"messages_url"`
+	Unread              platformcore.SelectorSpec             `json:"unread"`
+	Conversation        platformcore.SelectorSpec             `json:"conversation"`
+	Active              platformcore.SelectorSpec             `json:"active"`
+	Messages            platformcore.SelectorSpec             `json:"messages"`
+	Input               platformcore.SelectorSpec             `json:"input"`
+	Send                platformcore.SelectorSpec             `json:"send"`
+	IdentityAttribute   string                                `json:"identity_attribute"`
+	ConversationFields  map[string]platformcore.SelectorField `json:"conversation_fields"`
+	MessageFields       map[string]platformcore.SelectorField `json:"message_fields"`
+	Directions          map[string]string                     `json:"directions"`
+	Kinds               map[string]string                     `json:"kinds"`
+	ResumeReceived      platformcore.SelectorSpec             `json:"resume_received"`
+	ResumeRequestedText string                                `json:"resume_requested_text"`
+	PendingResumeAccept platformcore.SelectorSpec             `json:"pending_resume_accept"`
+	ResumeButton        platformcore.SelectorSpec             `json:"resume_button"`
+	OnlineResumeButton  platformcore.SelectorSpec             `json:"online_resume_button"`
+	OnlineResumeOverlay platformcore.SelectorSpec             `json:"online_resume_overlay"`
+	OnlineResumeClose   platformcore.SelectorSpec             `json:"online_resume_close"`
+	PanelInfo           platformcore.SelectorSpec             `json:"panel_info"`
 }
 
 // replyPageSettings 读取运行时的本地配置，配置错误保守地保持不可用。
@@ -115,7 +116,9 @@ func (r *Runtime) PrepareReplyPage(ctx context.Context, exec platformcore.Execut
 // ResolveReplyTarget 从经过验证的完整岗位列表匹配唯一名称，不把云端岗位 UUID 当作平台岗位 ID。
 // 先点击岗位下拉容器使其展开，读取选项列表进行匹配，然后点击选中目标岗位以过滤会话列表。
 func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Executor, name string) (platformcore.ReplyTarget, error) {
-	if err := r.AutoReplyAvailable(); err != nil { return platformcore.ReplyTarget{}, err }
+	if err := r.AutoReplyAvailable(); err != nil {
+		return platformcore.ReplyTarget{}, err
+	}
 	cfg := r.replyPageSettings()
 	// 点击岗位下拉容器，展开选项列表。
 	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
@@ -128,8 +131,12 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 	case <-time.After(1 * time.Second):
 	}
 	fields, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.Jobs, Fields: cfg.JobFields, MaxItems: 1000})
-	if err != nil { return platformcore.ReplyTarget{}, err }
-	if name == "" || len(fields) >= 1000 { return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe }
+	if err != nil {
+		return platformcore.ReplyTarget{}, err
+	}
+	if name == "" || len(fields) >= 1000 {
+		return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe
+	}
 	matches := 0
 	target := platformcore.ReplyTarget{}
 	matchIndex := -1
@@ -142,7 +149,9 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 			matchIndex = i
 		}
 	}
-	if matches != 1 { return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe }
+	if matches != 1 {
+		return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe
+	}
 	// 点击选中的岗位选项，过滤会话列表。
 	nth := matchIndex
 	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
@@ -300,10 +309,15 @@ func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Execut
 	}
 	value := platformcore.ReplyContext{Conversation: current}
 	for _, field := range fields {
+		kind := mapClassToValue(cfg.Kinds, field["kind"])
+		direction := mapClassToValue(cfg.Directions, field["direction"])
+		if kind == "system" {
+			direction = "system"
+		}
 		value.Messages = append(value.Messages, platformcore.ReplyMessage{
 			ID:        field["id"],
-			Direction: mapClassToValue(cfg.Directions, field["direction"]),
-			Kind:      mapClassToValue(cfg.Kinds, field["kind"]),
+			Direction: direction,
+			Kind:      kind,
 			Timestamp: field["timestamp"],
 			Text:      field["text"],
 		})
@@ -317,6 +331,23 @@ func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Execut
 		return platformcore.ReplyContext{}, platformcore.ErrReplyUnsafe
 	}
 	value.Draft = text
+	value.ResumeStatus = "unknown"
+	if len(cfg.ResumeReceived.Selectors) > 0 {
+		received, readErr := r.hasElement(ctx, exec, replyChildSelector(cfg.ResumeReceived, cfg.Active))
+		if readErr == nil {
+			if received {
+				value.ResumeStatus = "received"
+			} else {
+				requested, requestErr := r.hasTextOnPage(ctx, exec, cfg.ResumeRequestedText)
+				if requestErr == nil {
+					value.ResumeStatus = "none"
+					if requested {
+						value.ResumeStatus = "requested"
+					}
+				}
+			}
+		}
+	}
 	return value, nil
 }
 
@@ -372,36 +403,24 @@ func (r *Runtime) SendReply(ctx context.Context, exec platformcore.Executor, tar
 
 // ConfirmReply 仅认可目标入站消息之后新增的我方文本，不以点击成功或输入框清空作依据。
 // 先用指纹定位入站消息，再检查其后是否有匹配的出站文字；
-// 若指纹匹配失败（跨进程抽取不稳定），退化为直接搜索回复正文。
+// 无法定位本次入站消息时不确认成功，不能用历史同文作为发送证据。
 func (r *Runtime) ConfirmReply(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, inbound, replyHash string) (bool, error) {
 	current, err := r.readCurrentReply(ctx, exec, target, conversation)
 	if err != nil {
 		return false, err
 	}
-	// 第一轮：用指纹定位入站消息，检查其后是否有匹配的出站文字
+	// 只认可本次候选人消息之后的回复，历史同文不能证明本次发送成功。
 	found := false
-	for _, message := range current.Messages {
-		fp := platformcore.ReplyMessageFingerprint(conversation.ID, message)
-		if fp == inbound {
-			found = true
+	for i, message := range current.Messages {
+		if message.Direction == "inbound" {
+			if found {
+				return false, nil
+			}
+			found = inbound != "" && platformcore.ReplyInboundFingerprint(conversation.ID, current.Messages[:i+1]) == inbound
 			continue
 		}
-		if !found {
-			continue
-		}
-		dirLen := len([]byte(message.Direction))
-		if dirLen == 7 {
-			return false, nil
-		}
-		if dirLen == 8 && message.Kind == "text" && platformcore.ReplyHash(strings.TrimSpace(message.Text)) == replyHash {
-			return true, nil
-		}
-	}
-	// 第二轮：指纹未匹配时，退化为直接搜索回复正文（跨进程抽取不稳定时的容错）
-	for _, message := range current.Messages {
-		dirLen := len([]byte(message.Direction))
-		if dirLen == 8 && message.Kind == "text" && platformcore.ReplyHash(strings.TrimSpace(message.Text)) == replyHash {
-			return true, nil
+		if found && message.Direction == "outbound" && message.Kind == "text" {
+			return platformcore.ReplyHash(strings.TrimSpace(message.Text)) == replyHash, nil
 		}
 	}
 	return false, nil
@@ -481,7 +500,10 @@ func (r *Runtime) hasElement(ctx context.Context, exec platformcore.Executor, se
 	}
 	data := workerDataMap(result)
 	items, ok := data["items"].([]any)
-	return ok && len(items) > 0, nil
+	if !ok {
+		return false, platformcore.ErrReplyUnsafe
+	}
+	return len(items) > 0, nil
 }
 
 // hasTextOnPage 检查页面是否包含指定文本。
@@ -490,34 +512,33 @@ func (r *Runtime) hasTextOnPage(ctx context.Context, exec platformcore.Executor,
 		return false, nil
 	}
 	result, err := exec.Post(ctx, "/api/v1/page/find-elements", platformcore.LocatorRequest{
-		Selector: platformcore.SelectorSpec{Selectors: []string{"body"}},
+		Selector: r.replyPageSettings().Active,
 		Fields: map[string]platformcore.SelectorField{
 			"text": {},
 		},
 		MaxItems: 1,
 	})
 	if err != nil {
-		return false, nil
+		return false, err
 	}
 	data := workerDataMap(result)
 	items, ok := data["items"].([]any)
-	if !ok || len(items) == 0 {
-		return false, nil
+	if !ok || len(items) != 1 {
+		return false, platformcore.ErrReplyUnsafe
 	}
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		fields, ok := m["fields"].(map[string]any)
-		if !ok {
-			continue
-		}
-		if pageText, ok := fields["text"].(string); ok && strings.Contains(pageText, text) {
-			return true, nil
-		}
+	m, ok := items[0].(map[string]any)
+	if !ok {
+		return false, platformcore.ErrReplyUnsafe
 	}
-	return false, nil
+	fields, ok := m["fields"].(map[string]any)
+	if !ok {
+		return false, platformcore.ErrReplyUnsafe
+	}
+	pageText, ok := fields["text"].(string)
+	if !ok {
+		return false, platformcore.ErrReplyUnsafe
+	}
+	return strings.Contains(pageText, text), nil
 }
 
 // clickResumeButton 点击"求简历"按钮并处理确认弹窗。
@@ -551,10 +572,10 @@ func (r *Runtime) evaluateResumeWithAI(ctx context.Context, exec platformcore.Ex
 
 	// 截图在线简历弹层
 	screenshotResult, err := exec.Post(ctx, "/api/v1/page/screenshot", map[string]any{
-		"selector":   ".resume-detail-wrap",
+		"selector":    ".resume-detail-wrap",
 		"scroll_full": true,
-		"filename":   fmt.Sprintf("resume-eval-%s.png", name),
-		"directory":  screenshotsDir,
+		"filename":    fmt.Sprintf("resume-eval-%s.png", name),
+		"directory":   screenshotsDir,
 	})
 	if err != nil {
 		r.closeOnlineResume(ctx, exec, cfg)
@@ -728,37 +749,14 @@ func (r *Runtime) readPanelInfoText(ctx context.Context, exec platformcore.Execu
 // 检测失败时返回 (false, nil)，不中断主流程。
 func (r *Runtime) HasPendingResumeOffer(ctx context.Context, exec platformcore.Executor) (bool, error) {
 	cfg := r.replyPageSettings()
-	result, err := exec.Post(ctx, "/api/v1/page/find-elements", platformcore.LocatorRequest{
-		Selector: replyChildSelector(platformcore.SelectorSpec{Selectors: []string{".text"}}, cfg.Active),
-		Fields:   map[string]platformcore.SelectorField{"text": {}},
-		MaxItems: 20,
-	})
+	pending, err := r.hasElement(ctx, exec, replyChildSelector(cfg.PendingResumeAccept, cfg.Active))
 	if err != nil {
 		// 检测失败不中断流程，当作无待接受简历处理
 		exec.Log("warning", fmt.Sprintf("待接受简历检测失败：错误=%s", err.Error()))
 		return false, nil
 	}
-	data := workerDataMap(result)
-	items, ok := data["items"].([]any)
-	if !ok {
-		return false, nil
-	}
-	exec.Log("info", fmt.Sprintf("待接受简历检测：找到%d个.text元素，开始匹配文本", len(items)))
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		fields, ok := m["fields"].(map[string]any)
-		if !ok {
-			continue
-		}
-		text, _ := fields["text"].(string)
-		if strings.Contains(text, "对方想发送附件简历给您") {
-			return true, nil
-		}
-	}
-	return false, nil
+	exec.Log("info", fmt.Sprintf("待接受简历检测：当前提示条同意按钮存在=%t", pending))
+	return pending, nil
 }
 
 // AcceptPendingResumeOffer 点击聊天面板中"对方想发送附件简历给您"提示旁边的"同意"按钮。
@@ -766,8 +764,7 @@ func (r *Runtime) AcceptPendingResumeOffer(ctx context.Context, exec platformcor
 	cfg := r.replyPageSettings()
 	// 点击"同意"按钮（.btn 文本为"同意"）
 	_, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
-		Selector: replyChildSelector(platformcore.SelectorSpec{Selectors: []string{".btn"}}, cfg.Active),
-		Text:     "同意",
+		Selector: replyChildSelector(cfg.PendingResumeAccept, cfg.Active),
 	})
 	if err != nil {
 		return fmt.Errorf("点击同意接收简历按钮失败：%w", err)

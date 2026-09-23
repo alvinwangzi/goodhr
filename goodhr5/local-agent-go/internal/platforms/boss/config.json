@@ -59,9 +59,13 @@
   },
 
   "resume_received": {
-    "selectors": [".resume-btn-file"]
+    "selectors": [".resume-btn-file:not(.disabled)"]
   },
   "resume_requested_text": "简历请求已发送",
+  "pending_resume_accept": {
+    "selectors": [".notice-list.notice-blue-list:visible:has(> .text:has-text(\"对方想发送附件简历给您\")) > .op > a.btn:visible"],
+    "text": "同意"
+  },
   "resume_button": {
     "selectors": [".operate-icon-item"]
   },

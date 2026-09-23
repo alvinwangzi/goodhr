@@ -1,6 +1,7 @@
 /** 本文件在自建页面验证通用 Locator 协议、草稿保护和 contenteditable 输入，不访问招聘网站。 */
 import assert from "node:assert/strict";
 import http from "node:http";
+import { readFileSync } from "node:fs";
 import { before, after, test } from "node:test";
 import { chromium } from "playwright-core";
 import { executeLocatorAction, locatorActionHandler, createActionGate } from "../src/locator-actions.js";
@@ -12,9 +13,34 @@ const fixture = `<!doctype html><html><body>
 <section data-id="b"><b class="name">同名</b><span class="job">Go 工程师</span><div contenteditable="true" role="textbox" style="width:200px;height:50px;border:1px solid"> </div><button>发送</button></section>
 <iframe src="/frame"></iframe></body></html>`;
 
+// resumeOfferFixture 复现用户提供的通知 DOM，链接仅用锚点记录点击结果，不注入脚本。
+function resumeOfferFixture(mode) {
+ const notice = `<div class="notice-list notice-blue-list"><div class="text">对方想发送附件简历给您，您是否同意</div> <div class="op"><a href="#refused">拒绝</a> <a href="#accepted" class="btn">同意</a></div></div>`;
+ let activeNotice = notice;
+ if (mode === "absent") activeNotice = "";
+ if (mode === "hidden") activeNotice = `<div hidden>${notice}</div>`;
+ if (mode === "hidden-button") activeNotice = notice.replace('class="btn"', 'class="btn" hidden');
+ if (mode === "other-notice") activeNotice = notice.replace("对方想发送附件简历给您", "对方想交换联系方式");
+ if (mode === "other-button") activeNotice = notice.replace('class="btn">同意', 'class="btn">不同意');
+ if (mode === "duplicate") activeNotice = notice + notice;
+ if (mode === "hidden-duplicate") activeNotice = `<div hidden>${notice}</div>${notice}`;
+ return `<!doctype html><html><body>
+ <aside>${notice.replace("#accepted", "#wrong-panel")}</aside>
+ <section class="chat-conversation">
+ <a class="btn resume-btn-online" href="#wrong-online">在线简历</a>
+ <a class="btn resume-btn-file disabled" href="#wrong-file">附件简历</a>
+ <div class="chat-message-list"><div class="text">对方想发送附件简历给您，您是否同意</div><a class="btn" href="#wrong-card">同意</a></div>
+ ${activeNotice}</section></body></html>`;
+}
+
 // 创建独立本地测试服务器和无账号的浏览器，不使用持久化 Profile。
 before(async () => {
- server = http.createServer((req, res) => { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.end(req.url === "/frame" ? '<span class="inside">框架内容</span>' : req.url === "/reordered" ? fixture.replace(/(<section data-id="a">[\s\S]*?<\/section>)\s*(<section data-id="b">[\s\S]*?<\/section>)/, "$2$1") : fixture); });
+ server = http.createServer((req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  const url = new URL(req.url, "http://fixture.invalid");
+  if (url.pathname === "/resume-offer") { res.end(resumeOfferFixture(url.searchParams.get("mode"))); return; }
+  res.end(req.url === "/frame" ? '<span class="inside">框架内容</span>' : req.url === "/reordered" ? fixture.replace(/(<section data-id="a">[\s\S]*?<\/section>)\s*(<section data-id="b">[\s\S]*?<\/section>)/, "$2$1") : fixture);
+ });
  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
  baseURL = `http://127.0.0.1:${server.address().port}`;
  browser = await chromium.launch({ channel: "msedge", headless: true });
@@ -22,10 +48,10 @@ before(async () => {
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 
 // fixturePage 打开自建页面，测试结束时自动关闭。
-async function fixturePage(t) {
+async function fixturePage(t, path = "") {
  const page = await browser.newPage();
  t.after(() => page.close());
- await page.goto(baseURL);
+ await page.goto(`${baseURL}${path}`);
  return page;
 }
 
@@ -140,4 +166,56 @@ test("空选择器和 HTML 读取请求被拒绝", async t => {
  const page = await fixturePage(t);
  await assert.rejects(executeLocatorAction(page, "find-elements", { selector_spec: {} }), /选择器/);
  await assert.rejects(executeLocatorAction(page, "find-elements", { selector_spec: { selectors: ["section"] }, include_html: true }), /HTML/);
+});
+
+// pendingResumeSpec 使用实际内嵌配置验证定位结果，避免测试写死一份不随生产变化的选择器。
+function pendingResumeSpec() {
+ const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+ assert.ok(config.pending_resume_accept?.selectors?.length, "缺少待接受简历按钮配置");
+ return { ...config.pending_resume_accept, parent: config.active };
+}
+
+// 原故障的请求把过滤文本放在外层，无法排除在线简历和聊天卡片中的按钮。
+test("待接受简历：旧的宽泛按钮请求触发唯一性保护", async t => {
+ const page = await fixturePage(t, "/resume-offer");
+ await assert.rejects(executeLocatorAction(page, "click", {
+  selector_spec: { selectors: [".btn"], parent: { selectors: [".chat-conversation"] } }, text: "同意",
+ }), /唯一/);
+ assert.equal(new URL(page.url()).hash, "");
+});
+
+// 即使历史消息、其他区域和隐藏提示都含同名按钮，也只接受当前会话底部的简历请求。
+for (const mode of ["pending", "hidden-duplicate"]) {
+ test(`待接受简历：${mode} 只点击当前提示条的同意`, async t => {
+  const page = await fixturePage(t, `/resume-offer?mode=${mode}`);
+  const selector_spec = pendingResumeSpec();
+  const found = await executeLocatorAction(page, "find-elements", { selector_spec });
+  assert.equal(found.count, 1);
+  assert.equal(found.items[0].text, "同意");
+  const result = await executeLocatorAction(page, "click", { selector_spec });
+  assert.equal(result.clicked, true);
+  assert.equal(new URL(page.url()).hash, "#accepted");
+ });
+}
+
+// 不把历史消息、隐藏提示、其他类型通知或不同意按钮当作当前可接受的简历。
+for (const mode of ["absent", "hidden", "hidden-button", "other-notice", "other-button"]) {
+ test(`待接受简历：${mode} 不命中也不误点`, async t => {
+  const page = await fixturePage(t, `/resume-offer?mode=${mode}`);
+  const selector_spec = pendingResumeSpec();
+  const found = await executeLocatorAction(page, "find-elements", { selector_spec });
+  assert.equal(found.count, 0);
+  await assert.rejects(executeLocatorAction(page, "click", { selector_spec }), /唯一|不可见/);
+  assert.equal(new URL(page.url()).hash, "");
+ });
+}
+
+// 多个可见有效目标仍须拒绝点击，不能通过取第一个元素掩盖歧义。
+test("待接受简历：重复可见通知保留唯一性保护", async t => {
+ const page = await fixturePage(t, "/resume-offer?mode=duplicate");
+ const selector_spec = pendingResumeSpec();
+ const found = await executeLocatorAction(page, "find-elements", { selector_spec });
+ assert.equal(found.count, 2);
+ await assert.rejects(executeLocatorAction(page, "click", { selector_spec }), /唯一/);
+ assert.equal(new URL(page.url()).hash, "");
 });
