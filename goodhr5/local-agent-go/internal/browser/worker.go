@@ -271,6 +271,11 @@ func (m *WorkerManager) Call(ctx context.Context, path string, payload any) (map
 	return retryResult, retryErr
 }
 
+// CallOnce 只发送一次浏览器动作，网络结果不明时不重启 Worker 或重放请求。
+func (m *WorkerManager) CallOnce(ctx context.Context, path string, payload any) (map[string]any, error) {
+	return m.call(ctx, http.MethodPost, path, payload)
+}
+
 // CallGet 调用 Node Worker GET API。
 // path 为 Worker 路由，返回 Worker 原始 JSON。
 func (m *WorkerManager) CallGet(ctx context.Context, path string) (map[string]any, error) {

@@ -1,0 +1,18 @@
+{
+  "verified": false,
+  "jobs": { "selectors": [] },
+  "job_fields": {},
+  "unavailable_reason": "Boss 当前页面的稳定会话、岗位及消息属性尚未完成只读验证，自动回复暂不可启动",
+  "messages_url": "https://www.zhipin.com/web/chat",
+  "unread": { "selectors": [] },
+  "conversation": { "selectors": [] },
+  "active": { "selectors": [] },
+  "messages": { "selectors": [] },
+  "input": { "selectors": [] },
+  "send": { "selectors": [] },
+  "identity_attribute": "",
+  "conversation_fields": {},
+  "message_fields": {},
+  "directions": {},
+  "kinds": {}
+}

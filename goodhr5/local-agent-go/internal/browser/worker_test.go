@@ -16,6 +16,20 @@ import (
 	"goodhr5/local-agent-go/internal/version"
 )
 
+// TestCallOnceDoesNotReplay 验证发送请求断连时不重启 Worker、不自动重发动作。
+func TestCallOnceDoesNotReplay(t *testing.T) {
+ calls:=0
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  calls++
+  connection,_,err:=w.(http.Hijacker).Hijack()
+  if err!=nil { t.Error(err);return }; _=connection.Close()
+ }))
+ defer server.Close()
+ manager:=NewWorkerManager(nil);manager.baseURL=server.URL
+ _,err:=manager.CallOnce(t.Context(),"/api/v1/page/click",map[string]any{"selector_spec":map[string]any{"selectors":[]string{"button"}}})
+ if err==nil || calls!=1 { t.Fatalf("断连动作被重试：%d %v",calls,err) }
+}
+
 // TestSetAgentBaseURLUsesNextPort 验证 Worker 固定使用本地程序端口加一。
 // t 为测试对象。
 func TestSetAgentBaseURLUsesNextPort(t *testing.T) {

@@ -61,6 +61,7 @@ var currentPositionCheckDelay = time.Second
 type BrowserWorker interface {
 	Start(ctx context.Context) (browser.WorkerStatus, error)
 	Call(ctx context.Context, path string, payload any) (map[string]any, error)
+	CallOnce(ctx context.Context, path string, payload any) (map[string]any, error)
 }
 
 // OCRRecognizer 表示岗位运行运行器需要的 OCR 能力。
@@ -83,10 +84,16 @@ type Runner struct {
 	userStopped    map[string]bool
 	powerGuard     power.Inhibitor
 	sleepCancel    context.CancelFunc
+	browserLease   *browserLease
 }
+
+// browserLease 由主任务和收尾任务共同持有，全部退出后才释放浏览器。
+type browserLease struct { refs int }
 
 // runState 保存单个运行岗位运行的控制句柄。
 type runState struct {
+	lease              *browserLease
+	done               chan struct{}
 	cancel             context.CancelFunc
 	progress           Progress
 	analysis           *positionAnalysisStatus
@@ -94,6 +101,7 @@ type runState struct {
 	options            StartOptions
 	cancelReason       string
 	runGreeted         int                         // 本次运行已打招呼数量
+	replyStats         *platformcore.ReplyStats    // 自动回复任务统计，不计入打招呼数量
 	pendingDetailClose func(context.Context) error // 当前可能仍打开的候选人详情清理动作
 	// 摸鱼休息状态
 	restMaxTimes  int
@@ -146,11 +154,15 @@ type candidateVisibleRuntime interface {
 type platformExecutor struct {
 	runner     *Runner
 	positionID string
+	once       bool // 自动回复等发送类动作只允许一次调用，不做网络重试
 }
 
 // Post 调用浏览器 Worker。
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (e platformExecutor) Post(ctx context.Context, path string, payload any) (map[string]any, error) {
+	if e.once {
+		return e.runner.worker.CallOnce(ctx, path, payload)
+	}
 	return e.runner.worker.Call(ctx, path, payload)
 }
 
@@ -172,6 +184,7 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 
 // StartOptions 表示本地岗位运行启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
+	TaskType       string `json:"task_type"` // greeting 或 auto_reply，省略时打招呼
 	CloudAPIBase   string
 	Token          string
 	AIConfig       localdb.AIConfig
@@ -334,6 +347,7 @@ func minInt(a int, b int) int {
 // options 为岗位运行启动参数，保留该函数用于兼容前端旧进度字段。
 func scanRounds(options StartOptions) int {
 	if options.ScanRounds <= 0 {
+		if options.TaskType == "auto_reply" { return 1 }
 		return defaultScanRounds
 	}
 	if options.ScanRounds > 20 {

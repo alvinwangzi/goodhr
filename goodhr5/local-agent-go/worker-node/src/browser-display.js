@@ -22,7 +22,12 @@ export function browserDisplayAdjustmentMessage(display = {}) {
 }
 
 /** readBrowserDisplayMetrics 读取当前页面的实际视口、窗口、DPR和可视区缩放信息。 */
-export async function readBrowserDisplayMetrics(currentPage) {
+export async function readBrowserDisplayMetrics(currentPage, options = {}) {
+  // 严格 Locator 流程只读取标准接口，不推测原生窗口的尺寸或缩放。
+  if (options.no_script === true) {
+    const viewport = currentPage?.viewportSize?.();
+    return { inner_width: viewport?.width || 0, inner_height: viewport?.height || 0, source: viewport ? "playwright-viewport" : "unknown" };
+  }
   if (!currentPage || typeof currentPage.evaluate !== "function") {
     return {
       inner_width: 0,
