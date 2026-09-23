@@ -1234,7 +1234,7 @@ export default function PositionsPage() {
       <AdminDialog
         open={dialogOpen}
         title={form.id ? "编辑岗位模板" : "新建岗位模板"}
-        description='按运行顺序填写。只有当前选择模式需要的字段会显示。'
+        description='按工作流顺序填写，从上到下依次配置。'
         maxWidth='md'
         confirmText={form.id ? "保存修改" : "创建岗位"}
         loading={loading}
@@ -1298,77 +1298,89 @@ export default function PositionsPage() {
                 onChange={(checked) => setForm({ ...form, enable_thinking: checked })}
               />
             </Stack>
+            <Divider sx={{ my: 1 }} />
+            <ChoiceCards
+              label={form.id ? "招聘平台（编辑岗位时不可更换）" : "招聘平台"}
+              value={form.platform_id}
+              columns={3}
+              autoWidth
+              onChange={(value) => selectPlatform(String(value))}
+              options={[
+                {
+                  value: "boss",
+                  label: "Boss直聘",
+                  disabled:
+                    Boolean(form.id) || !isPlatformOpen(platformConfigs, "boss"),
+                  description: isPlatformOpen(platformConfigs, "boss")
+                    ? "支持 OCR 和 AI 详情识别。"
+                    : "暂未开放",
+                  iconSrc: platformIconSrc("boss"),
+                },
+                {
+                  value: "zhaopin",
+                  label: "智联招聘",
+                  disabled:
+                    Boolean(form.id) ||
+                    !isPlatformOpen(platformConfigs, "zhaopin"),
+                  description: isPlatformOpen(platformConfigs, "zhaopin")
+                    ? "支持 DOM 详情识别。"
+                    : "暂未开放",
+                  iconSrc: platformIconSrc("zhaopin"),
+                },
+                {
+                  value: "hliepin",
+                  label: "猎聘猎头端",
+                  disabled:
+                    Boolean(form.id) ||
+                    !isPlatformOpen(platformConfigs, "hliepin"),
+                  description: isPlatformOpen(platformConfigs, "hliepin")
+                    ? "支持 DOM 详情识别。"
+                    : "暂未开放",
+                  iconSrc: platformIconSrc("hliepin"),
+                },
+                {
+                  value: "liepin",
+                  label: "猎聘企业端",
+                  disabled:
+                    Boolean(form.id) ||
+                    !isPlatformOpen(platformConfigs, "liepin"),
+                  description: isPlatformOpen(platformConfigs, "liepin")
+                    ? "支持 DOM 详情识别。"
+                    : "暂未开放",
+                  iconSrc: platformIconSrc("liepin"),
+                },
+              ]}
+            />
           </Box>
-          <ChoiceCards
-            label={form.id ? "招聘平台（编辑岗位时不可更换）" : "招聘平台"}
-            value={form.platform_id}
-            columns={3}
-            autoWidth
-            onChange={(value) => selectPlatform(String(value))}
-            options={[
-              {
-                value: "boss",
-                label: "Boss直聘",
-                disabled:
-                  Boolean(form.id) || !isPlatformOpen(platformConfigs, "boss"),
-                description: isPlatformOpen(platformConfigs, "boss")
-                  ? "支持 OCR 和 AI 详情识别。"
-                  : "暂未开放",
-                iconSrc: platformIconSrc("boss"),
-              },
-              {
-                value: "zhaopin",
-                label: "智联招聘",
-                disabled:
-                  Boolean(form.id) ||
-                  !isPlatformOpen(platformConfigs, "zhaopin"),
-                description: isPlatformOpen(platformConfigs, "zhaopin")
-                  ? "支持 DOM 详情识别。"
-                  : "暂未开放",
-                iconSrc: platformIconSrc("zhaopin"),
-              },
-              {
-                value: "hliepin",
-                label: "猎聘猎头端",
-                disabled:
-                  Boolean(form.id) ||
-                  !isPlatformOpen(platformConfigs, "hliepin"),
-                description: isPlatformOpen(platformConfigs, "hliepin")
-                  ? "支持 DOM 详情识别。"
-                  : "暂未开放",
-                iconSrc: platformIconSrc("hliepin"),
-              },
-              {
-                value: "liepin",
-                label: "猎聘企业端",
-                disabled:
-                  Boolean(form.id) ||
-                  !isPlatformOpen(platformConfigs, "liepin"),
-                description: isPlatformOpen(platformConfigs, "liepin")
-                  ? "支持 DOM 详情识别。"
-                  : "暂未开放",
-                iconSrc: platformIconSrc("liepin"),
-              },
-            ]}
-          />
-          <ChoiceCards
-            label='基础信息筛选模式   (决定是否打开查看详情)'
-            value={form.mode_default}
-            onChange={(value) => void selectMode(String(value))}
-            options={[
-              {
-                value: "keyword",
-                label: "关键词筛选",
-                description: "按关键词和排除词判断，永久免费且速度快。",
-              },
-              {
-                value: "ai",
-                label: "AI 筛选（会员功能）",
-                description: "AI 先根据基础信息判断是否值得打开详情。",
-                memberOnly: true,
-              },
-            ]}
-          />
+          <Divider />
+          <Box>
+            <Typography
+              component='h3'
+              sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
+            >
+              筛选方式
+            </Typography>
+            <Typography sx={{ mb: 1.5, color: "text.secondary", fontSize: 13 }}>
+              选择候选人初筛方式，决定系统如何判断候选人是否符合岗位要求。
+            </Typography>
+            <ChoiceCards
+              label='基础筛选模式'
+              value={form.mode_default}
+              onChange={(value) => void selectMode(String(value))}
+              options={[
+                {
+                  value: "keyword",
+                  label: "关键词筛选",
+                  description: "按关键词和排除词判断，永久免费且速度快。",
+                },
+                {
+                  value: "ai",
+                  label: "AI 筛选（会员功能）",
+                  description: "AI 先根据基础信息判断是否值得打开详情。",
+                  memberOnly: true,
+                },
+              ]}
+            />
           {form.mode_default === "keyword" ? (
             <>
               <Divider />
@@ -1482,13 +1494,13 @@ export default function PositionsPage() {
                       component='h3'
                       sx={{ fontSize: 17, fontWeight: 780 }}
                     >
-                      AI 配置
+                      AI 筛选设置
                     </Typography>
                     <Typography
                       sx={{ mt: 0.5, color: "text.secondary", fontSize: 13 }}
                     >
-                      请将JD岗位要求复制到“岗位要求”中，点击“AI
-                      优化岗位要求”按钮，AI会自动优化。
+                      请将 JD 岗位要求复制到"岗位要求"中，点击"AI
+                      优化岗位要求"按钮，AI 会自动优化。
                     </Typography>
                   </Box>
                   <Button
@@ -1592,8 +1604,7 @@ export default function PositionsPage() {
                           lineHeight: 1.75,
                         }}
                       >
-                        这里是增加 AI
-                        准确率的各项设置。如不了解请勿修改，或查看视频教程后再调整。
+                        这里是增加 AI 准确率的各项设置。
                       </Typography>
                     </Box>
                     <Collapse in={advancedOpen} unmountOnExit>
@@ -1683,97 +1694,6 @@ export default function PositionsPage() {
                             setForm({ ...form, review_prompt: value })
                           }
                         />
-                        <PromptField
-                          label='AI 回复提示词（可选）'
-                          value={form.reply_prompt}
-                          defaultValue=''
-                          defaultActionLabel='清空'
-                          emptyPlaceholder='可留空，使用系统默认的回复规则'
-                          description='岗位开启 AI 自动回复时使用；写清回复语气、重点和禁忌，留空则按默认规则回复。'
-                          onChange={(value) =>
-                            setForm({ ...form, reply_prompt: value })
-                          }
-                        />
-                        {/* FAQ 语料编辑区 */}
-                        <Box>
-                          <Typography sx={{ mb: 0.5, fontSize: 14, fontWeight: 600 }}>
-                            常见问答语料（可选，最多 10 条）
-                          </Typography>
-                          <Typography sx={{ mb: 1, fontSize: 12, color: "text.secondary" }}>
-                            候选人可能问到的问题和标准答案，AI 回复时会参考这些内容。
-                          </Typography>
-                          <Stack spacing={1}>
-                            {form.reply_faq.map((entry, index) => (
-                              <Stack key={index} direction='row' spacing={1} sx={{ alignItems: "flex-start" }}>
-                                <TextField
-                                  size='small'
-                                  label={`问题 ${index + 1}`}
-                                  value={entry.q}
-                                  placeholder='如：上下班时间'
-                                  slotProps={{ htmlInput: { maxLength: 20 } }}
-                                  helperText={`${entry.q.length}/20`}
-                                  sx={{ flex: 2 }}
-                                  onChange={(e) => {
-                                    const next = [...form.reply_faq];
-                                    next[index] = { ...next[index], q: e.target.value.slice(0, 20) };
-                                    setForm({ ...form, reply_faq: next });
-                                  }}
-                                />
-                                <TextField
-                                  size='small'
-                                  label={`回答 ${index + 1}`}
-                                  value={entry.a}
-                                  placeholder='如：9:00-18:00'
-                                  slotProps={{ htmlInput: { maxLength: 50 } }}
-                                  helperText={`${entry.a.length}/50`}
-                                  sx={{ flex: 3 }}
-                                  onChange={(e) => {
-                                    const next = [...form.reply_faq];
-                                    next[index] = { ...next[index], a: e.target.value.slice(0, 50) };
-                                    setForm({ ...form, reply_faq: next });
-                                  }}
-                                />
-                                <IconButton
-                                  size='small'
-                                  sx={{ mt: 0.5 }}
-                                  onClick={() => {
-                                    const next = form.reply_faq.filter((_, i) => i !== index);
-                                    setForm({ ...form, reply_faq: next });
-                                  }}
-                                >
-                                  <DeleteOutlineRoundedIcon fontSize='small' />
-                                </IconButton>
-                              </Stack>
-                            ))}
-                            {form.reply_faq.length < 10 && (
-                              <Button
-                                size='small'
-                                startIcon={<AddRoundedIcon />}
-                                onClick={() =>
-                                  setForm({
-                                    ...form,
-                                    reply_faq: [...form.reply_faq, { q: "", a: "" }],
-                                  })
-                                }
-                              >
-                                添加问答
-                              </Button>
-                            )}
-                          </Stack>
-                        </Box>
-                        {/* 拒绝话术 */}
-                        <TextField
-                          multiline
-                          minRows={2}
-                          maxRows={4}
-                          label='拒绝话术（可选）'
-                          value={form.reply_reject_template}
-                          placeholder='感谢你的关注，我们看了你的信息，跟我们的岗位要求不匹配。下次有机会再合作。'
-                          helperText='候选人不符合岗位要求时发送此消息，留空使用系统默认。'
-                          onChange={(e) =>
-                            setForm({ ...form, reply_reject_template: e.target.value.slice(0, 200) })
-                          }
-                        />
                       </Stack>
                     </Collapse>
                   </Box>
@@ -1781,10 +1701,19 @@ export default function PositionsPage() {
               </Box>
             </>
           ) : null}
+          </Box>
           {form.id ? (
             <>
-              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
-                选择哪种详情方式就只使用哪一种：DOM 最快，OCR
+              <Divider />
+              <Box>
+                <Typography
+                  component='h3'
+                  sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
+                >
+                  详情判断
+                </Typography>
+                <Typography sx={{ mb: 1.5, color: "text.secondary", fontSize: 13 }}>
+                  选择哪种详情方式就只使用哪一种：DOM 最快，OCR
                 在本地识别截图文字，AI 能理解完整页面但耗时更长。
               </Typography>
               <ChoiceCards
@@ -1815,6 +1744,7 @@ export default function PositionsPage() {
                   },
                 ]}
               />
+            </Box>
             </>
           ) : null}
           <Divider />
@@ -1823,16 +1753,22 @@ export default function PositionsPage() {
               component='h3'
               sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
             >
-              可选信息
+              打招呼
             </Typography>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
-                gap: 2,
-              }}
-            >
-              <Box sx={{ gridColumn: "1 / -1" }}>
+            <Typography sx={{ mb: 1.5, color: "text.secondary", fontSize: 13 }}>
+              候选人通过筛选后发送的消息和后续动作。
+            </Typography>
+            <Stack spacing={2}>
+              <TextField
+                label='首次打招呼语（可选）'
+                value={form.greet_message}
+                onChange={(event) =>
+                  setForm({ ...form, greet_message: event.target.value })
+                }
+                multiline
+                minRows={3}
+              />
+              <Box>
                 <Typography sx={{ mb: 0.5, fontSize: 14, fontWeight: 760 }}>
                   打招呼后自动索要
                 </Typography>
@@ -1897,25 +1833,110 @@ export default function PositionsPage() {
                   sx={{ mt: 1.25, width: { xs: "100%", sm: 360 } }}
                 />
               </Box>
-              <TextField
-                label='首次打招呼语（可选）'
-                value={form.greet_message}
-                onChange={(event) =>
-                  setForm({ ...form, greet_message: event.target.value })
+            </Stack>
+          </Box>
+          <Divider />
+          <Box>
+            <Typography
+              component='h3'
+              sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
+            >
+              AI 自动回复
+            </Typography>
+            <Typography sx={{ mb: 1.5, color: "text.secondary", fontSize: 13 }}>
+              候选人发消息过来时，AI 根据以下配置自动回复。
+            </Typography>
+            <Stack spacing={2}>
+              <PromptField
+                label='AI 回复提示词（可选）'
+                value={form.reply_prompt}
+                defaultValue=''
+                defaultActionLabel='清空'
+                emptyPlaceholder='可留空，使用系统默认的回复规则'
+                description='岗位开启 AI 自动回复时使用；写清回复语气、重点和禁忌，留空则按默认规则回复。'
+                onChange={(value) =>
+                  setForm({ ...form, reply_prompt: value })
                 }
-                multiline
-                minRows={3}
               />
+              <Box>
+                <Typography sx={{ mb: 0.5, fontSize: 14, fontWeight: 600 }}>
+                  常见问答语料（可选，最多 10 条）
+                </Typography>
+                <Typography sx={{ mb: 1, fontSize: 12, color: "text.secondary" }}>
+                  候选人可能问到的问题和标准答案，AI 回复时会参考这些内容。
+                </Typography>
+                <Stack spacing={1}>
+                  {form.reply_faq.map((entry, index) => (
+                    <Stack key={index} direction='row' spacing={1} sx={{ alignItems: "flex-start" }}>
+                      <TextField
+                        size='small'
+                        label={`问题 ${index + 1}`}
+                        value={entry.q}
+                        placeholder='如：上下班时间'
+                        slotProps={{ htmlInput: { maxLength: 20 } }}
+                        helperText={`${entry.q.length}/20`}
+                        sx={{ flex: 2 }}
+                        onChange={(e) => {
+                          const next = [...form.reply_faq];
+                          next[index] = { ...next[index], q: e.target.value.slice(0, 20) };
+                          setForm({ ...form, reply_faq: next });
+                        }}
+                      />
+                      <TextField
+                        size='small'
+                        label={`回答 ${index + 1}`}
+                        value={entry.a}
+                        placeholder='如：9:00-18:00'
+                        slotProps={{ htmlInput: { maxLength: 50 } }}
+                        helperText={`${entry.a.length}/50`}
+                        sx={{ flex: 3 }}
+                        onChange={(e) => {
+                          const next = [...form.reply_faq];
+                          next[index] = { ...next[index], a: e.target.value.slice(0, 50) };
+                          setForm({ ...form, reply_faq: next });
+                        }}
+                      />
+                      <IconButton
+                        size='small'
+                        sx={{ mt: 0.5 }}
+                        onClick={() => {
+                          const next = form.reply_faq.filter((_, i) => i !== index);
+                          setForm({ ...form, reply_faq: next });
+                        }}
+                      >
+                        <DeleteOutlineRoundedIcon fontSize='small' />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                  {form.reply_faq.length < 10 && (
+                    <Button
+                      size='small'
+                      startIcon={<AddRoundedIcon />}
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          reply_faq: [...form.reply_faq, { q: "", a: "" }],
+                        })
+                      }
+                    >
+                      添加问答
+                    </Button>
+                  )}
+                </Stack>
+              </Box>
               <TextField
-                label='岗位描述 暂时不填'
-                value={form.description}
-                onChange={(event) =>
-                  setForm({ ...form, description: event.target.value })
-                }
                 multiline
-                minRows={3}
+                minRows={2}
+                maxRows={4}
+                label='拒绝话术（可选）'
+                value={form.reply_reject_template}
+                placeholder='感谢你的关注，我们看了你的信息，跟我们的岗位要求不匹配。下次有机会再合作。'
+                helperText='候选人不符合岗位要求时发送此消息，留空使用系统默认。'
+                onChange={(e) =>
+                  setForm({ ...form, reply_reject_template: e.target.value.slice(0, 200) })
+                }
               />
-            </Box>
+            </Stack>
           </Box>
           {!aiMembership &&
           (form.mode_default === "ai" ||
