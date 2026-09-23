@@ -357,18 +357,19 @@ func (s *AIWalletService) ConfigureUserBuiltinAI(email string) (AIConfig, error)
 		memory.BindAIKey(apiKey, email)
 	}
 	if !hasConfig {
-		bonus := cfg.SignupBonusCents
-		if bonus <= 0 {
-			bonus = defaultSignupBonusCents
-		}
-		if _, err := s.wallet.AdjustBalance(AIWalletRecord{
-			UserEmail:   email,
-			ChangeUnits: centsToAIUnits(bonus),
-			Category:    "signup_bonus",
-			Reason:      "注册赠送内置AI余额",
-		}); err != nil {
-			return AIConfig{}, err
-		}
+		// 注册赠送 AI 余额暂停，后续需要时取消注释即可。
+		// bonus := cfg.SignupBonusCents
+		// if bonus <= 0 {
+		// 	bonus = defaultSignupBonusCents
+		// }
+		// if _, err := s.wallet.AdjustBalance(AIWalletRecord{
+		// 	UserEmail:   email,
+		// 	ChangeUnits: centsToAIUnits(bonus),
+		// 	Category:    "signup_bonus",
+		// 	Reason:      "注册赠送内置AI余额",
+		// }); err != nil {
+		// 	return AIConfig{}, err
+		// }
 	}
 	return saved, nil
 }
@@ -401,16 +402,17 @@ func (s *AIWalletService) EnsureUserDefaultAI(email string) error {
 	if memory, ok := s.wallet.(*MemoryAIWalletStore); ok {
 		memory.BindAIKey(apiKey, email)
 	}
-	bonus := cfg.SignupBonusCents
-	if bonus <= 0 {
-		bonus = defaultSignupBonusCents
-	}
-	_, err = s.wallet.AdjustBalance(AIWalletRecord{
-		UserEmail:   email,
-		ChangeUnits: centsToAIUnits(bonus),
-		Category:    "signup_bonus",
-		Reason:      "注册赠送内置AI余额",
-	})
+	// 注册赠送 AI 余额暂停，后续需要时取消注释即可。
+	// bonus := cfg.SignupBonusCents
+	// if bonus <= 0 {
+	// 	bonus = defaultSignupBonusCents
+	// }
+	// _, err = s.wallet.AdjustBalance(AIWalletRecord{
+	// 	UserEmail:   email,
+	// 	ChangeUnits: centsToAIUnits(bonus),
+	// 	Category:    "signup_bonus",
+	// 	Reason:      "注册赠送内置AI余额",
+	// })
 	return err
 }
 
