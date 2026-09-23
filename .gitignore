@@ -4,3 +4,8 @@ goodhr5/cloud/backend/logs/
 .worktrees/
 # 本地程序构建产物
 goodhr5/local-agent-go/bin/
+
+# 开发临时文件
+frontend-dev.log
+zhipin_login_status.png
+goodhr5/cloud/frontend-next/start-dev.bat
