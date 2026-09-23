@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"goodhr5/local-agent-go/internal/localai"
@@ -89,6 +90,7 @@ func (r *Runtime) AutoReplyAvailable() error {
 }
 
 // PrepareReplyPage 打开配置中的消息页，不默认打开任何未读会话。
+// 导航后等待岗位下拉列表渲染完成，避免异步加载导致读取为空。
 func (r *Runtime) PrepareReplyPage(ctx context.Context, exec platformcore.Executor) error {
 	if err := r.AutoReplyAvailable(); err != nil {
 		return err
@@ -97,7 +99,16 @@ func (r *Runtime) PrepareReplyPage(ctx context.Context, exec platformcore.Execut
 		URL      string `json:"url"`
 		NoScript bool   `json:"no_script"`
 	}{r.replyPageSettings().MessagesURL, true})
-	return err
+	if err != nil {
+		return err
+	}
+	// 岗位下拉列表是异步加载的，等待渲染完成。
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(2 * time.Second):
+	}
+	return nil
 }
 
 // ResolveReplyTarget 从经过验证的完整岗位列表匹配唯一名称，不把云端岗位 UUID 当作平台岗位 ID。

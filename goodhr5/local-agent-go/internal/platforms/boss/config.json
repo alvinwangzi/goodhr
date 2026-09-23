@@ -1,7 +1,7 @@
 {
   "verified": true,
   "unavailable_reason": "",
-  "messages_url": "https://www.zhipin.com/web/chat",
+  "messages_url": "https://www.zhipin.com/web/chat/index",
   "identity_attribute": "data-id",
 
   "jobs": {
