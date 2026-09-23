@@ -61,7 +61,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	runCtx, cancel := context.WithCancel(context.Background())
 	if !r.setRunning(positionID, cancel, options) {
 		cancel()
-		return nil, fmt.Errorf("岗位运行正在运行")
+		return nil, fmt.Errorf("本地程序有任务正在运行，一次只能跑一个岗位。请先停止当前任务再开始")
 	}
 	r.positionLog(positionID, "info", "岗位运行启动：本地运行锁已创建")
 	if err := r.ensurePowerProtection(positionID); err != nil {
