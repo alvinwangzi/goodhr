@@ -688,7 +688,7 @@ function PaymentUnderstandingDialog({
             </Typography>
           </Box>
           <Box
-            sx={{ p: 1.75, borderRadius: 2, bgcolor: "#f7f7f4" }}
+            sx={{ p: 1.75, borderRadius: 2, bgcolor: "#f7f7f4", display: "none" }}
           >
             <Typography sx={{ fontWeight: 800 }}>AI 余额</Typography>
             <Typography sx={{ mt: 0.5, color: "text.secondary", lineHeight: 1.7 }}>
