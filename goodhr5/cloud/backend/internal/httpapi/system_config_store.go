@@ -64,19 +64,19 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					}
 				],
 				"admin_banner": {
-					"enabled": true,
+					"enabled": false,
 					"text": "HRPlus 猎头管理系统已上线（完全免费），点击前往体验。",
 					"background_color": "#fff7df",
 					"text_color": "#6b4a00",
-					"url": "https://goodhr5.58it.cn"
+					"url": "http://localhost:3000"
 				},
 				"admin_banners": [
 					{
-						"enabled": true,
+						"enabled": false,
 						"text": "HRPlus 猎头管理系统已上线（完全免费），点击前往体验。",
 						"background_color": "#fff7df",
 						"text_color": "#6b4a00",
-						"url": "https://goodhr5.58it.cn"
+						"url": "http://localhost:3000"
 					}
 				]
 			}`,
