@@ -1,4 +1,4 @@
-# GoodHR 5 完整流程文档
+﻿# HRPlus 完整流程文档
 
 > 2026-05-19 | 按代码逐模块追踪
 
@@ -141,7 +141,7 @@ agent.detect():
   │     GET http://127.0.0.1:{port}/health (cache: no-store)
   │     ├─ 失败（端口不可达/超时）→ 继续下一个端口
   │     └─ 成功 → 读取响应:
-  │         { ok, name: "GoodHR 5 Local Agent",
+  │         { ok, name: "HRPlus Local Agent",
   │           version, port, machine_id, local_db }
   │         ├─ status="已连接 (端口 {port})"
   │         ├─ baseUrl="http://127.0.0.1:{port}"   ← 保存供后续岗位运行执行使用

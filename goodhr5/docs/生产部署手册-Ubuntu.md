@@ -1,13 +1,13 @@
-# GoodHR 5 生产部署手册（Ubuntu 服务器）
+﻿# HRPlus 生产部署手册（Ubuntu 服务器）
 
-本手册面向第一次把 GoodHR 5 部署到正式线上环境的人，按顺序照做即可上线。
+本手册面向第一次把 HRPlus 部署到正式线上环境的人，按顺序照做即可上线。
 所有命令都在 Ubuntu 服务器的终端里执行（用 SSH 登录服务器后操作）。
 
 ---
 
 ## 一、先搞清楚要部署什么
 
-GoodHR 5 分成两大块，**只有"云端"需要部署到服务器**：
+HRPlus 分成两大块，**只有"云端"需要部署到服务器**：
 
 | 组件 | 位置 | 是否上服务器 | 作用 |
 | --- | --- | --- | --- |
@@ -169,7 +169,7 @@ docker compose -f docker-compose.prod.yml logs backend
 [migrate] 0002_add_system_configs.sql
 ...
 [migrate] done
-GoodHR 5 cloud backend listening on :8084
+HRPlus cloud backend listening on :8084
 ```
 
 看到 `[migrate] done` 和 `listening on :8084` 就说明数据库建好、后端起来了。
@@ -239,7 +239,7 @@ sudo systemctl reload nginx
 
 ### 7.5 验证上线
 
-浏览器打开 `https://你的域名`，应能看到 GoodHR 官网/登录页，地址栏是小锁（HTTPS 正常）。
+浏览器打开 `https://你的域名`，应能看到 HRPlus 官网/登录页，地址栏是小锁（HTTPS 正常）。
 
 ### 7.6 证书自动续期
 

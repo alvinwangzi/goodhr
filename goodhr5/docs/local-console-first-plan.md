@@ -1,10 +1,10 @@
-# GoodHR 本地控制台长期方案
+﻿# HRPlus 本地控制台长期方案
 
-本文档记录 GoodHR 长期架构改造方案：入口改成本地程序，用户下载安装包后从本地控制台网页登录和操作岗位运行；云端只负责登录、会员校验、配置和更新。
+本文档记录 HRPlus 长期架构改造方案：入口改成本地程序，用户下载安装包后从本地控制台网页登录和操作岗位运行；云端只负责登录、会员校验、配置和更新。
 
 ## 一、目标
 
-把 GoodHR 改成“本地重、云端轻”：
+把 HRPlus 改成“本地重、云端轻”：
 
 - 本地程序提供控制台网页、岗位运行执行、本地数据库、浏览器控制、候选人数据、截图、下载文件和日志。
 - 云端只提供验证码登录、会员校验、前端包更新、平台规则包更新、AI/系统配置。
@@ -42,20 +42,20 @@ Local Agent 会优先直接托管该构建产物，并跳过远程前端包更�
 第一阶段优先 Windows，默认不安装到 `Program Files`，避免权限问题。推荐默认安装目录：
 
 ```text
-%LOCALAPPDATA%\GoodHR
+%LOCALAPPDATA%\HRPlus
 ```
 
 用户也可以选择其他目录，例如：
 
 ```text
-D:\GoodHR
+D:\HRPlus
 ```
 
 目录结构：
 
 ```text
-GoodHR/
-  GoodHRLocalAgent.exe
+HRPlus/
+  HRPlusLocalAgent.exe
   data/
     goodhr_local.db
     profiles/

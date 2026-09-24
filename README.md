@@ -1,12 +1,12 @@
-# GoodHR 5｜AI 招聘自动化助手
+﻿# HRPlus｜AI 招聘自动化助手
 
-GoodHR 5 是面向企业 HR、猎头顾问和招聘团队的招聘自动化工具。它由云端管理后台和 Windows 本地程序组成：你在云端配置岗位、平台账号和任务，本地程序负责操作招聘网站、读取候选人并执行筛选与沟通。
+HRPlus 是面向企业 HR、猎头顾问和招聘团队的招聘自动化工具。它由云端管理后台和 Windows 本地程序组成：你在云端配置岗位、平台账号和任务，本地程序负责操作招聘网站、读取候选人并执行筛选与沟通。
 
 官网：[https://goodhr5.58it.cn/](https://goodhr5.58it.cn/)
 
-> 当前主要代码位于 `goodhr5/`。仓库根目录下的早期浏览器扩展代码属于历史版本，不再代表 GoodHR 5 的产品形态。
+> 当前主要代码位于 `goodhr5/`。仓库根目录下的早期浏览器扩展代码属于历史版本，不再代表 HRPlus 的产品形态。
 
-## GoodHR 5 能做什么
+## HRPlus 能做什么
 
 - 统一管理招聘平台账号、岗位和任务。
 - 使用关键词或 AI 分析候选人与岗位的匹配程度。
@@ -116,7 +116,7 @@ cd goodhr5
 
 ### 云端服务
 
-云端包含 Go 后端、Next.js 前端和 PostgreSQL，可通过 `goodhr5/docker-compose.server.yml` 部署。详细说明请查看 [GoodHR 5 Docker 部署文档](goodhr5/README_DOCKER.md)。
+云端包含 Go 后端、Next.js 前端和 PostgreSQL，可通过 `goodhr5/docker-compose.server.yml` 部署。详细说明请查看 [HRPlus Docker 部署文档](goodhr5/README_DOCKER.md)。
 
 ### Windows 本地程序
 
@@ -131,14 +131,14 @@ cd goodhr5
 
 ## 相关文档
 
-- [GoodHR 5 项目说明](goodhr5/README.md)
+- [HRPlus 项目说明](goodhr5/README.md)
 - [系统架构](goodhr5/docs/architecture.md)
 - [业务流程](goodhr5/docs/goodhr5-flow.md)
 - [本地程序重构说明](goodhr5/local-agent-go/docs/REFACTOR_PLAN.md)
 
 ---
 
-**GoodHR 5**：把重复操作交给程序，把判断时间留给真正值得聊的候选人。
+**HRPlus**：把重复操作交给程序，把判断时间留给真正值得聊的候选人。
 
 ## 🔍 HR搜索关键词
 

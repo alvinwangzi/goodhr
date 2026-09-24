@@ -1,11 +1,11 @@
-# GoodHR 用户流程邮件提醒：完整使用说明
+﻿# HRPlus 用户流程邮件提醒：完整使用说明
 
 本文档说明如何通过公共接口，按照用户当前停留的招聘流程节点，自动发送对应的教程邮件。
 
 接口会读取 `users.flow_state`，按当前流程节点分组。不同节点使用不同邮件标题、教程内容和操作入口，所有邮件底部统一显示：
 
 - 作者微信：`15365142034`
-- GoodHR 官网：[https://goodhr5.58it.cn](https://goodhr5.58it.cn)
+- HRPlus 官网：[https://goodhr5.58it.cn](https://goodhr5.58it.cn)
 
 ## 一、接口地址
 
@@ -51,7 +51,7 @@ Authorization: Bearer YOUR_EMAIL_JOB_TOKEN
 
 | flow 参数 | 用户当前停留位置 | 系统发送的教程 | 邮件主要入口 |
 | --- | --- | --- | --- |
-| `agent_detected` | 尚未检测到本地程序 | 下载、安装并启动 GoodHR 本地程序 | `/download` |
+| `agent_detected` | 尚未检测到本地程序 | 下载、安装并启动 HRPlus 本地程序 | `/download` |
 | `runtime_ready` | 本地程序已连接，但运行组件未准备好 | 安装 Node、浏览器等必要组件 | `/admin/agent-download` |
 | `position_created` | 运行环境已就绪，但尚未创建岗位 | 创建岗位、填写要求和招呼语 | `/admin/positions` |
 | `platform_login_verified` | 已有岗位运行，但招聘平台尚未确认登录 | 打开招聘平台并完成登录 | `/admin/positions` |
@@ -236,7 +236,7 @@ Invoke-RestMethod -Method Get -Uri $url -Headers $headers
     "batches": [
       {
         "id": "邮件批次ID",
-        "subject": "GoodHR 本地程序还没启动",
+        "subject": "HRPlus 本地程序还没启动",
         "target_summary": "流程提醒：agent_detected：停留至少24小时",
         "source_key": "flow-reminder:2026-07-15:agent_detected",
         "total_count": 12,
@@ -255,7 +255,7 @@ Invoke-RestMethod -Method Get -Uri $url -Headers $headers
 
 接口返回表示邮件批次已经创建。邮件会在后台异步发送，因此刚返回时 `sent_count` 通常还是 `0`。
 
-可以在 GoodHR 超级管理员后台的邮件管理页面查看发送成功数、失败数和打开数。
+可以在 HRPlus 超级管理员后台的邮件管理页面查看发送成功数、失败数和打开数。
 
 ## 十、重复发送规则
 

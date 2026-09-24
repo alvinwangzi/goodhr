@@ -1,4 +1,4 @@
-# GoodHR 云端控制台 + 本地执行器架构方案
+﻿# HRPlus 云端控制台 + 本地执行器架构方案
 
 ## 目标
 
@@ -414,7 +414,7 @@ GET /health
 ```json
 {
   "ok": true,
-  "name": "GoodHR Local Agent",
+  "name": "HRPlus Local Agent",
   "version": "0.1.0",
   "port": 9001,
   "machine_id": "sha256-xxxx",
@@ -553,7 +553,7 @@ POST /api/tasks/{task_id}/log
 ```http
 Access-Control-Allow-Origin: https://your-goodhr-domain.com
 Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
-Access-Control-Allow-Headers: Content-Type, Authorization, X-GoodHR-Local-Token
+Access-Control-Allow-Headers: Content-Type, Authorization, X-HRPlus-Local-Token
 Access-Control-Allow-Private-Network: true
 ```
 
@@ -574,7 +574,7 @@ Access-Control-Allow-Private-Network: true
 - 本地生成 token，云端页面初始化后携带 token 调用。
 - 不提供任意文件读写接口。
 - 不提供任意 shell 执行接口。
-- 所有操作都限制在 GoodHR 数据目录和浏览器控制能力内。
+- 所有操作都限制在 HRPlus 数据目录和浏览器控制能力内。
 
 ## 前端启动体验
 

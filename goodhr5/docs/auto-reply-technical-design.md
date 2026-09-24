@@ -1,6 +1,6 @@
-<!-- 本文件用于定义 GoodHR 自动回复功能的系统架构、模块边界、数据模型、接口协议和实施方案。 -->
+﻿<!-- 本文件用于定义 HRPlus 自动回复功能的系统架构、模块边界、数据模型、接口协议和实施方案。 -->
 
-# GoodHR 自动回复技术方案
+# HRPlus 自动回复技术方案
 
 ## 1. 方案目标
 
@@ -28,7 +28,7 @@
 
 ```mermaid
 flowchart LR
-  UI["GoodHR Web"] --> CloudAPI["云端 Go API"]
+  UI["HRPlus Web"] --> CloudAPI["云端 Go API"]
   CloudAPI --> PG["PostgreSQL"]
   CloudAPI --> AI["AI 服务"]
   CloudAPI --> SMTP["邮件服务"]

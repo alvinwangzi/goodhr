@@ -1,4 +1,4 @@
-# GoodHR 5 Go 本地程序重构方案
+﻿# HRPlus Go 本地程序重构方案
 
 本文档记录 Go 版本本地程序的长期重构计划。当前 Python 版本继续保留，Go 版本放在 `goodhr5/local-agent-go/`，用于逐步替换本地执行器。
 

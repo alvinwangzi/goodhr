@@ -1,6 +1,6 @@
-# GoodHR 5
+﻿# HRPlus
 
-GoodHR 5 是面向 HR 和猎头的招聘自动化工具，由云端管理后台和 Windows 本地程序组成。
+HRPlus 是面向 HR 和猎头的招聘自动化工具，由云端管理后台和 Windows 本地程序组成。
 
 ## 目录结构
 

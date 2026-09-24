@@ -1,6 +1,6 @@
-# CloakBrowser 能力与 GoodHR 接入说明
+﻿# CloakBrowser 能力与 HRPlus 接入说明
 
-> 文件作用：记录 CloakBrowser 的官方能力、限制、GoodHR 当前接入方式和后续开发注意事项，避免维护过程中把浏览器能力、Node 控制层和实验性 Go 控制层混为一谈。
+> 文件作用：记录 CloakBrowser 的官方能力、限制、HRPlus 当前接入方式和后续开发注意事项，避免维护过程中把浏览器能力、Node 控制层和实验性 Go 控制层混为一谈。
 >
 > 核对日期：2026-07-15。CloakBrowser 更新较快，升级前应重新检查官网、官方仓库和许可证。
 
@@ -36,7 +36,7 @@ CloakBrowser 是面向浏览器自动化的定制 Chromium。它不是仅靠启�
 
 官方 JavaScript 包可作为 Playwright 或 Puppeteer 的近似替代入口。官方也列出了 Selenium、browser-use、Crawl4AI、Stagehand、LangChain 等集成方式。
 
-对 GoodHR 来说，最合适的常规接入仍是 Playwright 兼容接口，因为现有 Node Worker 已经使用 Playwright 风格的页面、定位器和持久化上下文。
+对 HRPlus 来说，最合适的常规接入仍是 Playwright 兼容接口，因为现有 Node Worker 已经使用 Playwright 风格的页面、定位器和持久化上下文。
 
 ### 2.3 人类化交互
 
@@ -57,7 +57,7 @@ CloakBrowser 是面向浏览器自动化的定制 Chromium。它不是仅靠启�
 - 浏览器缓存；
 - 网站会话状态。
 
-招聘平台要求稳定登录，因此 GoodHR 应继续为同一个本地用户复用固定资料目录，不能在每次岗位运行中临时生成新资料目录。
+招聘平台要求稳定登录，因此 HRPlus 应继续为同一个本地用户复用固定资料目录，不能在每次岗位运行中临时生成新资料目录。
 
 ### 2.5 代理和地理信息一致性
 
@@ -69,7 +69,7 @@ CloakBrowser 是面向浏览器自动化的定制 Chromium。它不是仅靠启�
 
 官方包装器支持首次运行自动下载、缓存、检查更新、清理缓存和固定指定 Chromium 版本。官方当前覆盖 Windows x64、Linux x64/ARM64、macOS Intel/Apple Silicon；具体免费版和 Pro 版版本号以官网为准。
 
-官方还提供 Docker、持久 CDP 服务和多 fingerprint seed 等运行方式，但 GoodHR 当前本地程序不使用 Docker。
+官方还提供 Docker、持久 CDP 服务和多 fingerprint seed 等运行方式，但 HRPlus 当前本地程序不使用 Docker。
 
 ## 3. 它不负责什么
 
@@ -84,7 +84,7 @@ CloakBrowser 不是万能的验证码解决器，也不能保证绕过所有风�
 
 官方明确说明，它主要用于减少不必要的挑战出现，不等同于 CAPTCHA solving 服务。
 
-## 4. GoodHR 当前的接入结构
+## 4. HRPlus 当前的接入结构
 
 ### 4.1 当前生产链路：Node Worker
 
@@ -154,11 +154,11 @@ GoController 使用 CloakBrowser 二进制，因此可以继承二进制本身�
 
 ## 6. 版本与打包注意事项
 
-- GoodHR 本地程序版本 `0.1.1` 与 CloakBrowser/npm/Chromium 版本是三套不同版本，不能混用。
+- HRPlus 本地程序版本 `0.1.1` 与 CloakBrowser/npm/Chromium 版本是三套不同版本，不能混用。
 - npm 包使用 `^0.3.27` 时，重新安装依赖可能解析到同一主版本下更新的包。正式打包应使用锁文件或明确版本，避免不同电脑安装出不同依赖。
 - 浏览器二进制更新可能改变网站兼容性。稳定发布时应固定并记录经过验证的二进制版本。
 - 官方许可证说明：包装器代码与浏览器二进制的授权条件不完全相同。官方当前说明二进制不能随意重新分发、转售或重新打包；把二进制嵌入发给第三方的产品可能需要 OEM/SaaS 授权。
-- GoodHR 在发布安装包前，应再次核对官方最新的 [BINARY-LICENSE.md](https://github.com/CloakHQ/CloakBrowser/blob/main/BINARY-LICENSE.md) 和官网 FAQ。内部使用、让最终用户从官方渠道下载、把二进制直接打进安装包，这三种方式的授权含义不同。
+- HRPlus 在发布安装包前，应再次核对官方最新的 [BINARY-LICENSE.md](https://github.com/CloakHQ/CloakBrowser/blob/main/BINARY-LICENSE.md) 和官网 FAQ。内部使用、让最终用户从官方渠道下载、把二进制直接打进安装包，这三种方式的授权含义不同。
 
 ## 7. 安全边界
 

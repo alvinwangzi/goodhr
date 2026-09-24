@@ -1,6 +1,6 @@
-# GoodHR 5 Local Agent Go
+﻿# HRPlus Local Agent Go
 
-这是 GoodHR 5 本地程序的 Go 版本目录。当前目录用于长期重构，不影响现有 `goodhr5/local-agent/` Python 版本。
+这是 HRPlus 本地程序的 Go 版本目录。当前目录用于长期重构，不影响现有 `goodhr5/local-agent/` Python 版本。
 
 ## 当前能力
 

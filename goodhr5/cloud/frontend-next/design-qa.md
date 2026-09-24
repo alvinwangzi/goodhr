@@ -1,5 +1,5 @@
-<!-- 本文件记录 GoodHR 新版首页和登录页的设计检查结果。 -->
-# GoodHR Next Frontend Design QA
+﻿<!-- 本文件记录 HRPlus 新版首页和登录页的设计检查结果。 -->
+# HRPlus Next Frontend Design QA
 
 - Source visual truth: `/var/folders/r0/6ywnrqgj39n16q_1l0_khxlm0000gp/T/codex-clipboard-cae17809-3fd4-48c2-a5d3-5a17429b672a.png`
 - Implementation screenshot: `/Users/Zhuanz/Downloads/goodHR/goodhr5/cloud/frontend-next/artifacts/home-desktop-current.png`
@@ -9,7 +9,7 @@
 
 ## Full-view Comparison Evidence
 
-参考图和实现图已在同一次视觉检查中并列打开。实现保留了参考图的悬浮浅色导航、大字号标题、充足留白、清晰主按钮和首屏下方内容提示。根据用户要求，右侧产品卡片被移除，蓝色强调改为 GoodHR 品牌绿色，背景改为无渐变的浅灰白色。
+参考图和实现图已在同一次视觉检查中并列打开。实现保留了参考图的悬浮浅色导航、大字号标题、充足留白、清晰主按钮和首屏下方内容提示。根据用户要求，右侧产品卡片被移除，蓝色强调改为 HRPlus 品牌绿色，背景改为无渐变的浅灰白色。
 
 ## Focused Region Evidence
 
@@ -22,7 +22,7 @@
 - Spacing: 首屏留白与参考方向一致，下方流程在桌面首屏内可见；手机端改为单列且无横向溢出。
 - Colors: 使用浅灰白背景、深灰文字和绿色强调；无深色主题、蓝紫渐变或装饰光斑。
 - Image quality: 参考图右侧产品图按用户要求删除；页面可见图形全部使用 MUI 图标，未使用占位图或手绘 SVG。
-- Copy: 首页文案已替换为 GoodHR 的实际筛选、分析、沟通和邀约能力。
+- Copy: 首页文案已替换为 HRPlus 的实际筛选、分析、沟通和邀约能力。
 - Interactions: 手机菜单可打开和关闭；登录输入后发送验证码和登录按钮会正确启用；未实际发送测试验证码。
 - Accessibility: 表单具有可访问标签，按钮满足触控尺寸，移动端文字对比和缩放正常，并支持减少动效偏好。
 

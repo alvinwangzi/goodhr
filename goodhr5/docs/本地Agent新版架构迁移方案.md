@@ -1,4 +1,4 @@
-# 本地 Agent 新版架构迁移方案
+﻿# 本地 Agent 新版架构迁移方案
 
 <!-- 文件作用：记录双目录保留前提下，从 dev 功能基线迁入 main 新版架构的实施顺序、功能清单、接口约定和验收门槛。 -->
 
@@ -359,7 +359,7 @@ func (c *Client) RequestPositionStart(
 
 ### M8：Windows 安装包与 A 批交付
 
-**修改落点：** 新版 `scripts/package-windows.ps1`、`scripts/package-windows.bat`、`packaging/GoodHRLocalAgent.iss`、`internal/version`、`README.md`；开发启动脚本及前端下载/版本守卫配置。
+**修改落点：** 新版 `scripts/package-windows.ps1`、`scripts/package-windows.bat`、`packaging/HRPlusLocalAgent.iss`、`internal/version`、`README.md`；开发启动脚本及前端下载/版本守卫配置。
 
 - [ ] 先确认 Go、Node、Worker 编译产物、生产依赖、浏览器与 OCR 的路径契约，安装包不依赖开发目录。
 - [ ] 吸收开发线环境化构建与 HR+ 品牌资源；正式版本沿开发线版本策略，在发布时确认具体版本，不沿用 main 新版默认 `6`。
