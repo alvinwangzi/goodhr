@@ -142,6 +142,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	mux.HandleFunc("/api/auth/update-profile", s.auth.UpdateProfile)
 	mux.HandleFunc("/api/auth/change-password", s.auth.ChangePassword)
+	mux.HandleFunc("/api/auth/login-status", s.auth.LoginStatus)
+	mux.HandleFunc("/api/auth/set-password", s.auth.SetPassword)
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)

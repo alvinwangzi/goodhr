@@ -4,7 +4,7 @@ import BrandMark from "@/components/BrandMark";
 import LoginForm from "@/components/LoginForm";
 import { Box, Container, Stack, Typography } from "@mui/material";
 
-const loginPoints = ["简历数据存本地，隐私安全有保障","邮箱验证码登录，方便快捷"];
+const loginPoints = ["简历数据存本地，隐私安全有保障","AI智能筛选，AI智能打招呼","AI自动回复，AI自动候选人跟进"];
 
 /** LoginPage 输出极光渐变背景 + 左文右表结构的登录界面。 */
 export default function LoginPage() {

@@ -688,3 +688,107 @@ type changePasswordRequest struct {
 	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`
 }
+
+type setPasswordRequest struct {
+	Email    string `json:"email"`
+	Code     string `json:"code"`
+	Password string `json:"password"`
+}
+
+// LoginStatus 查询指定邮箱的密码设置状态，供登录页判断展示哪种登录方式。
+func (s *AuthService) LoginStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	email := strings.TrimSpace(r.URL.Query().Get("email"))
+	if email == "" {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	if s.profileStore == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"status": map[string]any{"has_password": false}})
+		return
+	}
+	hash, err := s.profileStore.GetPasswordHash(email)
+	if err != nil {
+		log.Printf("[登录状态] 读取密码哈希失败 email=%s err=%v", email, err)
+		writeJSON(w, http.StatusOK, map[string]any{"status": map[string]any{"has_password": false}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": map[string]any{
+			"has_password": hash != "",
+		},
+	})
+}
+
+// SetPassword 通过邮箱验证码为没有密码的用户首次设置密码。
+func (s *AuthService) SetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req setPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	code := strings.TrimSpace(req.Code)
+	if len(code) != 4 {
+		writeError(w, http.StatusBadRequest, "invalid code")
+		return
+	}
+	password := strings.TrimSpace(req.Password)
+	if len(password) < 6 {
+		writeError(w, http.StatusBadRequest, "密码长度不能少于6位")
+		return
+	}
+	if s.profileStore == nil {
+		writeError(w, http.StatusInternalServerError, "用户资料存储未配置")
+		return
+	}
+
+	/* 校验验证码 */
+	matched, err := s.loginCodeMatched(email, code, time.Now())
+	if err != nil {
+		log.Printf("[设置密码] 验证码校验失败 email=%s err=%v", email, err)
+		writeError(w, http.StatusInternalServerError, "验证码校验失败")
+		return
+	}
+	if !matched {
+		writeError(w, http.StatusUnauthorized, "验证码错误或已过期")
+		return
+	}
+
+	/* 检查是否已有密码 */
+	currentHash, err := s.profileStore.GetPasswordHash(email)
+	if err != nil {
+		log.Printf("[设置密码] 读取密码哈希失败 email=%s err=%v", email, err)
+		writeError(w, http.StatusInternalServerError, "设置密码失败，请稍后重试")
+		return
+	}
+	if currentHash != "" {
+		writeError(w, http.StatusConflict, "该账号已有密码，请在个人信息页面修改")
+		return
+	}
+
+	newHash, err := hashPassword(password)
+	if err != nil {
+		log.Printf("[设置密码] 密码哈希失败 email=%s err=%v", email, err)
+		writeError(w, http.StatusInternalServerError, "设置密码失败，请稍后重试")
+		return
+	}
+	if err := s.profileStore.UpdatePasswordHash(email, newHash); err != nil {
+		log.Printf("[设置密码] 保存密码失败 email=%s err=%v", email, err)
+		writeError(w, http.StatusInternalServerError, "设置密码失败，请稍后重试")
+		return
+	}
+	log.Printf("[设置密码] 密码已设置 email=%s", email)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
