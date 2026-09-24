@@ -1,4 +1,4 @@
--- 本迁移把旧 Plus 会员兼容为 Pro会员，并配置免费版、Plus包月版和Pro包年版。
+-- 本迁移把旧 Plus 会员兼容为 Pro会员，并配置免费版、Plus包月会员和Pro包年会员。
 ALTER TABLE users
     ALTER COLUMN subscription SET DEFAULT jsonb_build_object(
         'member_type', 'pro',
@@ -58,7 +58,7 @@ VALUES (
     '[
       {
         "id": "free",
-        "name": "永久免费版",
+        "name": "免费版",
         "member_type": "free",
         "duration_days": 0,
         "original_price": 0,
@@ -70,7 +70,7 @@ VALUES (
       },
       {
         "id": "monthly",
-        "name": "Plus包月版",
+        "name": "Plus包月会员",
         "member_type": "plus",
         "duration_days": 30,
         "original_price": 70,
@@ -82,7 +82,7 @@ VALUES (
       },
       {
         "id": "yearly",
-        "name": "Pro包年版",
+        "name": "Pro包年会员",
         "member_type": "pro",
         "duration_days": 365,
         "original_price": 840,
@@ -111,7 +111,7 @@ SET config_value = jsonb_set(
             "id": "subscription",
             "title": "会员版本",
             "summary": "免费版可做基础招聘，Plus 开放 AI，Pro 再开放自动回复。",
-            "content": "新用户注册赠送 3 天 Pro会员。免费版可使用关键词筛选和基础自动打招呼；Plus包月版支持 AI 筛选和 AI 自动打招呼，不支持自动回复；Pro包年版开放自动回复。有效 Plus 升级 Pro 时，剩余时间会按 Plus 剩余时间精确抵扣，Pro 从付款完成时间重新计算 365 天。有效 Pro 暂时不能购买 Plus。"
+            "content": "新用户注册赠送 3 天 Pro会员。免费版可使用关键词筛选和基础自动打招呼；Plus包月会员支持 AI 筛选和 AI 自动打招呼，不支持自动回复；Pro包年会员开放自动回复。有效 Plus 升级 Pro 时，剩余时间会按 Plus 剩余时间精确抵扣，Pro 从付款完成时间重新计算 365 天。有效 Pro 暂时不能购买 Plus。"
           }
         ]'::jsonb,
         true
@@ -138,7 +138,7 @@ SET config_value = jsonb_set(
                                 '{items}',
                                 '[
                                   "新用户注册赠送 3 天 Pro会员，可以体验包括自动回复在内的全部现有功能。",
-                                  "免费版支持关键词筛选和基础自动打招呼；Plus包月版支持 AI 筛选和 AI 自动打招呼；Pro包年版额外支持自动回复。",
+                                  "免费版支持关键词筛选和基础自动打招呼；Plus包月会员支持 AI 筛选和 AI 自动打招呼；Pro包年会员额外支持自动回复。",
                                   "Plus 升级 Pro 时按 Plus 剩余时间折算抵扣，Pro 到期时间从付款完成时间重新计算 365 天。",
                                   "开始 AI 岗位和自动回复前，前端、云端和本地程序都会按统一会员权限检查。",
                                   "支付记录用户可查看自己的记录，超级管理员可查看全部记录。"

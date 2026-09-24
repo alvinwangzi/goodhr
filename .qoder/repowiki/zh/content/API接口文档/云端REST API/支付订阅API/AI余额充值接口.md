@@ -2,11 +2,10 @@
 
 <cite>
 **本文引用的文件**
-- [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
 - [payment.go](file://goodhr5/cloud/backend/internal/httpapi/payment.go)
-- [payment_provider.go](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go)
-- [payment_wechat.go](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go)
 - [ai_wallet.go](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go)
+- [payment_provider.go](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go)
+- [0055_ai_wallet_and_builtin_ai.sql](file://goodhr5/cloud/backend/db/migrations/0055_ai_wallet_and_builtin_ai.sql)
 </cite>
 
 ## 目录
@@ -22,298 +21,296 @@
 10. [附录：API调用示例与错误处理](#附录api调用示例与错误处理)
 
 ## 简介
-本文档面向后端开发者与集成方，详细说明 POST /api/payment/ai-balance 接口的实现细节与业务规则，包括：
-- 充值金额验证范围（1-1000元）
+本文件面向后端开发者与对接方，详细说明 POST /api/payment/ai-balance 接口的实现细节，包括：
+- 充值金额验证（1-1000元范围）
 - 默认充值金额设置
 - 订单创建流程
-- 请求参数 amount_cents 与 amount_yuan 的处理逻辑与单位转换
+- 请求参数 amount_cents 与 amount_yuan 的处理逻辑及金额单位转换规则
 - AI余额充值与会员订阅的区别
-- 支付成功后AI钱包余额调整机制
+- 充值成功后AI钱包余额调整机制
 - 完整的API调用示例与错误处理方案
 
 ## 项目结构
-该接口位于云端后端 HTTP API 层，路由注册在统一服务中，具体业务由支付服务完成，并通过微信支付提供商完成下单与回调处理，最终落库并更新AI钱包。
+该功能位于云后端 HTTP API 层，主要涉及以下文件：
+- payment.go：支付服务、AI余额充值订单创建、支付回调到账处理
+- ai_wallet.go：AI钱包服务、余额查询、流水记录、扣费逻辑
+- payment_provider.go：支付平台抽象与金额单位转换工具
+- 数据库迁移：新增AI钱包表与订单类型字段
 
 ```mermaid
 graph TB
-Client["客户端"] --> Router["HTTP路由<br/>server.go"]
-Router --> PaymentSvc["支付服务<br/>payment.go"]
-PaymentSvc --> Provider["微信支付提供商<br/>payment_wechat.go"]
-PaymentSvc --> OrderStore["订单存储<br/>payment_store.go(外部)"]
-PaymentSvc --> WalletStore["AI钱包存储<br/>ai_wallet.go(接口)"]
-Provider --> WeChat["微信Native下单/回调"]
-PaymentSvc --> DB[("数据库")]
-WalletStore --> DB
+Client["客户端"] --> API["HTTP API<br/>payment.go"]
+API --> Provider["支付提供方<br/>payment_provider.go"]
+API --> Orders["订单存储<br/>payment.go"]
+API --> Wallet["AI钱包存储<br/>ai_wallet.go"]
+Orders --> DB[("数据库")]
+Wallet --> DB
 ```
 
 图表来源
-- [server.go:140-170](file://goodhr5/cloud/backend/internal/httpapi/server.go#L140-L170)
 - [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
-- [payment_wechat.go:69-100](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L69-L100)
+- [payment.go:364-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L364-L405)
+- [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
+- [payment_provider.go:10-44](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L10-L44)
 
 章节来源
-- [server.go:140-170](file://goodhr5/cloud/backend/internal/httpapi/server.go#L140-L170)
+- [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
+- [payment.go:364-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L364-L405)
+- [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
+- [payment_provider.go:10-44](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L10-L44)
 
 ## 核心组件
-- 路由注册：将 /api/payment/ai-balance 映射到支付服务的 AIBalanceOrder 方法。
-- 支付服务：负责校验登录态、解析请求体、金额校验与单位转换、创建订单、调用第三方支付、返回订单与支付信息。
-- 微信支付提供商：封装V3 Native下单、主动查单与回调验签解密。
-- AI钱包：定义余额单位、充值流水、扣费逻辑与持久化接口。
-- 支付结果处理：统一回调入口 completeProviderTransaction 根据订单类型执行不同到账逻辑（AI余额或会员订阅）。
+- 支付服务 PaymentService：负责创建AI余额充值订单、统一回调到账处理。
+- AI钱包服务 AIWalletService：提供余额查询、流水记录、OpenAI兼容调用扣费等能力。
+- 支付提供方抽象 PaymentProvider：封装第三方下单、查单、回调解析。
+- 金额单位转换工具：分与元字符串互转、分与AI钱包单位互转。
 
 章节来源
-- [server.go:140-170](file://goodhr5/cloud/backend/internal/httpapi/server.go#L140-L170)
-- [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
-- [payment_provider.go:46-69](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L46-L69)
-- [payment_wechat.go:69-100](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L69-L100)
-- [ai_wallet.go:23-31](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L23-L31)
+- [payment.go:34-65](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L34-L65)
+- [ai_wallet.go:79-97](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L79-L97)
+- [payment_provider.go:10-44](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L10-L44)
 
 ## 架构总览
-AI余额充值的核心时序如下：
+AI余额充值的核心流程分为“创建订单”和“回调到账”两个阶段：
+- 创建订单：校验金额、生成订单号、写入订单、调用第三方支付创建支付单。
+- 回调到账：支付成功回调后，校验订单与金额，标记订单已支付，并根据订单类型执行到账逻辑；AI余额充值将分转换为AI钱包单位并增加用户余额。
 
 ```mermaid
 sequenceDiagram
 participant C as "客户端"
-participant R as "路由(server.go)"
-participant P as "支付服务(payment.go)"
-participant W as "微信支付(payment_wechat.go)"
-participant OS as "订单存储"
-participant WS as "AI钱包(ai_wallet.go)"
-participant DB as "数据库"
-C->>R : POST /api/payment/ai-balance
-R->>P : AIBalanceOrder()
-P->>P : 校验Session/解析JSON
-P->>P : 校验amount_cents/amount_yuan与范围
-P->>OS : Create(订单 : ai_balance, pending)
-P->>W : CreateOrder(金额=分, 标题, 备注)
-W-->>P : {provider, order_no, code_url}
-P-->>C : {ok, order, payment}
-Note over C,W : 用户扫码支付...
-W->>P : WechatNotify(回调)
-P->>P : completeProviderTransaction()
-P->>OS : MarkPaid(order_no, trade_no, raw)
-P->>WS : AdjustBalance(类别=recharge, 关联订单号)
-WS->>DB : 更新余额+写入流水
-P-->>W : {"code" : "SUCCESS","message" : "成功"}
+participant P as "支付服务<br/>payment.go"
+participant Prov as "支付提供方<br/>payment_provider.go"
+participant O as "订单存储"
+participant W as "AI钱包存储<br/>ai_wallet.go"
+C->>P : POST /api/payment/ai-balance {amount_cents|amount_yuan}
+P->>P : 校验金额(1-1000元)、默认值填充
+P->>O : 创建订单(order_type=ai_balance)
+P->>Prov : CreateOrder(订单号, 标题, 金额)
+Prov-->>P : 返回支付信息(code_url等)
+P-->>C : 返回订单与支付信息
+Note over P,Prov : 支付完成后，第三方支付回调
+Prov->>P : WechatNotify(回调)
+P->>O : MarkPaid(订单号, 交易号)
+P->>W : AdjustBalance(按分转AI单位增加余额)
+W-->>P : 返回新余额
+P-->>Prov : 返回SUCCESS
 ```
 
 图表来源
-- [server.go:140-170](file://goodhr5/cloud/backend/internal/httpapi/server.go#L140-L170)
 - [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
-- [payment.go:341-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L405)
-- [payment_wechat.go:119-137](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L119-L137)
-- [ai_wallet.go:587-632](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L587-L632)
+- [payment.go:341-362](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L362)
+- [payment.go:364-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L364-L405)
+- [ai_wallet.go:589-634](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L589-L634)
 
 ## 详细组件分析
 
-### 路由与入口
-- 路由注册：/api/payment/ai-balance 指向 PaymentService.AIBalanceOrder。
-- 仅支持POST方法，非POST直接返回方法不允许。
-
-章节来源
-- [server.go:140-170](file://goodhr5/cloud/backend/internal/httpapi/server.go#L140-L170)
-- [payment.go:191-206](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L206)
-
-### 请求参数与金额处理
+### 接口定义与请求参数
+- 端点：POST /api/payment/ai-balance
 - 请求体字段：
-  - amount_cents：整数，单位为“分”。可选。
-  - amount_yuan：字符串，表示“元”，保留两位小数精度。可选。
-- 处理顺序：
-  1) 若 amount_cents <= 0 且 amount_yuan 非空，则使用 yuanTextToCents 将“元”字符串转换为“分”。
-  2) 若仍为 <= 0，则采用默认充值金额 defaultAIRechargeAmountCents（常量定义见AI钱包模块）。
-  3) 校验范围：必须在 100 分到 100000 分之间，即 1元到1000元之间；否则返回错误。
-- 单位换算：
-  - 元转分：yuanTextToCents(value) = round(value * 100)。
-  - 分转元：centsToYuanString(cents) = "%.2f"。
-  - 分转AI单位：centsToAIUnits(cents) = cents * aiWalletUnitsPerCent。
-  - AI单位转分：aiUnitsToCents(units) = units / aiWalletUnitsPerCent。
-  - AI单位转元字符串：aiUnitsToYuanString(units) 以四位小数输出。
+  - amount_cents：整数，单位为分。可选。
+  - amount_yuan：字符串，单位为元（支持小数）。可选。
+- 认证：需要有效会话（Session），否则返回未授权。
+
+处理逻辑要点：
+- 若 amount_cents <= 0 且 amount_yuan 非空，则通过 yuanTextToCents 将元字符串转为分。
+- 若最终 amount_cents <= 0，则使用默认充值金额 defaultAIRechargeAmountCents（1000分，即10元）。
+- 金额范围校验：必须在 100 到 100000 分之间（即1元到1000元），否则返回错误提示。
 
 章节来源
-- [payment.go:202-221](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L202-L221)
-- [payment.go:602-614](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L602-L614)
-- [payment_provider.go:46-69](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L46-L69)
+- [payment.go:191-221](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L221)
+- [payment.go:607-614](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L607-L614)
 - [ai_wallet.go:23-31](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L23-L31)
 
 ### 订单创建流程
-- 生成唯一订单号与过期时间（30分钟）。
-- 订单类型固定为 ai_balance，计划ID与名称用于标识“AI余额充值”。
-- 保存订单状态为 pending，并记录原始金额、折扣金额（本场景为0）、实付金额等。
-- 调用默认支付提供商（微信支付）创建订单，返回 provider、order_no、code_url。
-- 响应包含订单信息与支付信息，前端据此展示二维码或跳转支付。
+- 生成订单号与过期时间（30分钟）。
+- 写入订单记录，order_type 固定为 "ai_balance"，plan_id 为 "ai_balance"，plan_name 为 "AI余额充值"。
+- 调用支付提供方 CreateOrder，传入订单号、标题、金额与备注。
+- 返回订单信息与支付信息（如二维码链接或支付URL）。
 
 章节来源
 - [payment.go:222-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L222-L259)
-- [payment_wechat.go:69-100](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L69-L100)
 
-### 支付回调与到账逻辑
-- 统一回调入口 WechatNotify 接收微信支付通知，解析并调用 completeProviderTransaction。
-- completeProviderTransaction 校验：
-  - 支付提供商匹配
-  - 订单金额一致
-  - 订单状态为待支付
-- 针对订单类型为 ai_balance：
-  - 通过 AIWalletStore.AdjustBalance 增加余额，类别为 recharge，原因“AI余额充值成功”，并记录关联订单号。
-  - 余额单位转换：使用 centsToAIUnits 将“分”转为AI钱包单位。
-- 针对普通订阅订单：走 applyPaidSubscriptionOrder 发放会员权益。
-
-章节来源
-- [payment.go:341-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L405)
-- [payment_provider.go:51-59](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L51-L59)
-- [ai_wallet.go:587-632](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L587-L632)
-
-### AI余额充值与会员订阅的区别
-- 订单类型：
-  - AI余额充值：order_type = ai_balance，不改变会员等级与到期时间。
-  - 会员订阅：order_type 通常为 subscription，会变更会员类型与有效期。
-- 到账逻辑：
-  - AI余额充值：调用 AIWalletStore.AdjustBalance 增加余额，写入充值流水。
-  - 会员订阅：调用 SubscriptionStore.ApplyGrant 发放会员天数或切换套餐，并可能发送奖励邮件。
-- 支付提供商：两者均可使用微信支付，但订单用途不同。
-
-章节来源
-- [payment.go:391-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L391-L405)
-- [payment.go:407-439](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L407-L439)
-
-### 金额单位转换规则汇总
-- 输入侧：
-  - amount_yuan -> amount_cents：yuanTextToCents(value) = round(value*100)
-  - 默认充值金额：defaultAIRechargeAmountCents（常量）
-- 内部侧：
-  - 分 -> AI单位：centsToAIUnits(cents) = cents * aiWalletUnitsPerCent
-  - AI单位 -> 分：aiUnitsToCents(units) = units / aiWalletUnitsPerCent
-- 输出侧：
-  - 分 -> 元字符串：centsToYuanString(cents) = "%.2f"
-  - AI单位 -> 元字符串：aiUnitsToYuanString(units) 四位小数
+### 金额单位转换规则
+- 元字符串转分：yuanTextToCents 将元字符串解析为浮点数后乘以100取整得到分。
+- 分转AI钱包单位：centsToAIUnits 将分乘以 aiWalletUnitsPerCent（100）得到AI钱包单位（0.0001元精度）。
+- AI钱包单位转分：aiUnitsToCents 将AI钱包单位除以 aiWalletUnitsPerCent 得到分。
+- AI钱包单位转元字符串：aiUnitsToYuanString 输出四位小数元字符串。
 
 章节来源
 - [payment.go:602-614](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L602-L614)
 - [payment_provider.go:46-69](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L46-L69)
 - [ai_wallet.go:23-31](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L23-L31)
 
+### 充值到账与AI钱包余额调整
+- 支付回调入口：WechatNotify 解析回调并调用 completeProviderTransaction。
+- 到账逻辑：
+  - 校验支付提供方、订单号、金额一致。
+  - 标记订单为已支付。
+  - 若 order_type == "ai_balance"，则调用 AIWalletStore.AdjustBalance，以 category="recharge"、reason="AI余额充值成功" 写入流水，并将 AmountCents 转换为AI钱包单位增加用户余额。
+  - 同时防止重复到账：对同一订单号的充值流水进行幂等检查。
+
+```mermaid
+flowchart TD
+Start(["回调入口"]) --> Verify["校验支付提供方与订单金额"]
+Verify --> MarkPaid["标记订单为已支付"]
+MarkPaid --> CheckType{"订单类型是否为ai_balance?"}
+CheckType --> |是| Convert["分转AI钱包单位"]
+Convert --> Adjust["AdjustBalance增加余额并写流水"]
+Adjust --> End(["完成"])
+CheckType --> |否| ApplySub["应用会员订阅到账逻辑"]
+ApplySub --> End
+```
+
+图表来源
+- [payment.go:341-362](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L362)
+- [payment.go:364-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L364-L405)
+- [ai_wallet.go:589-634](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L589-L634)
+
+章节来源
+- [payment.go:341-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L405)
+- [ai_wallet.go:589-634](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L589-L634)
+
+### AI余额充值与会员订阅的区别
+- 订单类型：
+  - AI余额充值：order_type = "ai_balance"，不改变会员状态，仅增加AI钱包余额。
+  - 会员订阅：order_type 默认为 "subscription"，支付成功后会更新会员套餐、有效期等。
+- 到账逻辑：
+  - AI余额充值：调用 AIWalletStore.AdjustBalance，category="recharge"。
+  - 会员订阅：调用 applyPaidSubscriptionOrder，更新订阅并发送奖励通知。
+- 业务影响：
+  - AI余额用于调用内置AI模型时的token计费扣费。
+  - 会员订阅用于解锁平台功能与权益。
+
+章节来源
+- [payment.go:229-243](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L229-L243)
+- [payment.go:407-439](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L407-L439)
+- [0055_ai_wallet_and_builtin_ai.sql:7-12](file://goodhr5/cloud/backend/db/migrations/0055_ai_wallet_and_builtin_ai.sql#L7-L12)
+
+### 默认充值金额与前端展示
+- 默认充值金额常量：defaultAIRechargeAmountCents = 1000（即10元）。
+- 前端可通过AI钱包摘要接口获取默认充值金额与当前余额等信息。
+
+章节来源
+- [ai_wallet.go:23-31](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L23-L31)
+- [ai_wallet.go:99-126](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L99-L126)
+
 ## 依赖关系分析
-- 路由依赖：server.go 将 /api/payment/ai-balance 绑定到 PaymentService.AIBalanceOrder。
-- 支付服务依赖：
-  - AuthService：校验会话
-  - PaymentStore：创建与查询订单
-  - SystemConfigStore：读取系统配置（如微信支付配置）
-  - Mailer：订阅奖励邮件（AI充值不涉及）
-  - AIWalletStore：充值后调整余额
-  - PaymentProvider：微信支付实现
-- 微信支付提供商依赖：
-  - SystemConfigStore：读取 system.payment_wechat 配置
-  - 微信官方SDK：Native下单、查单、回调验签
+- PaymentService 依赖：
+  - AuthService：会话校验。
+  - PaymentStore：订单持久化。
+  - SystemConfigStore：系统配置读取。
+  - Mailer：邮件通知（会员订阅场景）。
+  - AIWalletStore：AI余额调整（AI余额充值场景）。
+  - PaymentProvider：第三方支付下单与回调解析。
+- AIWalletService 依赖：
+  - AIWalletStore：余额读写与流水记录。
+  - AIConfigStore：内置AI配置。
+  - SystemConfigStore：系统配置。
 
 ```mermaid
 classDiagram
 class PaymentService {
-+AIBalanceOrder(w,r)
-+WechatNotify(w,r)
-+completeProviderTransaction(provider,result)
++AIBalanceOrder()
++WechatNotify()
++completeProviderTransaction()
 }
-class WechatPayProvider {
-+CreateOrder(ctx,input)
-+QueryOrder(ctx,orderNo)
-+ParseNotify(ctx,request)
+class AIWalletService {
++Summary()
++Records()
++CompatibleChat()
+}
+class PaymentProvider {
++CreateOrder()
++QueryOrder()
++ParseNotify()
 }
 class AIWalletStore {
-+AdjustBalance(record) int64
-+BalanceUnits(email) int64
-+ListRecords(email,limit,offset) []Record
++BalanceUnits()
++AdjustBalance()
++ListRecords()
++UserEmailByAIKey()
 }
-class Server {
-+RegisterRoutes()
-}
-Server --> PaymentService : "路由绑定"
-PaymentService --> WechatPayProvider : "下单/回调"
+PaymentService --> PaymentProvider : "使用"
 PaymentService --> AIWalletStore : "充值到账"
+AIWalletService --> AIWalletStore : "余额与流水"
 ```
 
 图表来源
-- [server.go:140-170](file://goodhr5/cloud/backend/internal/httpapi/server.go#L140-L170)
-- [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
-- [payment_wechat.go:69-100](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L69-L100)
+- [payment.go:34-65](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L34-L65)
+- [ai_wallet.go:79-97](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L79-L97)
+- [payment_provider.go:10-44](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L10-L44)
 - [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
 
 章节来源
-- [server.go:140-170](file://goodhr5/cloud/backend/internal/httpapi/server.go#L140-L170)
-- [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
-- [payment_wechat.go:69-100](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L69-L100)
+- [payment.go:34-65](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L34-L65)
+- [ai_wallet.go:79-97](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L79-L97)
+- [payment_provider.go:10-44](file://goodhr5/cloud/backend/internal/httpapi/payment_provider.go#L10-L44)
 - [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
 
 ## 性能与一致性
-- 幂等性：AI钱包充值按“关联订单号”去重，避免重复入账。
-- 事务性：AI钱包余额调整与流水写入在同一事务中提交，保证一致性。
-- 超时控制：AI钱包查询与更新设置了合理的上下文超时，防止阻塞。
-- 并发安全：内存钱包实现使用互斥锁保护余额与流水；Postgres实现通过事务与行级更新保证并发安全。
+- 幂等性：AI钱包充值流水对同一订单号进行去重，避免重复到账。
+- 事务性：AI钱包余额调整使用数据库事务，确保余额与流水一致性。
+- 超时控制：数据库操作设置合理超时，避免长时间阻塞。
+- 流式响应：AI调用支持SSE流式转发，并在最后提取usage进行扣费。
 
 章节来源
-- [ai_wallet.go:587-632](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L587-L632)
-- [ai_wallet.go:507-523](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L507-L523)
+- [ai_wallet.go:589-634](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L589-L634)
+- [ai_wallet.go:208-307](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L208-L307)
 
 ## 故障排查指南
-- Session无效或过期：检查请求是否携带有效认证信息。
-- JSON解析失败：确认请求体格式正确，amount_cents为整数，amount_yuan为数字字符串。
-- 金额不在范围内：确保充值金额在1-1000元之间（100-100000分）。
-- 支付提供商未配置：检查系统配置中微信支付参数是否完整。
-- 回调处理失败：核对微信支付回调签名与解密过程，关注日志中的错误信息。
-- 订单金额不一致：核对订单创建时的金额与回调返回金额是否一致。
-- AI钱包未配置：确认AI钱包存储已注入并可读写。
+常见错误与处理：
+- 未登录或会话过期：返回未授权。
+- JSON解析失败：返回请求体无效。
+- 金额无效或超出范围：返回充值金额无效或建议范围提示。
+- 支付提供方未配置：返回内部错误。
+- 订单创建失败：返回内部错误。
+- 支付回调处理失败：返回失败消息并记录日志。
+- AI钱包未配置：回调到账时返回内部错误。
+
+建议排查步骤：
+- 确认请求包含有效的会话与JSON格式正确。
+- 检查金额是否在1-1000元范围内。
+- 查看订单是否创建成功以及支付提供方是否返回支付信息。
+- 核对支付回调是否到达服务端，订单是否标记为已支付。
+- 检查AI钱包存储是否可用，流水是否写入成功。
 
 章节来源
 - [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
-- [payment.go:341-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L405)
-- [payment_wechat.go:119-137](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L119-L137)
+- [payment.go:341-362](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L362)
+- [payment.go:364-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L364-L405)
 
 ## 结论
-POST /api/payment/ai-balance 提供了标准化的AI余额充值能力，具备严格的金额校验、清晰的单位转换、可靠的订单创建与支付回调处理，以及幂等一致的AI钱包余额调整机制。与会员订阅相比，AI余额充值专注于提升用户的AI使用额度，不影响会员等级与有效期。
+POST /api/payment/ai-balance 提供了安全的AI余额充值能力，具备完善的金额校验、默认值填充、订单创建与回调到账流程。充值成功后，系统将分转换为AI钱包单位并增加用户余额，同时记录流水。与会员订阅不同，AI余额充值不影响会员状态，仅用于后续AI调用的token计费扣费。
 
 ## 附录：API调用示例与错误处理
 
-### 接口定义
-- 路径：POST /api/payment/ai-balance
-- 鉴权：需要有效的登录会话
-- 请求体：
-  - amount_cents：整数，单位“分”，可选
-  - amount_yuan：字符串，单位“元”，可选
-- 响应体：
-  - ok：布尔
-  - order：订单对象（包含 order_no、amount_cents、status 等）
-  - payment：支付信息（包含 provider、order_no、code_url）
+### 请求示例
+- 方法：POST
+- 路径：/api/payment/ai-balance
+- 头部：需携带有效会话（Cookie或Token，依服务端实现）
+- 请求体（二选一）：
+  - 使用分：{"amount_cents": 500}
+  - 使用元：{"amount_yuan": "5.00"}
+- 若两者均未提供或无效，则使用默认充值金额（10元）。
 
-### 调用示例
-- 示例1：指定金额（元）
-  - 请求体：{"amount_yuan": "10.00"}
-  - 说明：系统将自动转换为1000分，并在范围内校验通过后创建订单。
-- 示例2：指定金额（分）
-  - 请求体：{"amount_cents": 500}
-  - 说明：500分等于5元，符合1-1000元范围。
-- 示例3：不传金额
-  - 请求体：{}
-  - 说明：使用默认充值金额 defaultAIRechargeAmountCents（常量），需满足范围校验。
+### 成功响应示例
+- 状态码：200
+- 响应体包含：
+  - ok: true
+  - order: 订单对象（含order_no、amount_cents、status等）
+  - payment: 支付对象（含provider、code_url等）
 
-### 错误处理
-- 400 非法请求：
-  - JSON解析失败
-  - 金额不在1-1000元范围
-  - 金额解析失败
-- 401 未授权：
-  - Session无效或过期
-- 500 服务器错误：
-  - 支付提供商未配置
-  - 创建订单失败
-  - 回调处理失败
-  - AI钱包未配置或写入失败
+### 错误响应示例
+- 400 非法请求体或金额无效
+- 401 未登录或会话过期
+- 500 内部错误（支付提供方未配置、订单创建失败、回调处理失败等）
 
-### 支付回调与到账
-- 回调地址：/api/payment/notify/wechat
-- 回调成功后：
-  - 订单状态更新为 paid
-  - AI钱包余额增加，类别为 recharge，关联订单号
-  - 返回标准成功响应给微信支付
+### 错误处理方案
+- 客户端应重试策略：对网络错误可重试，对业务错误（如金额无效）需提示用户修正。
+- 支付结果查询：可通过订单详情接口主动查询订单状态，必要时触发服务端主动查单。
+- 幂等保障：服务端对同一订单号的充值流水进行去重，避免重复到账。
 
 章节来源
 - [payment.go:191-259](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L191-L259)
-- [payment.go:341-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L405)
-- [payment_wechat.go:119-137](file://goodhr5/cloud/backend/internal/httpapi/payment_wechat.go#L119-L137)
-- [ai_wallet.go:587-632](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L587-L632)
+- [payment.go:341-362](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L341-L362)
+- [payment.go:364-405](file://goodhr5/cloud/backend/internal/httpapi/payment.go#L364-L405)

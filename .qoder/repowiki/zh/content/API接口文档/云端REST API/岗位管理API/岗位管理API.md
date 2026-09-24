@@ -3,11 +3,12 @@
 <cite>
 **本文引用的文件**
 - [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
-- [position_store.go](file://goodhr5/cloud/backend/internal/httpapi/position_store.go)
-- [position_store_pg.go](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go)
+- [position.go](file://goodhr5/cloud/backend/internal/httpapi/position.go)
 - [position_execution.go](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go)
 - [position_log.go](file://goodhr5/cloud/backend/internal/httpapi/position_log.go)
-- [position_test.go](file://goodhr5/cloud/backend/internal/httpapi/position_test.go)
+- [local_candidate_ingest.go](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go)
+- [position_store.go](file://goodhr5/cloud/backend/internal/httpapi/position_store.go)
+- [candidate_store.go](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go)
 </cite>
 
 ## 目录
@@ -20,360 +21,504 @@
 7. [性能与一致性](#性能与一致性)
 8. [故障排查指南](#故障排查指南)
 9. [结论](#结论)
+10. [附录：状态机、错误码与示例](#附录：状态机错误码与示例)
 
 ## 简介
-本文件为“岗位管理API”的完整接口文档，覆盖岗位配置CRUD、运行控制（启动/停止）、状态同步机制、日志查询、候选人收集等能力。重点说明以下路由：
-- /api/positions：岗位列表与创建
-- /api/positions/{id}：岗位详情与删除
-- /api/positions/{id}/start：启动运行
-- /api/positions/{id}/stop：停止运行
-- /api/positions/{id}/status：状态同步
-- /api/positions/{id}/candidates：候选人收集
-- /api/positions/{id}/processed-resumes：已处理简历上报
-- /api/positions/{id}/counts：统计计数同步
-- /api/positions/{id}/logs：日志查询与管理
+本文件为 GoodHR 云端后端的“岗位管理”相关 API 的完整接口文档，覆盖岗位配置 CRUD、运行控制（启动/停止）、状态同步、日志查询、候选人收集与统计等能力。重点说明以下路径：
+- /api/positions：岗位列表与创建/更新
+- /api/positions/{id}：岗位详情、更新、删除
+- /api/positions/{id}/start：启动运行（本地 Agent 调用）
+- /api/positions/{id}/stop：停止运行（本地 Agent 调用）
+- /api/positions/{id}/status：运行状态同步（本地 Agent 调用）
+- /api/positions/{id}/logs：岗位日志摘要
+- /api/positions/{id}/candidates：候选人入库
+- /api/positions/{id}/counts：累计统计同步
+- /api/positions/{id}/processed-resumes：已处理简历数量上报
 
-同时涵盖岗位搜索条件配置、AI提示词设置、运行策略定义，以及岗位执行状态机、错误码与状态码说明。
+所有接口均通过统一 JSON 响应格式返回，错误使用统一的 { ok: false, error: ... } 或带稳定错误码的结构。
 
 ## 项目结构
-后端HTTP服务通过统一路由注册岗位相关接口，并由PositionService、PositionExecutionService、PositionLogService分别负责岗位配置、运行控制与日志。存储层提供内存实现与PostgreSQL实现，保证开发与生产一致的数据模型。
+后端 HTTP 路由集中在服务装配文件中，岗位相关路由由位置分发器统一转发到具体服务方法；业务逻辑分布在岗位配置、执行、日志、候选人入库等模块中；数据模型与存储接口定义在 store 文件中。
 
 ```mermaid
 graph TB
-Client["客户端"] --> Router["HTTP路由<br/>server.go"]
-Router --> PosSvc["岗位服务<br/>PositionService"]
-Router --> ExecSvc["运行服务<br/>PositionExecutionService"]
-Router --> LogSvc["日志服务<br/>PositionLogService"]
-PosSvc --> Store["岗位存储接口<br/>PositionStore"]
-ExecSvc --> Store
-ExecSvc --> Logs["日志服务"]
-ExecSvc --> Tenant["租户/订阅/AI钱包"]
-Store --> PG["PostgreSQL实现<br/>position_store_pg.go"]
-Store --> Mem["内存实现<br/>position_store.go"]
+A["HTTP 路由<br/>server.go"] --> B["岗位配置服务<br/>position.go"]
+A --> C["岗位执行服务<br/>position_execution.go"]
+A --> D["岗位日志服务<br/>position_log.go"]
+A --> E["候选人入库服务<br/>local_candidate_ingest.go"]
+B --> F["岗位存储接口<br/>position_store.go"]
+C --> F
+C --> G["候选人存储接口<br/>candidate_store.go"]
+D --> F
 ```
 
-**图示来源**
-- [server.go:124-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L245)
-- [position_store.go:14-62](file://goodhr5/cloud/backend/internal/httpapi/position_store.go#L14-L62)
-- [position_store_pg.go:13-21](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L13-L21)
+图表来源
+- [server.go:133-228](file://goodhr5/cloud/backend/internal/httpapi/server.go#L133-L228)
+- [position.go:74-298](file://goodhr5/cloud/backend/internal/httpapi/position.go#L74-L298)
+- [position_execution.go:53-276](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L53-L276)
+- [position_log.go:56-164](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L56-L164)
+- [local_candidate_ingest.go:23-232](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L232)
 
-**章节来源**
-- [server.go:124-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L245)
+章节来源
+- [server.go:133-228](file://goodhr5/cloud/backend/internal/httpapi/server.go#L133-L228)
 
 ## 核心组件
-- 岗位数据模型与存储接口：定义岗位字段、统计字段、状态与时间戳；提供列表、保存、按ID读取、删除、启动抢占、状态更新、结束收尾、计数同步、用户流程进度等能力。
-- 运行控制服务：校验登录设备绑定、会员权限、AI余额与冲突，原子抢占运行位，记录用户流程事件，发送状态通知邮件。
-- 日志服务：写入、分页查询、清空岗位日志摘要，支持since/before/limit过滤。
-- 路由分发：将/api/positions/*路径根据后缀分发到详情、日志、启动、停止、状态同步、候选人收集等处理器。
+- 岗位配置服务：提供岗位列表、创建/更新、删除、AI 优化岗位要求等能力。
+- 岗位执行服务：负责启动校验、运行状态同步、停止、失败通知、候选人入库、统计同步。
+- 岗位日志服务：提供日志写入、分页查询、清空等能力。
+- 候选人入库服务：接收本地程序回传的候选人 JSON，持久化到云端简历库并记录事件。
+- 存储层：岗位与候选人的内存/数据库抽象，保证并发安全与一致性。
 
-**章节来源**
-- [position_store.go:14-62](file://goodhr5/cloud/backend/internal/httpapi/position_store.go#L14-L62)
-- [position_execution.go:21-47](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L21-L47)
+章节来源
+- [position.go:28-72](file://goodhr5/cloud/backend/internal/httpapi/position.go#L28-L72)
+- [position_execution.go:21-51](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L21-L51)
 - [position_log.go:13-34](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L13-L34)
-- [server.go:179-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L179-L245)
+- [local_candidate_ingest.go:23-127](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L127)
+- [position_store.go:14-63](file://goodhr5/cloud/backend/internal/httpapi/position_store.go#L14-L63)
+- [candidate_store.go:12-167](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L12-L167)
 
 ## 架构总览
-岗位生命周期由前端或本地Agent触发，经HTTP路由进入对应服务，服务进行鉴权、权限校验、并发控制与业务规则检查后，调用存储层持久化并返回结果。运行过程中，本地Agent持续上报状态、候选人与统计，云端完成状态收敛与通知。
+岗位生命周期由本地 Agent 驱动，云端负责权限校验、资源占用、状态落盘、邮件通知与数据汇总。
 
 ```mermaid
 sequenceDiagram
-participant FE as "前端/本地Agent"
-participant Router as "HTTP路由"
-participant Exec as "运行服务"
-participant Store as "岗位存储"
-participant Mail as "邮件服务"
-FE->>Router : POST /api/positions/{id}/start
-Router->>Exec : Start()
-Exec->>Exec : 校验会话/设备绑定/会员/AI余额/冲突
-Exec->>Store : ClaimPositionStart()
-Store-->>Exec : 成功/失败
-Exec->>Mail : 可选：发送开始通知
-Exec-->>FE : {ok : true, status : "running"}
-FE->>Router : POST /api/positions/{id}/status
-Router->>Exec : SyncStatus()
-Exec->>Store : FinishPositionRun()/UpdatePositionStatus()
-Exec->>Mail : 完成/停止时发送邮件
-Exec-->>FE : {ok : true, status, notice_sent}
+participant FE as "前端/控制台"
+participant API as "云端HTTP服务"
+participant POS as "岗位配置服务"
+participant EXE as "岗位执行服务"
+participant LOG as "岗位日志服务"
+participant CAND as "候选人入库服务"
+participant STORE as "存储层"
+FE->>API : GET /api/positions
+API->>POS : List()
+POS->>STORE : ListPositions()
+STORE-->>POS : 岗位列表
+POS-->>FE : {ok : true, positions : [...]}
+FE->>API : POST /api/positions
+API->>POS : Save()
+POS->>STORE : SavePosition()
+STORE-->>POS : 保存结果
+POS-->>FE : {ok : true, position : {...}}
+FE->>API : POST /api/positions/{id}/start
+API->>EXE : Start()
+EXE->>STORE : ClaimPositionStart()
+STORE-->>EXE : 成功/冲突
+EXE-->>FE : {ok : true, status : "running", run_id}
+EXE->>LOG : WriteLog("岗位启动检查通过")
+EXE->>CAND : (后续候选人入库)
 ```
 
-**图示来源**
-- [server.go:214-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L214-L245)
-- [position_execution.go:49-91](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L49-L91)
-- [position_execution.go:125-213](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L125-L213)
-- [position_store_pg.go:338-380](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L338-L380)
+图表来源
+- [server.go:193-280](file://goodhr5/cloud/backend/internal/httpapi/server.go#L193-L280)
+- [position.go:74-206](file://goodhr5/cloud/backend/internal/httpapi/position.go#L74-L206)
+- [position_execution.go:53-96](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L53-L96)
+- [position_store.go:130-151](file://goodhr5/cloud/backend/internal/httpapi/position_store.go#L130-L151)
 
 ## 详细接口规范
 
 ### 通用约定
-- 认证：除明确标注外，所有接口需携带有效会话（Authorization: Bearer <token>）。
+- 认证：除特别说明外，需携带有效会话（Authorization）。
 - 响应格式：
   - 成功：{ ok: true, ... }
-  - 失败：{ ok: false, error: "消息" } 或启动类错误 { ok: false, error: { code: "...", message: "..." } }
-- 状态码：使用标准HTTP状态码表示错误类型（如401未授权、403禁止、404不存在、409冲突、422参数错误、500内部错误等）。
+  - 失败：{ ok: false, error: "..." } 或启动类接口返回 { ok: false, error: { code: "...", message: "..." } }
+- 内容类型：application/json
+- 跨域：服务端已启用 CORS
 
-### GET /api/positions
-- 功能：列出当前用户（或管理员）的岗位列表。
-- 请求头：Authorization: Bearer <token>
-- 响应体：
-  - positions: 岗位数组
-- 示例响应：
-  - { "ok": true, "positions": [ { "id": "pos_1", "name": "带货主播", "status": "created" } ] }
+章节来源
+- [server.go:297-313](file://goodhr5/cloud/backend/internal/httpapi/server.go#L297-L313)
+- [server.go:613-624](file://goodhr5/cloud/backend/internal/httpapi/server.go#L613-L624)
 
-**章节来源**
-- [position_test.go:47-65](file://goodhr5/cloud/backend/internal/httpapi/position_test.go#L47-L65)
-- [position_store_pg.go:23-109](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L23-L109)
+### 岗位配置 CRUD
 
-### POST /api/positions
-- 功能：创建岗位配置。
-- 必填字段：name
-- 可选字段：platform_id、keywords、exclude_keywords、description、greet_message、is_and_mode、common_config、ai_config、keyword_config、match_limit、enable_sound、enable_thinking
-- common_config关键字段：
-  - mode_default：筛选模式（如 keyword、ai、dom、ocr），受平台规则约束
-  - detail_mode：详情页识别模式（受平台限制）
-- AI提示词：ai_config中可包含提示词模板与评分模式等
-- 权限校验：若使用AI或自动回复，需满足会员与AI余额要求
-- 示例请求体：
-  - { "name": "带货主播", "keywords": ["直播","带货"], "exclude_keywords": ["销售"], "description": "成都岗位", "greet_message": "你好", "is_and_mode": true, "common_config": {"mode_default":"keyword","detail_mode":"dom"}, "ai_config": {} }
-- 示例响应：
-  - { "ok": true, "position": { "id": "pos_1", "name": "带货主播", "status": "created", ... } }
+#### GET /api/positions
+- 功能：获取当前用户可访问的岗位列表（团队内岗位，标记是否当前用户创建）。
+- 请求参数：无
+- 响应字段：
+  - ok: boolean
+  - positions: array of 岗位对象
+    - id, creator_email, platform_id, name, label, keywords, exclude_keywords, description, greet_message, is_and_mode, common_config, ai_config, keyword_config, match_limit, enable_sound, enable_thinking, status, scanned_count, daily_greeted_count, daily_greeted_date, today_greeted_count, skipped_count, failed_count, started_at, finished_at, created_at, updated_at, is_current_user
+- 错误：
+  - 401 会话无效
+  - 500 读取失败
 
-**章节来源**
-- [position_test.go:19-45](file://goodhr5/cloud/backend/internal/httpapi/position_test.go#L19-L45)
-- [position_store_pg.go:111-267](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L111-L267)
-- [position_execution.go:234-282](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L234-L282)
+章节来源
+- [position.go:86-112](file://goodhr5/cloud/backend/internal/httpapi/position.go#L86-L112)
+- [position.go:476-507](file://goodhr5/cloud/backend/internal/httpapi/position.go#L476-L507)
 
-### DELETE /api/positions/{id}
-- 功能：删除指定岗位。
-- 权限：仅岗位所属用户或管理员可操作。
-- 示例响应：
-  - { "ok": true }
+#### POST /api/positions
+- 功能：创建或更新岗位配置。
+- 请求体关键字段：
+  - id: string（可选，用于更新）
+  - platform_id: string（默认 boss）
+  - name: string（必填）
+  - label: string（选填，最多20字）
+  - keywords: string[]
+  - exclude_keywords: string[]
+  - description: string
+  - greet_message: string
+  - is_and_mode: boolean
+  - common_config: object（包含 detail_mode、mode_default、output_structured_resume 等）
+  - ai_config: object
+  - keyword_config: object
+  - match_limit: number（默认 50）
+  - enable_sound: boolean
+  - enable_thinking: boolean
+- 响应：
+  - ok: boolean
+  - position: 岗位对象（同列表项）
+- 错误：
+  - 400 参数非法（如 name 为空、label 超长）
+  - 403 AI 功能需要会员
+  - 500 保存失败
 
-**章节来源**
-- [position_test.go:67-74](file://goodhr5/cloud/backend/internal/httpapi/position_test.go#L67-L74)
-- [position_store_pg.go:487-515](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L487-L515)
+章节来源
+- [position.go:168-206](file://goodhr5/cloud/backend/internal/httpapi/position.go#L168-L206)
+- [position.go:379-445](file://goodhr5/cloud/backend/internal/httpapi/position.go#L379-L445)
 
-### GET /api/positions/{id}
-- 功能：获取岗位详情。
-- 权限：仅岗位所属用户或管理员可操作。
-- 示例响应：
-  - { "ok": true, "position": { "id": "pos_1", "name": "带货主播", "status": "created", "keywords": [...], "common_config": {...}, "ai_config": {...}, ... } }
+#### PUT /api/positions/{id}
+- 功能：更新指定岗位配置（复用 POST 保存逻辑）。
+- 请求体：同 POST
+- 响应：同 POST
+- 错误：同 POST
 
-**章节来源**
-- [position_store_pg.go:269-311](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L269-L311)
-- [server.go:214-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L214-L245)
+章节来源
+- [position.go:265-298](file://goodhr5/cloud/backend/internal/httpapi/position.go#L265-L298)
 
-### POST /api/positions/{id}/start
-- 功能：启动岗位运行。
+#### DELETE /api/positions/{id}
+- 功能：删除岗位配置。
+- 响应：{ ok: true }
+- 错误：
+  - 404 岗位不存在
+  - 500 删除失败
+
+章节来源
+- [position.go:231-263](file://goodhr5/cloud/backend/internal/httpapi/position.go#L231-L263)
+
+#### POST /api/positions/optimize-requirement
+- 功能：基于当前用户的 AI 配置，将原始岗位要求优化为结构化筛选规则。
+- 请求体：{ text: string }
+- 响应：{ ok: true, optimized: string }
+- 错误：
+  - 400 文本为空或JSON非法
+  - 409 未启用或未配置个人 AI
+  - 502 AI 调用失败
+
+章节来源
+- [position.go:114-166](file://goodhr5/cloud/backend/internal/httpapi/position.go#L114-L166)
+- [position.go:300-362](file://goodhr5/cloud/backend/internal/httpapi/position.go#L300-L362)
+
+### 运行控制与状态同步
+
+#### POST /api/positions/{id}/start
+- 功能：本地 Agent 申请启动岗位运行。云端进行会话校验、设备绑定校验、会员与 AI 余额校验、并发占用校验，通过后写入 running 并记录执行任务。
 - 请求体：
-  - task_type：任务类型（如 auto_reply）
-  - machine_id：本地设备标识
-- 前置校验：
-  - 会话有效
-  - 设备绑定校验
-  - 会员权限与AI余额校验（若使用AI或自动回复）
-  - 账号级运行冲突检查（同一账号仅允许一个running岗位）
-- 示例请求体：
-  - { "task_type": "auto_reply", "machine_id": "device_abc" }
-- 示例响应：
-  - { "ok": true, "status": "running" }
-- 常见错误：
+  - task_type: string（greeting 或 auto_reply）
+  - machine_id: string（必须为已绑定的稳定设备）
+- 响应：
+  - ok: true
+  - status: "running"
+  - run_id: string（本次执行任务ID）
+- 错误：
   - 401 会话失效
-  - 403 设备未绑定或无权限
-  - 409 已有岗位在运行
-  - 422 参数无效
-  - 503 会员/AI余额不可用
+  - 400 参数非法
+  - 403 设备未绑定
+  - 409 账号已有岗位运行中
+  - 402 AI 余额不足
+  - 404 岗位不存在
+  - 500 内部错误
 
-**章节来源**
-- [position_execution.go:49-91](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L49-L91)
-- [position_execution.go:215-275](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L215-L275)
-- [position_store_pg.go:338-380](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L338-L380)
+章节来源
+- [position_execution.go:53-96](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L53-L96)
+- [position_execution.go:278-338](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L278-L338)
 
-### POST /api/positions/{id}/stop
-- 功能：停止岗位运行。
-- 行为：若岗位非stopped则更新为stopped，写日志并发送邮件通知。
-- 示例响应：
-  - { "ok": true, "status": "stopped" }
+#### POST /api/positions/{id}/stop
+- 功能：本地 Agent 主动停止岗位运行。
+- 请求体：{}
+- 响应：{ ok: true, status: "stopped" }
+- 行为：若岗位非 stopped，则更新状态、写日志、收尾执行任务、发送停止通知邮件。
+- 错误：
+  - 404 岗位不存在
+  - 500 内部错误
 
-**章节来源**
-- [position_execution.go:93-123](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L93-L123)
+章节来源
+- [position_execution.go:136-167](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L136-L167)
 
-### POST /api/positions/{id}/status
-- 功能：本地程序同步岗位运行状态。
+#### POST /api/positions/{id}/status
+- 功能：本地 Agent 同步运行状态（running/completed/stopped），并回传计数与执行任务 ID。
 - 请求体：
-  - status：completed | stopped | running
-  - task_type：任务类型
-  - run_greeted_count：本次打招呼数量
-  - run_skipped_count：本次跳过数量
-  - machine_id：设备标识
+  - status: "running" | "completed" | "stopped"
+  - task_type: string
+  - run_id: string（可选）
+  - run_greeted_count: number
+  - run_skipped_count: number
+  - machine_id: string
+- 响应：
+  - ok: true
+  - status: 传入的状态
+  - notice_sent: boolean（是否已发送邮件通知）
+  - run_id: string（本次执行任务ID）
 - 行为：
-  - running：重新校验设备与冲突，确保处于运行态
-  - completed/stopped：更新结束状态，必要时发送邮件通知，累计今日打招呼数
-- 示例请求体：
-  - { "status": "completed", "run_greeted_count": 5, "run_skipped_count": 2, "machine_id": "device_abc" }
-- 示例响应：
-  - { "ok": true, "status": "completed", "notice_sent": true }
+  - running：校验设备与会员/AI余额，必要时补建执行任务记录。
+  - completed/stopped：更新岗位结束状态、写日志、收尾执行任务、发送邮件通知（完成时必发，停止时按需）。
+- 错误：
+  - 400 不支持的状态或参数非法
+  - 404 岗位不存在
+  - 500 内部错误
 
-**章节来源**
-- [position_execution.go:125-213](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L125-L213)
+章节来源
+- [position_execution.go:169-276](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L169-L276)
 
-### POST /api/positions/{id}/candidates
-- 功能：本地程序提交候选人信息。
-- 权限：需要会话校验（具体以服务端实现为准）。
-- 示例请求体：
-  - { "candidate": { "name": "张三", "phone": "13800000000", "resume_url": "https://...", "source": "boss" } }
-- 示例响应：
-  - { "ok": true }
+#### POST /api/fail-notice
+- 功能：本地 Agent 上报运行失败，云端更新状态、记录流程、发送邮件。
+- 请求体：
+  - position_id: string
+  - error_message: string
+  - run_greeted_count: number
+  - run_skipped_count: number
+- 响应：{ ok: true, status: "notified" }
+- 行为：根据错误信息判断最终状态为 failed 或 stopped，并发送通知。
 
-**章节来源**
-- [server.go:214-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L214-L245)
+章节来源
+- [position_execution.go:374-435](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L374-L435)
 
-### POST /api/positions/{id}/processed-resumes
-- 功能：上报已处理的简历集合。
-- 示例请求体：
-  - { "resume_ids": ["r1","r2"] }
-- 示例响应：
-  - { "ok": true }
+### 日志查询
 
-**章节来源**
-- [server.go:214-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L214-L245)
+#### GET /api/positions/{id}/logs
+- 功能：分页查询岗位日志摘要（从旧到新排序）。
+- 查询参数：
+  - since: RFC3339 时间（可选）
+  - before: RFC3339 时间（可选）
+  - limit: integer（默认100，最大300）
+- 响应：
+  - ok: true
+  - logs: array of { id, position_id, level, message, created_at }
+  - has_more: boolean
+- 错误：
+  - 400 参数非法
+  - 404 岗位不存在
+  - 500 读取失败
 
-### POST /api/positions/{id}/counts
-- 功能：同步岗位统计计数（扫描、跳过、失败）。
-- 示例请求体：
-  - { "scanned": 10, "skipped": 3, "failed": 1 }
-- 示例响应：
-  - { "ok": true }
-
-**章节来源**
-- [position_store_pg.go:411-457](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L411-L457)
-- [server.go:214-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L214-L245)
-
-### /api/positions/{id}/logs
-- GET：分页查询岗位日志摘要
-  - 查询参数：
-    - since：RFC3339时间，起始时间
-    - before：RFC3339时间，截止时间
-    - limit：整数，默认100，最大300
-  - 示例响应：
-    - { "ok": true, "logs": [{ "id":"log_1","level":"info","message":"...","created_at":"..."}], "has_more": false }
-- POST：写入一条日志摘要
-  - 请求体：{ "level": "info", "message": "岗位启动检查通过" }
-  - 示例响应：{ "ok": true, "log": { "id":"log_1","level":"info","message":"...","created_at":"..." } }
-- DELETE：清空该岗位日志摘要
-  - 示例响应：{ "ok": true }
-
-**章节来源**
-- [position_log.go:56-203](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L56-L203)
+章节来源
+- [position_log.go:123-164](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L123-L164)
 - [position_log.go:205-240](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L205-L240)
 
-### 岗位搜索条件配置与AI提示词
-- 搜索条件：
-  - keywords：关键词数组
-  - exclude_keywords：排除关键词数组
-  - is_and_mode：是否AND匹配
-  - match_limit：匹配上限
-- 运行策略：
-  - common_config.mode_default：筛选模式（keyword/ai/dom/ocr）
-  - common_config.detail_mode：详情页识别模式（受平台限制）
-  - enable_sound：启用声音提醒
-  - enable_thinking：启用思考模式
-- AI提示词：
-  - ai_config：可包含提示词模板、评分模式等（由系统迁移与默认提示词管理）
+#### POST /api/positions/{id}/logs
+- 功能：写入一条岗位日志摘要。
+- 请求体：{ level: string, message: string }
+- 响应：{ ok: true, log: {...} }
+- 错误：
+  - 400 消息为空或JSON非法
+  - 404 岗位不存在
+  - 500 写入失败
 
-**章节来源**
-- [position_store.go:14-41](file://goodhr5/cloud/backend/internal/httpapi/position_store.go#L14-L41)
-- [position_store_pg.go:111-267](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L111-L267)
-- [position_test.go:98-125](file://goodhr5/cloud/backend/internal/httpapi/position_test.go#L98-L125)
+章节来源
+- [position_log.go:70-121](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L70-L121)
+
+#### DELETE /api/positions/{id}/logs
+- 功能：清空该岗位的日志摘要。
+- 响应：{ ok: true }
+- 错误：
+  - 404 岗位不存在
+  - 500 清空失败
+
+章节来源
+- [position_log.go:174-203](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L174-L203)
+
+### 候选人收集与统计
+
+#### POST /api/positions/{id}/candidates
+- 功能：接收本地 Agent 回传的候选人 JSON，保存到云端简历库，并记录事件与统计。
+- 请求体：候选人 JSON（包含平台、姓名、联系方式、工作地、期望薪资、教育、经历、证书、荣誉、项目经验、沟通记录、AI评分与原因、状态、打招呼信息等）
+- 响应：
+  - ok: true
+  - candidate: 候选人主体对象
+  - engagement: 触达上下文ID
+- 行为：
+  - 保存候选人主体与触达上下文
+  - 保存 AI 评分事件与动作事件（打招呼、索要手机/微信/简历）
+  - 更新触达状态与时间戳
+  - 累加岗位扫描/跳过/失败计数
+  - 记录用户流程事件（首次处理简历、首次打招呼成功）
+- 错误：
+  - 400 参数非法
+  - 404 岗位不存在
+  - 500 保存失败
+
+章节来源
+- [local_candidate_ingest.go:23-127](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L127)
+- [local_candidate_ingest.go:234-327](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L234-L327)
+
+#### POST /api/positions/{id}/processed-resumes
+- 功能：上报本次去重后新增的已处理简历数量。
+- 请求体：{ count: number }（1~500）
+- 响应：{ ok: true, count: number }
+- 错误：
+  - 400 数量非法
+  - 404 岗位不存在
+  - 500 更新失败
+
+章节来源
+- [local_candidate_ingest.go:137-188](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L137-L188)
+
+#### POST /api/positions/{id}/counts
+- 功能：同步岗位累计统计（扫描、跳过、失败）。
+- 请求体：{ scanned_count, skipped_count, failed_count }（均 >= 0）
+- 响应：{ ok: true }
+- 错误：
+  - 400 数值非法
+  - 404 岗位不存在
+  - 500 同步失败
+
+章节来源
+- [local_candidate_ingest.go:190-232](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L190-L232)
+
+## 依赖关系分析
+- 路由分发：server.go 将 /api/positions 及其子资源分发至 PositionService 与 PositionExecutionService。
+- 权限与会话：所有接口通过 AuthService.SessionFromRequest 解析会话，确保归属与租户隔离。
+- 并发与占用：ClaimPositionStart 在同一账号维度限制仅一个岗位处于 running。
+- 会员与AI：启动前校验订阅权限、自动回复权限与 AI 余额。
+- 日志与通知：运行过程中写日志，结束时发送邮件通知。
+- 候选人入库：本地 Agent 推送候选人 JSON，云端持久化并记录事件，同时更新岗位统计。
+
+```mermaid
+classDiagram
+class PositionService {
++List()
++Save()
++Detail()
++OptimizeRequirement()
+}
+class PositionExecutionService {
++Start()
++Stop()
++SyncStatus()
++FailNotice()
++SaveLocalCandidate()
++AddProcessedResumes()
++SyncPositionCounts()
+}
+class PositionLogService {
++Add()
++List()
++Clear()
+}
+class PositionStore {
++ListPositions()
++SavePosition()
++PositionByID()
++DeletePosition()
++ClaimPositionStart()
++UpdatePositionStatus()
++FinishPositionRun()
++IncrementPositionCounts()
++SyncPositionCounts()
+}
+class CandidateStore {
++SaveCandidateProfile()
++UpsertCandidateEngagement()
++SaveCandidateEvent()
++UpdateCandidateEngagementStatus()
+}
+PositionService --> PositionStore
+PositionExecutionService --> PositionStore
+PositionExecutionService --> CandidateStore
+PositionLogService --> PositionStore
+```
+
+图表来源
+- [position.go:28-72](file://goodhr5/cloud/backend/internal/httpapi/position.go#L28-L72)
+- [position_execution.go:21-51](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L21-L51)
+- [position_log.go:13-34](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L13-L34)
+- [position_store.go:50-63](file://goodhr5/cloud/backend/internal/httpapi/position_store.go#L50-L63)
+- [candidate_store.go:155-167](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L155-L167)
+
+章节来源
+- [server.go:193-280](file://goodhr5/cloud/backend/internal/httpapi/server.go#L193-L280)
+- [position_execution.go:278-338](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L278-L338)
+
+## 性能与一致性
+- 并发控制：ClaimPositionStart 在同一账号维度原子性占用运行名额，避免重复启动。
+- 幂等性：FinishPositionRun 对相同状态幂等；completed 重复同步直接确认通知已发送。
+- 限流与保护：日志 limit 上限 300；processed-resumes count 上限 500；候选人入库批量写入事件。
+- 异步通知：邮件发送失败不阻塞主流程，仅记录日志。
+- 缓存与持久化：日志支持缓冲刷新（实现层决定），减少频繁 IO。
+
+[本节为通用指导，无需特定文件引用]
+
+## 故障排查指南
+- 启动失败常见原因：
+  - DEVICE_BINDING_REQUIRED：设备未绑定或会话过期，请刷新后台并重新连接本地 Agent。
+  - POSITION_TASK_CONFLICT：同一账号已有岗位运行中，请先停止当前任务。
+  - SUBSCRIPTION_REQUIRED/AUTO_REPLY_MAX_REQUIRED：会员到期或套餐不支持，请续费或升级。
+  - AI_BALANCE_INSUFFICIENT：AI 余额不足，请充值。
+- 状态不同步：
+  - 检查 /api/positions/{id}/status 是否正确回传 completed/stopped。
+  - 查看 /api/positions/{id}/logs 是否有异常日志。
+- 候选人未入库：
+  - 检查 candidates 接口是否返回 success。
+  - 查看候选人事件流水（通过候选人详情接口关联的事件）。
+
+章节来源
+- [position_execution.go:278-338](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L278-L338)
+- [position_log.go:123-164](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L123-L164)
+- [local_candidate_ingest.go:23-127](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L127)
+
+## 结论
+本 API 以“岗位配置 + 运行控制 + 状态同步 + 日志 + 候选人入库”为主线，形成完整的自动化招聘岗位闭环。通过严格的权限校验、会员与 AI 余额控制、并发占用与幂等设计，保障多租户环境下的稳定性与一致性。前端与本地 Agent 可通过标准 JSON 接口完成岗位全生命周期管理。
+
+[本节为总结，无需特定文件引用]
+
+## 附录：状态机、错误码与示例
 
 ### 岗位执行状态机
 ```mermaid
 stateDiagram-v2
-[*] --> 已创建 : "创建岗位"
-已创建 --> 运行中 : "启动成功"
-运行中 --> 已完成 : "正常结束"
-运行中 --> 已停止 : "手动停止/异常停止"
-运行中 --> 失败 : "运行失败"
-已完成 --> [*]
-已停止 --> [*]
-失败 --> [*]
+[*] --> created : "创建岗位"
+created --> running : "POST /start 成功"
+running --> completed : "POST /status completed"
+running --> stopped : "POST /stop 或 /status stopped"
+running --> failed : "POST /fail-notice"
+stopped --> created : "可再次启动"
+completed --> created : "可再次启动"
+failed --> created : "可再次启动"
 ```
 
-**图示来源**
-- [position_store_pg.go:313-336](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L313-L336)
-- [position_store_pg.go:382-409](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L382-L409)
+图表来源
+- [position_store.go:130-173](file://goodhr5/cloud/backend/internal/httpapi/position_store.go#L130-L173)
+- [position_execution.go:169-276](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L169-L276)
 
-## 依赖关系分析
-- 路由层：统一注册岗位相关接口，并根据路径后缀分发到不同处理器。
-- 服务层：
-  - PositionService：岗位配置CRUD与优化需求
-  - PositionExecutionService：启动/停止/状态同步/失败通知/候选人收集/统计同步
-  - PositionLogService：日志写入、查询、清空
-- 存储层：
-  - MemoryPositionStore：开发期内存实现
-  - PostgresPositionStore：生产期PostgreSQL实现，提供事务与锁保障
-- 外部依赖：
-  - 认证与会话
-  - 租户与订阅
-  - AI钱包余额
-  - 邮件服务
+### 启动失败错误码
+- METHOD_NOT_ALLOWED：请求方法不正确
+- SESSION_EXPIRED：会话失效
+- INVALID_REQUEST：启动参数无效
+- DEVICE_BINDING_REQUIRED：设备未绑定
+- POSITION_NOT_FOUND：岗位不存在
+- POSITION_TASK_CONFLICT：账号已有岗位运行中
+- SUBSCRIPTION_CHECK_FAILED：会员状态查询失败
+- SUBSCRIPTION_REQUIRED：需要有效会员
+- AUTO_REPLY_MAX_REQUIRED：自动回复需要更高套餐
+- AI_BALANCE_UNAVAILABLE：AI 余额查询失败
+- AI_BALANCE_INSUFFICIENT：AI 余额不足
+- POSITION_START_FAILED：云端未能记下岗位状态
 
-```mermaid
-graph LR
-Router["路由 server.go"] --> PosSvc["岗位服务"]
-Router --> ExecSvc["运行服务"]
-Router --> LogSvc["日志服务"]
-ExecSvc --> Store["存储接口"]
-Store --> PG["PostgreSQL"]
-ExecSvc --> Mail["邮件"]
-ExecSvc --> Sub["订阅/AI钱包"]
-```
+章节来源
+- [position_execution.go:363-372](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L363-L372)
 
-**图示来源**
-- [server.go:124-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L245)
-- [position_execution.go:21-47](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L21-L47)
-- [position_store_pg.go:13-21](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L13-L21)
+### 典型请求与响应示例（描述性）
+- 创建岗位
+  - 请求：POST /api/positions，body 包含 name、keywords、common_config 等
+  - 响应：{ ok: true, position: { id, name, status: "created", ... } }
+- 启动运行
+  - 请求：POST /api/positions/{id}/start，body 包含 task_type、machine_id
+  - 响应：{ ok: true, status: "running", run_id: "..." }
+- 同步完成
+  - 请求：POST /api/positions/{id}/status，body 包含 status: "completed"、run_greeted_count、run_skipped_count
+  - 响应：{ ok: true, status: "completed", notice_sent: true, run_id: "..." }
+- 候选人入库
+  - 请求：POST /api/positions/{id}/candidates，body 为候选人 JSON
+  - 响应：{ ok: true, candidate: {...}, engagement: "..." }
+- 日志查询
+  - 请求：GET /api/positions/{id}/logs?limit=100
+  - 响应：{ ok: true, logs: [...], has_more: false }
 
-**章节来源**
-- [server.go:124-245](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L245)
-- [position_execution.go:21-47](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L21-L47)
-- [position_store_pg.go:13-21](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L13-L21)
-
-## 性能与一致性
-- 并发安全：
-  - PostgreSQL实现使用事务与 advisory lock 保证账号级运行冲突检测与启动抢占的原子性。
-  - 内存实现使用互斥锁保护并发访问。
-- 幂等性：
-  - 结束状态写入对重复同步幂等，避免重复累加今日打招呼数。
-- 限流与分页：
-  - 日志查询支持since/before/limit，默认100条，最大300条，防止大响应。
-- 超时控制：
-  - 数据库操作设置3秒超时，避免长尾阻塞。
-
-**章节来源**
-- [position_store_pg.go:23-51](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L23-L51)
-- [position_store_pg.go:338-380](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L338-L380)
-- [position_store_pg.go:382-409](file://goodhr5/cloud/backend/internal/httpapi/position_store_pg.go#L382-L409)
-- [position_log.go:205-240](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L205-L240)
-
-## 故障排查指南
-- 启动失败：
-  - 401：会话失效，请重新登录
-  - 403：设备未绑定或无权限，请刷新后台并等待本地程序重新连接
-  - 409：账号已有岗位在运行，请先停止当前任务
-  - 422：参数无效，检查task_type与machine_id
-  - 503：会员/AI余额不可用，稍后再试
-- 状态同步失败：
-  - 404：岗位不存在
-  - 500：更新状态失败，重试或检查数据库
-- 日志问题：
-  - 400：since/before格式错误或limit非法
-  - 500：写入/查询失败，检查存储层
-
-**章节来源**
-- [position_execution.go:49-91](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L49-L91)
-- [position_execution.go:125-213](file://goodhr5/cloud/backend/internal/httpapi/position_execution.go#L125-L213)
-- [position_log.go:70-121](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L70-L121)
-- [position_log.go:123-164](file://goodhr5/cloud/backend/internal/httpapi/position_log.go#L123-L164)
-
-## 结论
-本API围绕岗位配置与运行控制构建了清晰的职责分层：路由分发、服务编排、存储持久化与外部协作（订阅、AI钱包、邮件）。通过严格的权限校验、并发控制与幂等设计，保障了多端协同下的稳定性与一致性。建议在生产环境优先采用PostgreSQL存储实现，并结合日志分页与状态同步机制进行监控与排障。
+[以上为描述性示例，实际字段以接口规范为准]

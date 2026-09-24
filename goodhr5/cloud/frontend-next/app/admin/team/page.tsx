@@ -28,6 +28,7 @@ import ChoiceCards from "@/components/admin/ChoiceCards";
 type TeamMember = {
   invitation_id?: string;
   email: string;
+  display_name?: string;
   role: "admin" | "user";
   status: "active" | "pending";
   invited_by?: string;
@@ -241,7 +242,7 @@ export default function TeamPage() {
             <Box
               sx={{
                 display: { xs: "none", md: "grid" },
-                gridTemplateColumns: "minmax(260px, 1fr) 140px 140px 90px",
+                gridTemplateColumns: "minmax(260px, 1fr) 100px 140px 140px 90px",
                 gap: 2,
                 px: 2,
                 py: 1.35,
@@ -252,6 +253,7 @@ export default function TeamPage() {
               }}
             >
               <Typography>成员账号</Typography>
+              <Typography>用户昵称</Typography>
               <Typography>状态</Typography>
               <Typography sx={{ textAlign: "right" }}>今日打招呼</Typography>
               <Typography sx={{ textAlign: "right" }}>操作</Typography>
@@ -276,7 +278,7 @@ export default function TeamPage() {
       <AdminDialog
         open={inviteOpen}
         title="邀请团队成员"
-        description="对方登录后还要本人确认，数据不会提前搬走。"
+        description="需要对方登录后确认加入。"
         confirmText="发送邀请"
         loading={inviteLoading}
         loadingText="发送中"
@@ -384,7 +386,7 @@ function MemberRow({
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: { xs: "1fr", md: "minmax(260px, 1fr) 140px 140px 90px" },
+        gridTemplateColumns: { xs: "1fr", md: "minmax(260px, 1fr) 100px 140px 140px 90px" },
         gap: { xs: 1.25, md: 2 },
         px: 2,
         py: 1.65,
@@ -399,6 +401,9 @@ function MemberRow({
           {pending ? "邀请时间" : "加入时间"}：{formatDate(member.created_at) || "--"}
         </Typography>
       </Box>
+      <Typography sx={{ color: member.display_name ? "text.primary" : "text.disabled", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {member.display_name || "--"}
+      </Typography>
       <Box>
         <Chip
           size="small"

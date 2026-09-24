@@ -1,14 +1,12 @@
 # 候选人管理API
 
 <cite>
-**本文引用的文件**
+**本文引用的文件**   
 - [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
 - [candidate_service.go](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go)
 - [candidate_store.go](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go)
 - [candidate_store_pg.go](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go)
-- [candidate.go](file://goodhr5/cloud/backend/internal/httpapi/candidate.go)
-- [0016_task_candidates.sql](file://goodhr5/cloud/backend/db/migrations/0016_task_candidates.sql)
-- [0050_simplify_candidate_resume_schema.sql](file://goodhr5/cloud/backend/db/migrations/0050_simplify_candidate_resume_schema.sql)
+- [local_candidate_ingest.go](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go)
 </cite>
 
 ## 目录
@@ -16,389 +14,406 @@
 2. [项目结构](#项目结构)
 3. [核心组件](#核心组件)
 4. [架构总览](#架构总览)
-5. [详细接口说明](#详细接口说明)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能与分页排序](#性能与分页排序)
-8. [故障排查](#故障排查)
-9. [结论](#结论)
-10. [附录：数据模型与示例](#附录数据模型与示例)
+5. [接口定义与示例](#接口定义与示例)
+6. [候选人与岗位运行关联关系](#候选人与岗位运行关联关系)
+7. [简历解析数据结构](#简历解析数据结构)
+8. [依赖关系分析](#依赖关系分析)
+9. [性能与分页排序规则](#性能与分页排序规则)
+10. [故障排查指南](#故障排查指南)
+11. [结论](#结论)
 
 ## 简介
-本文件为 GoodHR 云端后端“候选人管理”相关 API 的完整接口文档，覆盖以下能力：
-- 候选人列表查询（支持按岗位、关键词、团队范围筛选与分页）
-- 候选人详情查看（包含简历解析结果、AI 评分、时间戳等）
-- 备注管理（新增与列表）
-- 批量清空团队候选人数据（管理员权限）
-
-所有接口均受认证与会话控制，并按租户隔离。
+本文件面向调用方，系统化说明 GoodHR 云端后端的候选人管理 API。重点覆盖：
+- 候选人列表查询：/api/candidates
+- 候选人详情查看：/api/candidates/{id}
+- 候选人备注管理：/api/candidates/{id}/notes
+- 筛选条件、分页、排序规则
+- 与岗位运行的关联关系
+- 简历解析结果的数据结构
+- 批量操作与高级查询场景的调用示例
 
 ## 项目结构
-候选人与简历库相关的 HTTP 路由注册在统一服务中，具体业务逻辑由 CandidateService 处理，数据访问通过 CandidateStore 抽象（内存实现与 PostgreSQL 实现）。
+候选人相关能力位于后端 HTTP API 层，由路由注册、服务处理、存储接口与 PostgreSQL 实现组成。
 
 ```mermaid
 graph TB
-Client["前端/调用方"] --> Router["HTTP 路由<br/>server.go"]
-Router --> Service["CandidateService<br/>candidate_service.go"]
-Service --> StoreIF["CandidateStore 接口<br/>candidate_store.go"]
-StoreIF --> PG["PostgresCandidateStore<br/>candidate_store_pg.go"]
-StoreIF --> Mem["MemoryCandidateStore<br/>candidate_store.go"]
-PG --> DB["PostgreSQL<br/>candidate_profiles / candidate_engagements / candidate_events"]
-Mem --> RAM["进程内内存存储"]
+Client["客户端"] --> Router["HTTP 路由<br/>server.go"]
+Router --> CandidateService["候选人服务<br/>candidate_service.go"]
+CandidateService --> StoreInterface["候选人存储接口<br/>candidate_store.go"]
+StoreInterface --> PGStore["PostgreSQL 实现<br/>candidate_store_pg.go"]
+LocalAgent["本地程序<br/>local_candidate_ingest.go"] --> CandidateService
 ```
 
-图表来源
-- [server.go:124-212](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L212)
-- [candidate_service.go:12-76](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L12-L76)
-- [candidate_store.go:146-173](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L146-L173)
+**图表来源**
+- [server.go:191-213](file://goodhr5/cloud/backend/internal/httpapi/server.go#L191-L213)
+- [candidate_service.go:13-28](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L13-L28)
+- [candidate_store.go:155-167](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L155-L167)
 - [candidate_store_pg.go:14-22](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L14-L22)
+- [local_candidate_ingest.go:23-25](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L25)
 
-章节来源
-- [server.go:124-212](file://goodhr5/cloud/backend/internal/httpapi/server.go#L124-L212)
+**章节来源**
+- [server.go:191-213](file://goodhr5/cloud/backend/internal/httpapi/server.go#L191-L213)
 
 ## 核心组件
-- CandidateService：负责候选人列表、详情、备注、清空团队等 HTTP 请求处理；校验参数、鉴权、组装响应。
-- CandidateStore 接口：定义候选人主体、触达上下文、事件流水的增删改查能力。
-- PostgresCandidateStore：基于 PostgreSQL 的持久化实现，提供 SQL 查询、事务与 JSONB 字段读写。
-- MemoryCandidateStore：开发期内存实现，便于本地调试。
-- 数据结构：Candidate、PositionCandidate、CandidateNote、CandidateEvent 等用于内部流转与对外响应转换。
+- 路由注册：将 /api/candidates 与 /api/candidates/{id}、/api/candidates/{id}/notes 映射到候选人服务。
+- 候选人服务：负责认证、参数校验、权限控制、业务逻辑封装和统一响应格式。
+- 存储接口：抽象候选人主体、触达上下文、事件流水、备注等数据访问能力。
+- PostgreSQL 实现：提供持久化查询、分页、筛选、事件聚合与备注读取。
+- 本地程序入库：本地 Agent 回传候选人解析结果，写入候选人主体、触达上下文与事件。
 
-章节来源
-- [candidate_service.go:12-76](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L12-L76)
-- [candidate_store.go:12-173](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L12-L173)
-- [candidate_store_pg.go:325-394](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L325-L394)
-- [candidate.go:6-153](file://goodhr5/cloud/backend/internal/httpapi/candidate.go#L6-L153)
+**章节来源**
+- [candidate_service.go:13-28](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L13-L28)
+- [candidate_store.go:155-167](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L155-L167)
+- [candidate_store_pg.go:14-22](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L14-L22)
+- [local_candidate_ingest.go:23-25](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L25)
 
 ## 架构总览
-候选人与岗位运行紧密关联：
-- 候选人通过岗位运行流程被采集并入库到 candidate_profiles。
-- 一次“触达”由 candidate_engagements 表示，记录候选人、岗位、平台账号的关系及状态、关键时间。
-- 事件流水 candidate_events 记录 AI 评分、人工备注等事件。
-- 列表与详情会聚合最新触达、最近两条备注、以及岗位名称等信息。
-
-```mermaid
-erDiagram
-CANDIDATE_PROFILES ||--o{ CANDIDATE_ENGAGEMENTS : "被多次触达"
-CANDIDATE_PROFILES ||--o{ CANDIDATE_EVENTS : "产生事件"
-CANDIDATE_ENGAGEMENTS ||--o{ CANDIDATE_EVENTS : "关联事件"
-POSITIONS ||--o{ CANDIDATE_ENGAGEMENTS : "作为触达目标"
-CANDIDATE_PROFILES {
-uuid id PK
-text tenant_id
-text source_platform_id
-text source_platform_candidate_id
-text candidate_name
-text birth_ym
-text phone
-text email
-text work_region
-text work_years
-int expected_salary_min
-int expected_salary_max
-text education_level
-text expected_position
-text online_status
-text personal_description
-text work_status
-text basic_info
-text raw_text
-jsonb work_experiences
-jsonb educations
-jsonb certificates
-jsonb honors
-jsonb project_experiences
-jsonb colleague_communications
-double ai_detail_score
-text ai_detail_reason
-double ai_greet_score
-text ai_greet_reason
-timestamptz first_seen_at
-timestamptz created_at
-timestamptz updated_at
-}
-CANDIDATE_ENGAGEMENTS {
-uuid id PK
-uuid candidate_id FK
-uuid position_id FK
-uuid platform_account_id
-text platform_id
-text status
-timestamptz first_seen_at
-timestamptz detail_fetched_at
-timestamptz greeted_at
-timestamptz last_event_at
-timestamptz created_at
-timestamptz updated_at
-}
-CANDIDATE_EVENTS {
-uuid id PK
-uuid tenant_id
-uuid candidate_id FK
-uuid engagement_id
-uuid position_id
-uuid platform_account_id
-text platform_id
-text event_type
-double score
-text reason
-text input_text
-text output_text
-text message_text
-text model
-int token_usage
-jsonb metadata
-timestamptz created_at
-}
-POSITIONS {
-uuid id PK
-text name
-}
-```
-
-图表来源
-- [0016_task_candidates.sql:4-96](file://goodhr5/cloud/backend/db/migrations/0016_task_candidates.sql#L4-L96)
-- [0050_simplify_candidate_resume_schema.sql:1-39](file://goodhr5/cloud/backend/db/migrations/0050_simplify_candidate_resume_schema.sql#L1-L39)
-- [candidate_store_pg.go:489-551](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L489-L551)
-
-## 详细接口说明
-
-### 通用约定
-- 认证：所有接口需携带有效会话（Cookie/Session），未登录返回 401。
-- 租户隔离：默认仅返回当前用户所属团队的候选人；管理员可跨成员范围操作。
-- 错误格式：{"ok": false, "error": "消息"}
-- 成功格式：{"ok": true, ...}
-
-### GET /api/candidates
-- 功能：获取候选人列表（支持按岗位、关键词、分页）。
-- 路径参数：无
-- 查询参数：
-  - position_id：字符串，可选。限定只返回与该岗位存在触达关系的候选人。
-  - keyword/q：字符串，可选。模糊匹配姓名、电话、邮箱、地区、工作年限、学历、期望职位、基础信息、个人描述、原始文本等。
-  - page：整数，可选。页码，默认 1。
-  - page_size：整数，可选。每页条数，默认 20，最大 100。
-- 权限：非管理员时自动限制为当前用户创建的候选人；管理员可查看全部团队成员的候选人。
-- 响应体：
-  - ok：布尔
-  - candidates：数组，元素为候选人摘要对象（见下方“候选人摘要字段”）
-  - total：整数，符合条件的总数
-  - page：整数，当前页
-  - page_size：整数，每页大小
-- 排序规则：按“最近一次触达创建时间或候选人创建时间”降序。
-
-章节来源
-- [candidate_service.go:29-76](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L29-L76)
-- [candidate_store_pg.go:325-357](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L325-L357)
-- [candidate_store_pg.go:489-551](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L489-L551)
-
-#### 候选人摘要字段（candidates 数组元素）
-- id：候选人主体 ID
-- engagement_id：最近一次触达 ID
-- engagement_status：触达状态
-- position_id：岗位 ID
-- position_name：岗位名称
-- platform_account_id：平台账号 ID
-- user_email：创建人邮箱
-- platform_id：招聘平台标识
-- platform_candidate_id：平台侧候选人原始 ID
-- candidate_name：候选人姓名
-- birth_ym：出生年月
-- phone：手机号
-- email：邮箱
-- work_region：工作地区
-- work_years：工作年限
-- expected_salary_min/max：期望薪资区间（单位 K）
-- basic_info：基础信息摘要
-- education_level：最高学历
-- expected_position：期望职位
-- online_status：在线状态
-- personal_description：个人描述
-- work_status：求职状态
-- work_experiences：工作经历数组
-- educations：教育经历数组
-- certificates：证书数组
-- honors：荣誉数组
-- project_experiences：项目经验数组
-- colleague_communications：沟通记录数组
-- ai：包含 detail/greet 两个阶段的评分与原因
-- notes：最多两条最近备注
-- raw_text：平台简历原文
-- first_seen_at/detail_fetched_at/greeted_at/created_at/updated_at：时间戳
-
-章节来源
-- [candidate_service.go:242-295](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L242-L295)
-- [candidate_store_pg.go:489-551](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L489-L551)
-
-### DELETE /api/candidates
-- 功能：清空当前团队的全部候选人数据（包括主体、触达、事件级联删除）。
-- 权限：仅团队管理员可用。
-- 响应体：
-  - ok：布尔
-  - deleted：整数，删除的候选人主体数量
-
-章节来源
-- [candidate_service.go:78-108](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L78-L108)
-- [candidate_store_pg.go:422-433](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L422-L433)
-
-### GET /api/candidates/{id}
-- 功能：获取指定候选人详情（包含简历解析结果、AI 评分、事件流水等）。
-- 路径参数：
-  - id：候选人主体 ID
-- 查询参数：
-  - engagement_id：字符串，可选。限定读取该触达的事件流水；不传则使用最近一次触达。
-- 权限：仅可查看当前团队内的候选人；非管理员限制为本人创建。
-- 响应体：
-  - ok：布尔
-  - candidate：候选人详情对象（同列表项字段，但包含更多上下文与事件）
-
-章节来源
-- [candidate_service.go:110-146](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L110-L146)
-- [candidate_store_pg.go:359-394](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L359-L394)
-
-### GET /api/candidates/{id}/notes
-- 功能：获取某候选人的备注列表（按创建时间倒序）。
-- 路径参数：
-  - id：候选人主体 ID
-- 权限：同详情可见范围。
-- 响应体：
-  - ok：布尔
-  - notes：数组，元素为备注对象（id、candidate_id、content、author_email、created_at）
-
-章节来源
-- [candidate_service.go:148-185](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L148-L185)
-- [candidate_store_pg.go:396-420](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L396-L420)
-
-### POST /api/candidates/{id}/notes
-- 功能：新增备注。
-- 路径参数：
-  - id：候选人主体 ID
-- 请求体：
-  - content：字符串，必填；长度限制 1000 字以内。
-- 权限：同详情可见范围。
-- 响应体：
-  - ok：布尔
-  - note：新增的备注对象（id、candidate_id、content、author_email、created_at）
-
-章节来源
-- [candidate_service.go:186-213](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L186-L213)
-
-## 依赖关系分析
-- 路由层：server.go 将 /api/candidates 与 /api/candidates/ 分发至 CandidateService。
-- 服务层：CandidateService 负责参数解析、权限校验、调用存储层，并转换为公共响应结构。
-- 存储层：
-  - PostgresCandidateStore：使用三表模型（profiles、engagements、events）完成复杂查询与聚合。
-  - MemoryCandidateStore：开发期内存实现，行为一致。
-- 数据模型：
-  - 候选人主体：扁平化字段 + JSONB 经历数组 + AI 评分字段。
-  - 触达上下文：记录候选人、岗位、平台账号关系与状态、时间。
-  - 事件流水：记录 AI 评分、人工备注等事件。
+候选人管理 API 的请求流程如下：
 
 ```mermaid
 sequenceDiagram
 participant C as "客户端"
 participant R as "路由 server.go"
-participant S as "CandidateService"
-participant ST as "CandidateStore"
-participant DB as "PostgreSQL"
-C->>R : GET /api/candidates?position_id=&keyword=&page=&page_size=
+participant S as "候选人服务 candidate_service.go"
+participant ST as "存储接口 candidate_store.go"
+participant DB as "PostgreSQL candidate_store_pg.go"
+C->>R : GET /api/candidates?position_id=...&keyword=...&status=...&page=...&page_size=...
 R->>S : Collection()
-S->>S : 解析参数/鉴权/确定团队范围
+S->>S : currentSession()
 S->>ST : ListPositionCandidates(tenantID, query)
-ST->>DB : 构建 WHERE/LIMIT/OFFSET 查询
-DB-->>ST : 候选人列表+计数
+ST->>DB : 构建 WHERE + JOIN + LIMIT/OFFSET
+DB-->>ST : 候选人列表 + 总数
 ST-->>S : PositionCandidateListResult
-S-->>C : {ok : true, candidates : [...], total, page, page_size}
+S-->>C : {ok : true, candidates : [], total, page, page_size}
 ```
 
-图表来源
-- [server.go:184-192](file://goodhr5/cloud/backend/internal/httpapi/server.go#L184-L192)
-- [candidate_service.go:29-76](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L29-L76)
-- [candidate_store_pg.go:325-357](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L325-L357)
+**图表来源**
+- [server.go:202-209](file://goodhr5/cloud/backend/internal/httpapi/server.go#L202-L209)
+- [candidate_service.go:30-79](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L30-L79)
+- [candidate_store_pg.go:374-407](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L374-L407)
 
-## 性能与分页排序
+## 接口定义与示例
+
+### 通用约定
+- 认证方式：请求需携带有效会话；未登录或会话过期返回未授权错误。
+- 团队隔离：所有候选人数据按租户隔离；非管理员只能查看当前用户相关数据。
+- 统一响应体：成功响应包含 ok 字段；失败响应为错误消息。
+- 空数组保护：列表类字段不会返回 null，而是空数组。
+
+**章节来源**
+- [candidate_service.go:221-233](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L221-L233)
+- [candidate_service.go:348-362](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L348-L362)
+
+---
+
+### 获取候选人列表
+- 路径：GET /api/candidates
+- 可选方法：DELETE /api/candidates（清空团队候选人，仅管理员）
+
+#### 查询参数
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| position_id | string | 否 | 按岗位 ID 筛选候选人 |
+| keyword / q | string | 否 | 关键词搜索，支持姓名、电话、邮箱、地区、工作年限、学历、期望岗位、基本信息、个人描述、原始文本等多字段模糊匹配 |
+| status | string | 否 | 状态筛选，见下方状态值 |
+| page | int | 否 | 页码，默认 1 |
+| page_size | int | 否 | 每页数量，默认 20，最大 100 |
+
+#### 状态筛选值
+| status 值 | 含义 |
+| --- | --- |
+| resume_pending | 待处理简历 |
+| resume_requested | 已索要简历 |
+| resume_received | 已收到简历 |
+| resume_downloaded | 已下载简历 |
+| resume_failed | 简历解析失败 |
+| detail | 已抓取详情 |
+| greeted | 已打招呼 |
+| resume | 已发起索要简历动作 |
+
+#### 响应体
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| ok | boolean | 是否成功 |
+| candidates | array | 候选人列表 |
+| total | number | 符合条件的总数 |
+| page | number | 当前页码 |
+| page_size | number | 每页数量 |
+
+#### 调用示例
+- 基础列表：GET /api/candidates?page=1&page_size=20
+- 按岗位筛选：GET /api/candidates?position_id={positionId}
+- 关键词搜索：GET /api/candidates?q=Java&page_size=50
+- 组合筛选：GET /api/candidates?position_id={positionId}&status=resume_received&page=2&page_size=20
+- 清空团队候选人（管理员）：DELETE /api/candidates
+
+**章节来源**
+- [candidate_service.go:30-79](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L30-L79)
+- [candidate_store_pg.go:683-729](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L683-L729)
+
+---
+
+### 获取候选人详情
+- 路径：GET /api/candidates/{id}
+- 查询参数：engagement_id（可选），用于指定某次触达上下文
+
+#### 路径参数
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| id | string | 是 | 候选人主体 ID |
+
+#### 查询参数
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| engagement_id | string | 否 | 指定触达上下文 ID；为空时返回最近一次触达 |
+
+#### 响应体
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| ok | boolean | 是否成功 |
+| candidate | object | 候选人详情对象，包含基础信息、解析字段、AI 评分、备注、事件、时间戳等 |
+
+#### 调用示例
+- 查看详情：GET /api/candidates/{candidateId}
+- 指定触达上下文：GET /api/candidates/{candidateId}?engagement_id={engagementId}
+
+**章节来源**
+- [candidate_service.go:113-149](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L113-L149)
+- [candidate_store_pg.go:409-444](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L409-L444)
+
+---
+
+### 候选人备注管理
+- 路径：GET /api/candidates/{id}/notes
+- 路径：POST /api/candidates/{id}/notes
+
+#### 查询参数
+无额外查询参数。
+
+#### POST 请求体
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| content | string | 是 | 备注内容，长度不超过 1000 字 |
+
+#### 响应体
+- GET：{ ok: true, notes: [] }
+- POST：{ ok: true, note: { id, candidate_id, content, author_email, created_at } }
+
+#### 调用示例
+- 获取备注：GET /api/candidates/{candidateId}/notes
+- 新增备注：POST /api/candidates/{candidateId}/notes，body 为 { content: "面试通过，建议进入下一轮" }
+
+**章节来源**
+- [candidate_service.go:151-219](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L151-L219)
+- [candidate_store_pg.go:446-470](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L446-L470)
+
+---
+
+### 批量操作与高级查询场景
+- 批量清空团队候选人：DELETE /api/candidates（仅管理员）
+- 按岗位+状态+关键词分页查询：GET /api/candidates?position_id={pid}&status=resume_received&keyword=深圳&page=1&page_size=100
+- 指定触达上下文查看历史：GET /api/candidates/{cid}?engagement_id={eid}
+- 批量添加备注：对每个候选人分别调用 POST /api/candidates/{id}/notes
+
+**章节来源**
+- [candidate_service.go:81-111](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L81-L111)
+- [candidate_service.go:113-219](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L113-L219)
+
+## 候选人与岗位运行关联关系
+候选人数据由本地程序在岗位运行过程中产生，并同步至云端简历库。关键关系如下：
+- 候选人主体：保存候选人基础信息与解析结果。
+- 触达上下文：记录候选人与岗位、平台账号的一次交互上下文，包括状态、时间戳、简历状态等。
+- 事件流水：记录 AI 评分、打招呼、索要信息等事件。
+- 岗位计数：候选人入库会更新岗位扫描、跳过、失败等统计。
+
+```mermaid
+flowchart TD
+Start["本地程序解析候选人"] --> Ingest["云端入库 SaveLocalCandidate"]
+Ingest --> Profile["保存候选人主体"]
+Ingest --> Engagement["创建或更新触达上下文"]
+Ingest --> Events["写入 AI 评分与动作事件"]
+Ingest --> Counts["更新岗位统计计数"]
+Profile --> Query["候选人列表/详情查询"]
+Engagement --> Query
+Events --> Query
+```
+
+**图表来源**
+- [local_candidate_ingest.go:23-127](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L127)
+- [candidate_store_pg.go:24-161](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L24-L161)
+- [candidate_store_pg.go:163-230](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L163-L230)
+- [candidate_store_pg.go:232-295](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L232-L295)
+
+**章节来源**
+- [local_candidate_ingest.go:23-127](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L23-L127)
+- [candidate_store_pg.go:24-161](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L24-L161)
+- [candidate_store_pg.go:163-230](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L163-L230)
+- [candidate_store_pg.go:232-295](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L232-L295)
+
+## 简历解析数据结构
+候选人详情中的简历解析字段来源于本地程序入库与云端存储转换。关键字段如下：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | string | 候选人主体 ID |
+| engagement_id | string | 最近一次触达上下文 ID |
+| engagement_status | string | 触达状态 |
+| position_id | string | 所属岗位 ID |
+| position_name | string | 岗位名称 |
+| platform_account_id | string | 平台账号 ID |
+| user_email | string | 岗位所属用户邮箱 |
+| platform_id | string | 招聘平台 ID |
+| platform_candidate_id | string | 平台侧候选人 ID |
+| candidate_name | string | 候选人姓名 |
+| birth_ym | string | 出生年月 |
+| phone | string | 电话 |
+| email | string | 邮箱 |
+| work_region | string | 工作地区 |
+| work_years | string | 工作年限 |
+| expected_salary_min | number | 期望薪资下限 |
+| expected_salary_max | number | 期望薪资上限 |
+| basic_info | string | 基本信息摘要 |
+| education_level | string | 最高学历 |
+| expected_position | string | 期望岗位 |
+| online_status | string | 在线状态 |
+| personal_description | string | 个人描述 |
+| work_status | string | 求职状态 |
+| work_experiences | array | 工作经历 |
+| educations | array | 教育经历 |
+| certificates | array | 证书 |
+| honors | array | 荣誉 |
+| project_experiences | array | 项目经验 |
+| colleague_communications | array | 同事沟通记录 |
+| ai.detail.score | number | 详情页 AI 评分 |
+| ai.detail.reason | string | 详情页 AI 评分原因 |
+| ai.greet.score | number | 打招呼页 AI 评分 |
+| ai.greet.reason | string | 打招呼页 AI 评分原因 |
+| notes | array | 备注列表 |
+| raw_text | string | 原始文本 |
+| first_seen_at | timestamp | 首次发现时间 |
+| detail_fetched_at | timestamp | 详情抓取时间 |
+| greeted_at | timestamp | 打招呼时间 |
+| resume_requested_at | timestamp | 索要简历时间 |
+| resume_state | string | 简历状态 |
+| resume_error | string | 简历错误信息 |
+| resume_updated_at | timestamp | 简历更新时间 |
+| events | array | 事件流水 |
+| created_at | timestamp | 创建时间 |
+| updated_at | timestamp | 更新时间 |
+
+事件流水常用字段：
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | string | 事件 ID |
+| task_id | string | 执行任务 ID |
+| event_type | string | 事件类型，如 detail_analysis、greet_analysis、greeted_sent、phone_requested、wechat_requested、resume_requested、manual_note |
+| score | number | 评分 |
+| reason | string | 评分原因 |
+| input_text | string | 输入文本 |
+| output_text | string | 输出文本 |
+| message_text | string | 消息文本 |
+| metadata | object | 扩展元数据 |
+| created_at | timestamp | 创建时间 |
+
+**章节来源**
+- [candidate_service.go:254-303](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L254-L303)
+- [candidate_service.go:305-346](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L305-L346)
+- [candidate_store.go:12-65](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L12-L65)
+- [candidate_store.go:125-153](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L125-L153)
+- [local_candidate_ingest.go:234-309](file://goodhr5/cloud/backend/internal/httpapi/local_candidate_ingest.go#L234-L309)
+
+## 依赖关系分析
+候选人 API 的依赖关系如下：
+
+```mermaid
+classDiagram
+class CandidateService {
++Collection(w, r)
++Detail(w, r)
++Notes(w, r)
+-currentSession(w, r)
+}
+class CandidateStore {
+<<interface>>
++SaveCandidateProfile(item)
++UpsertCandidateEngagement(item)
++SaveCandidateEvent(item)
++UpdateCandidateEngagementStatus(id, status, ...)
++FindEngagementsByPositionAndNames(positionID, names)
++ListPositionCandidates(tenantID, query)
++GetPositionCandidate(tenantID, candidateID, engagementID, userEmail, isAdmin)
++ListCandidateNotes(tenantID, candidateID)
++DeleteTeamCandidates(tenantID)
+}
+class PostgresCandidateStore {
++db
++SaveCandidateProfile(...)
++UpsertCandidateEngagement(...)
++SaveCandidateEvent(...)
++UpdateCandidateEngagementStatus(...)
++FindEngagementsByPositionAndNames(...)
++ListPositionCandidates(...)
++GetPositionCandidate(...)
++ListCandidateNotes(...)
++DeleteTeamCandidates(...)
+}
+CandidateService --> CandidateStore : "依赖"
+PostgresCandidateStore ..|> CandidateStore : "实现"
+```
+
+**图表来源**
+- [candidate_service.go:13-28](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L13-L28)
+- [candidate_store.go:155-167](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L155-L167)
+- [candidate_store_pg.go:14-22](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L14-L22)
+
+**章节来源**
+- [candidate_service.go:13-28](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L13-L28)
+- [candidate_store.go:155-167](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L155-L167)
+- [candidate_store_pg.go:14-22](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L14-L22)
+
+## 性能与分页排序规则
 - 分页规范：
-  - page 默认 1，page_size 默认 20，最大 100。
-  - 超出范围会被规范化处理。
+  - page 默认 1，小于等于 0 时归一化为 1。
+  - page_size 默认 20，大于 100 时限制为 100。
 - 排序规则：
-  - 列表按“最近一次触达创建时间或候选人创建时间”降序。
-- 搜索优化：
-  - 关键词采用 ILIKE 多字段模糊匹配，避免全表扫描大字段。
-- 事件加载：
-  - 详情加载事件流水时限制最多 200 条，避免过大响应。
-- 备注聚合：
-  - 列表查询时仅聚合最近 2 条备注，减少负载。
+  - 列表按最近触达时间倒序；若无触达则按候选人创建时间倒序。
+- 筛选优化：
+  - 关键词使用多字段 ILIKE 模糊匹配。
+  - 状态筛选通过 EXISTS 子查询限定触达上下文范围。
+  - 非管理员自动附加用户邮箱过滤。
 
-章节来源
-- [candidate_store.go:397-417](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L397-L417)
-- [candidate_store_pg.go:325-357](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L325-L357)
-- [candidate_store_pg.go:435-487](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L435-L487)
-- [candidate_store_pg.go:489-551](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L489-L551)
+```mermaid
+flowchart TD
+A["接收 page/page_size"] --> B["normalizeCandidatePage"]
+B --> C["buildCandidateWhere"]
+C --> D["COUNT 查询"]
+D --> E["LIMIT/OFFSET 分页查询"]
+E --> F["ORDER BY latest_engagement.created_at DESC"]
+```
 
-## 故障排查
-- 401 未授权：检查会话是否有效或已过期。
-- 403 禁止：清空团队数据需要团队管理员权限。
-- 404 未找到：候选人不存在或无权访问。
-- 400 参数错误：
-  - 备注内容不能为空或超过 1000 字。
-  - 路径缺少必要 ID。
-- 500 服务器错误：存储不可用或数据库异常。
+**图表来源**
+- [candidate_store.go:454-467](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L454-L467)
+- [candidate_store_pg.go:374-407](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L374-L407)
+- [candidate_store_pg.go:683-729](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L683-L729)
 
-章节来源
-- [candidate_service.go:218-240](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L218-L240)
-- [candidate_service.go:78-108](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L78-L108)
-- [candidate_service.go:110-146](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L110-L146)
-- [candidate_service.go:148-213](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L148-L213)
+**章节来源**
+- [candidate_store.go:454-467](file://goodhr5/cloud/backend/internal/httpapi/candidate_store.go#L454-L467)
+- [candidate_store_pg.go:374-407](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L374-L407)
+- [candidate_store_pg.go:683-729](file://goodhr5/cloud/backend/internal/httpapi/candidate_store_pg.go#L683-L729)
+
+## 故障排查指南
+- 未授权或会话过期：检查请求是否携带有效会话。
+- 候选人不存在：确认 candidate_id 是否正确，或是否属于当前团队。
+- 备注过长：content 超过 1000 字会被拒绝。
+- 清空团队候选人失败：确认当前用户是否为团队管理员。
+- 列表为空：检查 position_id、status、keyword 筛选条件是否过严。
+- 简历状态异常：检查本地程序入库时 resume_state、resume_error 字段是否正确。
+
+**章节来源**
+- [candidate_service.go:221-233](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L221-L233)
+- [candidate_service.go:113-149](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L113-L149)
+- [candidate_service.go:189-203](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L189-L203)
+- [candidate_service.go:97-111](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L97-L111)
 
 ## 结论
-候选人管理 API 提供了完整的候选人数据获取、简历解析结果查看与备注管理能力，并通过岗位运行关联形成“候选人-触达-事件”的闭环。接口设计遵循统一的鉴权与租户隔离策略，具备分页、模糊搜索、排序与批量清理能力，适合前后端集成与自动化流程对接。
-
-## 附录：数据模型与示例
-
-### 简历解析数据结构
-- 基础字段：姓名、出生年月、手机、邮箱、地区、工作年限、期望薪资、学历、期望职位、在线状态、个人描述、工作状态、基础信息摘要、原始文本。
-- 经历类字段（JSONB 数组）：
-  - 工作经历：公司名、岗位名、内容、起止年月
-  - 教育经历：学校名、专业名、学历、起止年月
-  - 证书：证书名、颁发机构、颁发年月
-  - 荣誉：荣誉名、颁发机构、颁发年月、描述
-  - 项目经验：项目名、角色名、内容、起止年月
-  - 沟通记录：沟通人、沟通时间、内容
-- AI 评分：
-  - 详情阶段：score、reason
-  - 打招呼阶段：score、reason
-- 时间戳：首次发现、详情抓取完成、打招呼成功、创建、更新
-
-章节来源
-- [0016_task_candidates.sql:4-96](file://goodhr5/cloud/backend/db/migrations/0016_task_candidates.sql#L4-L96)
-- [0050_simplify_candidate_resume_schema.sql:1-39](file://goodhr5/cloud/backend/db/migrations/0050_simplify_candidate_resume_schema.sql#L1-L39)
-- [candidate.go:6-153](file://goodhr5/cloud/backend/internal/httpapi/candidate.go#L6-L153)
-
-### 接口调用示例
-
-- 列出候选人（按岗位与关键词分页）
-  - 方法：GET
-  - 路径：/api/candidates?position_id={岗位ID}&keyword={关键词}&page=1&page_size=20
-  - 响应：包含 candidates、total、page、page_size
-
-- 获取候选人详情（含事件流水）
-  - 方法：GET
-  - 路径：/api/candidates/{id}?engagement_id={触达ID}
-  - 响应：包含 candidate 对象
-
-- 新增备注
-  - 方法：POST
-  - 路径：/api/candidates/{id}/notes
-  - 请求体：{"content":"面试反馈：技术面表现良好"}
-  - 响应：包含新增 note 对象
-
-- 获取备注列表
-  - 方法：GET
-  - 路径：/api/candidates/{id}/notes
-  - 响应：包含 notes 数组
-
-- 批量清空团队候选人（管理员）
-  - 方法：DELETE
-  - 路径：/api/candidates
-  - 响应：包含 deleted 数量
-
-章节来源
-- [candidate_service.go:29-213](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L29-L213)
-- [server.go:184-192](file://goodhr5/cloud/backend/internal/httpapi/server.go#L184-L192)
+GoodHR 候选人管理 API 提供了清晰的候选人列表、详情与备注管理能力，并通过岗位运行与本地程序入库形成完整的数据闭环。调用方可以基于 position_id、status、keyword 进行灵活筛选，结合分页与排序规则高效检索候选人。简历解析结果以结构化字段暴露，便于前端展示与分析。建议在集成时严格遵循认证、团队隔离与参数校验要求，并在批量操作中注意管理员权限与性能边界。

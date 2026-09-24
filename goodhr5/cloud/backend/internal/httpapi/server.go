@@ -137,6 +137,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册认证接口，用于邮箱验证码登录和登录态校验。
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)
+	mux.HandleFunc("/api/auth/login-password", s.auth.LoginPassword)
 	mux.HandleFunc("/api/auth/me", s.auth.Me)
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)

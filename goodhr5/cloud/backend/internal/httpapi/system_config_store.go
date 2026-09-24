@@ -88,7 +88,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			ConfigValue: `[
 				{
 					"id": "free",
-					"name": "永久免费版",
+					"name": "免费版",
 					"member_type": "free",
 					"duration_days": 0,
 					"original_price": 0,
@@ -100,7 +100,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 				},
 				{
 					"id": "monthly",
-					"name": "Plus包月版",
+					"name": "Plus包月会员",
 					"member_type": "plus",
 					"duration_days": 30,
 					"original_price": 120,
@@ -112,7 +112,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 				},
 				{
 					"id": "yearly",
-					"name": "Pro包年版",
+					"name": "Pro包年会员",
 					"member_type": "pro",
 					"duration_days": 365,
 					"original_price": 1200,

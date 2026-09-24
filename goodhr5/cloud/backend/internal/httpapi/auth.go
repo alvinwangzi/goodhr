@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,7 @@ type AuthService struct {
 	profileStore                UserProfileStore
 	superAdmins                 map[string]struct{}
 	universalLoginCodeOffsetMin int
+	passwordFailures            sync.Map // map[string]*passwordLoginState
 }
 
 type sendCodeRequest struct {
@@ -43,6 +45,23 @@ type loginRequest struct {
 	InviterID         string `json:"inviter_id"`
 	AgreementAccepted bool   `json:"agreement_accepted"`
 }
+
+// loginPasswordRequest 密码登录的请求体。
+type loginPasswordRequest struct {
+	Email             string `json:"email"`
+	Password          string `json:"password"`
+	InviterID         string `json:"inviter_id"`
+	AgreementAccepted bool   `json:"agreement_accepted"`
+}
+
+// passwordLoginState 记录单个邮箱的密码登录失败次数与锁定到期时间。
+type passwordLoginState struct {
+	failures  int
+	lockedAt  time.Time
+}
+
+const maxPasswordFailures = 5
+const passwordLockDuration = 5 * time.Minute
 
 // NewAuthService 创建用户认证服务，并注入邮件、租户、会员和系统配置依赖。
 // NewAuthService 创建用户认证服务，并注入邮件、租户、会员、系统配置和用户资料依赖。
@@ -207,6 +226,142 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"access_token": token,
+		"token_type":   "Bearer",
+		"expires_in":   int(sessionTTL.Seconds()),
+		"user":         s.publicUser(email),
+	})
+}
+
+// LoginPassword 处理邮箱 + 密码登录，含失败计数与临时锁定。
+func (s *AuthService) LoginPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req loginPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+
+	email, ok := normalizeEmail(req.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+
+	password := strings.TrimSpace(req.Password)
+	if password == "" {
+		writeError(w, http.StatusBadRequest, "密码不能为空")
+		return
+	}
+
+	/* 检查是否已锁定 */
+	if raw, loaded := s.passwordFailures.Load(email); loaded {
+		state := raw.(*passwordLoginState)
+		if state.lockedAt.After(time.Now()) {
+			remaining := int(time.Until(state.lockedAt).Seconds())
+			writeError(w, http.StatusTooManyRequests, fmt.Sprintf("密码登录已锁定，请 %d 秒后重试", remaining))
+			return
+		}
+		/* 锁定已过期，重置状态 */
+		s.passwordFailures.Delete(email)
+	}
+
+	/* 检查用户是否设置了密码 */
+	if s.profileStore == nil {
+		writeError(w, http.StatusUnauthorized, "该账号未设置密码，请使用验证码登录")
+		return
+	}
+	hash, err := s.profileStore.GetPasswordHash(email)
+	if err != nil {
+		log.Printf("[密码登录] 读取密码哈希失败 email=%s err=%v", email, err)
+		writeError(w, http.StatusInternalServerError, "登录失败，请稍后重试")
+		return
+	}
+	if hash == "" {
+		writeError(w, http.StatusUnauthorized, "该账号未设置密码，请使用验证码登录")
+		return
+	}
+
+	/* 校验密码 */
+	if !checkPassword(password, hash) {
+		raw, _ := s.passwordFailures.LoadOrStore(email, &passwordLoginState{})
+		state := raw.(*passwordLoginState)
+		state.failures++
+		remaining := maxPasswordFailures - state.failures
+		if remaining <= 0 {
+			state.lockedAt = time.Now().Add(passwordLockDuration)
+			state.failures = 0
+			writeError(w, http.StatusTooManyRequests, "密码错误次数过多，已锁定 5 分钟")
+			return
+		}
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("密码错误，还可尝试%d次", remaining))
+		return
+	}
+
+	/* 密码正确，清除失败记录 */
+	s.passwordFailures.Delete(email)
+
+	/* 协议确认检查 */
+	if s.userActivity != nil {
+		accepted, err := s.userActivity.HasAcceptedAgreement(email)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed read agreement status")
+			return
+		}
+		if !accepted && !req.AgreementAccepted {
+			writeError(w, http.StatusForbidden, "请先阅读并同意 GoodHR 使用协议")
+			return
+		}
+	}
+
+	token, err := randomToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	now := time.Now()
+	if err := s.store.SaveSession(token, Session{
+		Email:     email,
+		CreatedAt: now,
+	}, sessionTTL); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save session")
+		return
+	}
+	if err := s.userActivity.RecordLogin(email, now); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to record login")
+		return
+	}
+	if req.AgreementAccepted && s.userActivity != nil {
+		if err := s.userActivity.AcceptAgreement(email, now); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to accept agreement")
+			return
+		}
+	}
+
+	if err := s.notifyInitialSubscription(email, now); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to send trial reward email")
+		return
+	}
+	if s.aiWallet != nil {
+		if err := s.aiWallet.EnsureUserDefaultAI(email); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to init ai wallet")
+			return
+		}
+	}
+
+	if err := s.applyInviteOnLogin(email, strings.TrimSpace(req.InviterID)); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to apply invite reward")
+		return
+	}
+
+	log.Printf("[密码登录] 登录成功 email=%s", email)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":           true,
 		"access_token": token,

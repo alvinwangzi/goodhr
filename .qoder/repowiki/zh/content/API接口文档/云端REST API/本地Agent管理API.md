@@ -2,12 +2,10 @@
 
 <cite>
 **本文引用的文件**
-- [server.go](file://goodhr5/local-agent-go-new/internal/api/server.go)
-- [agent_binding.go](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go)
-- [agent.go](file://goodhr5/cloud/backend/internal/httpapi/agent.go)
-- [agent_ws.go](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go)
 - [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
-- [client.go](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go)
+- [agent.go](file://goodhr5/cloud/backend/internal/httpapi/agent.go)
+- [agent_store.go](file://goodhr5/cloud/backend/internal/httpapi/agent_store.go)
+- [agent_ws.go](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go)
 - [cloud-control-local-agent-architecture.md](file://docs/cloud-control-local-agent-architecture.md)
 </cite>
 
@@ -16,352 +14,314 @@
 2. [项目结构](#项目结构)
 3. [核心组件](#核心组件)
 4. [架构总览](#架构总览)
-5. [接口规范详解](#接口规范详解)
-6. [WebSocket协议与事件](#websocket协议与事件)
-7. [设备识别与心跳机制](#设备识别与心跳机制)
-8. [远程命令下发流程](#远程命令下发流程)
-9. [依赖关系分析](#依赖关系分析)
-10. [性能与可靠性](#性能与可靠性)
-11. [故障排查指南](#故障排查指南)
-12. [结论](#结论)
+5. [详细接口说明](#详细接口说明)
+6. [依赖关系分析](#依赖关系分析)
+7. [性能与可靠性](#性能与可靠性)
+8. [故障排查指南](#故障排查指南)
+9. [结论](#结论)
+10. [附录：完整示例流程](#附录完整示例流程)
 
 ## 简介
-本文件面向“本地Agent管理API”，覆盖Agent绑定、当前Agent信息查询、云端与本地Agent的WebSocket实时通信等能力。文档基于仓库中云端HTTP API与本地Agent HTTP服务实现，给出协议规范、消息格式、错误处理以及连接建立、状态同步、指令执行的完整示例路径。
+本文件面向“云端控制台 + 本地执行器（Local Agent）”的本地 Agent 管理 API，覆盖以下能力：
+- 设备绑定：将当前登录用户的本地 Agent 机器与云端账号绑定。
+- 状态查询：获取当前用户最近连接的本地 Agent 信息。
+- WebSocket 实时通信：云端与 Local Agent 建立长连接，用于心跳、状态同步和远程命令下发。
+- 错误处理与重试：统一的 JSON 错误格式、消息确认机制、超时重试策略。
+
+该文档以代码实现为依据，给出协议规范、字段含义、调用时序和排错建议，帮助开发者快速对接云端与本地 Agent。
 
 ## 项目结构
-- 云端后端提供：
-  - Agent绑定接口：POST /api/agents/bind
-  - 当前Agent信息接口：GET /api/agents/current
-  - WebSocket长连接：/api/agents/ws（用于云端向本地Agent下发命令并等待回复）
-  - WebSocket在线状态查询：/api/agents/ws-status
-- 本地Agent提供：
-  - 健康检查：GET /health
-  - 会话绑定入口：POST /api/v1/session/bind（将浏览器登录凭证转发到云端完成稳定设备绑定）
-  - 运行态、任务、浏览器、Worker、OCR、下载、更新等本地能力接口（与本API文档相关的主要是绑定流程）
+云端后端在 Go 项目中提供 HTTP 路由与服务组装，关键路径如下：
+- 路由注册：HTTP 路由统一在 Server 中注册，包含 /api/agents/bind、/api/agents/current、/api/agents/ws、/api/agents/ws-status。
+- Agent 服务：负责绑定与查询逻辑，使用存储层保存绑定记录。
+- WebSocket Hub：维护每个用户的唯一在线 Local Agent 连接，支持命令发送、回复等待、超时重试。
 
 ```mermaid
 graph TB
-subgraph "云端"
-A["HTTP路由<br/>/api/agents/*"]
-B["Agent服务<br/>Bind/Current"]
-C["WS Hub<br/>ServeWS/Status"]
-end
-subgraph "本地Agent"
-D["HTTP Server<br/>/api/v1/session/bind"]
-E["Cloud Client<br/>调用 /api/agents/bind"]
-end
-A --> B
-A --> C
-D --> E
-E --> A
-C < --> D
+Client["浏览器/云端页面"] --> Router["HTTP 路由<br/>server.go"]
+Router --> Bind["绑定接口<br/>agent.go:Bind"]
+Router --> Current["当前Agent接口<br/>agent.go:Current"]
+Router --> WS["WebSocket升级<br/>agent_ws.go:ServeWS"]
+Router --> WSStatus["WS状态查询<br/>agent_ws.go:Status"]
+Bind --> Store["绑定存储<br/>agent_store.go"]
+Current --> Store
+WS --> Hub["WS Hub<br/>agent_ws.go"]
+Hub --> Auth["认证服务<br/>AuthService"]
 ```
 
-图表来源
-- [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
-- [agent.go:35-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L35-L135)
+**图表来源**
+- [server.go:149-153](file://goodhr5/cloud/backend/internal/httpapi/server.go#L149-L153)
+- [agent.go:34-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L34-L135)
 - [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
 
-章节来源
-- [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
+**章节来源**
+- [server.go:149-153](file://goodhr5/cloud/backend/internal/httpapi/server.go#L149-L153)
 
 ## 核心组件
-- 云端Agent服务
-  - 负责保存当前登录用户的本地Agent绑定记录，并返回机器ID、版本、端口、公钥、绑定状态、最近可见时间等。
-  - 提供当前用户最近绑定的Agent信息读取。
-- 云端WebSocket Hub
-  - 维护每个云端用户唯一在线的Local Agent连接，支持命令发送、重试、超时、ACK确认。
-  - 提供在线状态查询。
-- 本地Agent HTTP服务
-  - 暴露健康检查与绑定入口，接收浏览器侧Token后调用云端完成绑定。
-  - 通过Cloud Client访问云端REST接口。
-- Cloud Client
-  - 封装对云端REST的强类型调用，包括绑定、岗位、配置、统计等。
+- AgentService：处理绑定与当前 Agent 查询，校验会话并持久化绑定记录。
+- AgentStore：定义绑定记录的保存、查询、冲突检测等能力；默认内存实现，生产可替换为 PostgreSQL。
+- AgentWSHub：管理 WebSocket 连接，提供命令发送、回复匹配、超时重试、在线状态查询。
+- AuthService：提供会话解析与鉴权，确保只有已登录用户才能绑定或查询。
 
-章节来源
-- [agent.go:11-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L11-L135)
-- [agent_ws.go:21-170](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L21-L170)
-- [server.go:35-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L35-L119)
-- [client.go:17-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L17-L85)
+**章节来源**
+- [agent.go:11-32](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L11-L32)
+- [agent_store.go:24-43](file://goodhr5/cloud/backend/internal/httpapi/agent_store.go#L24-L43)
+- [agent_ws.go:34-52](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L34-L52)
 
 ## 架构总览
-本地Agent通过HTTP将浏览器登录凭证转发给云端完成设备绑定；随后云端与本地Agent之间通过WebSocket进行双向通信，云端可下发命令并等待本地回复，本地也可上报状态或结果。
+云端通过 HTTP 暴露绑定与查询接口；通过 WebSocket 与 Local Agent 建立双向通道。Local Agent 主动连接云端，携带 token 完成鉴权；云端按用户维度维护唯一在线连接，新连接会替换旧连接。
 
 ```mermaid
 sequenceDiagram
-participant Browser as "浏览器控制台"
-participant Local as "本地Agent HTTP"
-participant Cloud as "云端HTTP"
-participant WS as "云端WS Hub"
-Browser->>Local : POST /api/v1/session/bind {token}
-Local->>Cloud : POST /api/agents/bind {machine_id, agent_version, local_port}
-Cloud-->>Local : {ok : true, agent : {...}}
-Note over Local,Browser : 绑定成功，记录云端账号与本地端口
-Browser->>WS : 打开 ws : //.../api/agents/ws?token=...
-WS-->>Browser : 升级成功，进入长连接
-WS->>Local : 下发命令 {type, payload, message_id}
-Local-->>WS : 回复 {reply_to, ok, error, payload}
+participant U as "云端页面"
+participant C as "云端HTTP"
+participant L as "Local Agent"
+participant H as "WS Hub"
+U->>C : POST /api/agents/bind (Bearer Token)
+C-->>U : {ok, agent}
+U->>C : GET /api/agents/current (Bearer Token)
+C-->>U : {ok, agent}
+L->>C : WS /api/agents/ws?token=...
+C->>H : 升级连接并注册
+H-->>L : 接收消息并自动ack
+U->>C : 通过Hub发送命令
+C->>L : 发送消息(带message_id)
+L-->>C : 回复(reply_to=message_id)
+C-->>U : 返回结果或错误
 ```
 
-图表来源
-- [agent_binding.go:18-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L18-L54)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
-- [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
-- [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
+**图表来源**
+- [agent.go:34-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L34-L135)
+- [agent_ws.go:54-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L141)
 
-## 接口规范详解
+## 详细接口说明
 
-### 通用响应格式
-- 成功响应
-  - 结构：{ ok: true, data: ... }
-- 失败响应
-  - 结构：{ ok: false, error: { code: "...", message: "..." } }
+### 通用约定
+- 所有响应均为 JSON，成功时包含 ok 字段；失败时包含 error 字段。
+- 需要认证的接口通过 Authorization: Bearer <access_token> 传递会话。
+- CORS 允许跨域请求，便于前端访问本地 Agent 与云端。
 
-说明
-- 本地Agent HTTP统一使用writeSuccess/writeError输出上述格式。
-- 云端HTTP在部分场景直接返回{ ok, agent }等结构，但错误通常以{ ok:false, error:"..." }形式返回。
+**章节来源**
+- [server.go:297-313](file://goodhr5/cloud/backend/internal/httpapi/server.go#L297-L313)
+- [server.go:613-624](file://goodhr5/cloud/backend/internal/httpapi/server.go#L613-L624)
 
-章节来源
-- [server.go:357-384](file://goodhr5/local-agent-go-new/internal/api/server.go#L357-L384)
-- [agent.go:70-93](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L70-L93)
+### 绑定接口：POST /api/agents/bind
+- 功能：将当前登录用户的本地 Agent 机器与云端账号绑定。
+- 请求体字段：
+  - machine_id：必填，设备标识（稳定设备前缀为 goodhr-device-v1-）。
+  - agent_version：可选，Agent 版本。
+  - local_port：可选，本地监听端口。
+  - public_key：可选，公钥（用于后续加密通信）。
+- 成功响应：
+  - ok: true
+  - agent: 包含 machine_id、agent_version、local_port、public_key、bind_status、last_seen_at
+- 错误处理：
+  - 未登录：401 session is invalid or expired
+  - 缺少 machine_id：400 machine_id is required
+  - 设备冲突：409 DEVICE_ALREADY_BOUND（提示已被其他账号绑定）
+  - 服务器错误：500 failed to bind agent
 
-### POST /api/agents/bind（云端：Agent绑定）
-- 用途：保存当前登录用户的本地Agent连接记录，用于后续云端页面展示机器状态及远程命令下发。
-- 认证：需要有效的云端会话（Bearer token）。
-- 请求体字段
-  - machine_id: string，必填，设备编号
-  - agent_version: string，可选，Agent版本号
-  - local_port: int，可选，本地Agent监听端口
-  - public_key: string，可选，公钥
-- 成功响应
-  - { ok: true, agent: { machine_id, agent_version, local_port, public_key, bind_status, last_seen_at } }
-- 错误码
-  - 400：无效JSON或缺少machine_id
-  - 401：会话无效或过期
-  - 409：设备已绑定（DEVICE_ALREADY_BOUND）
-  - 500：绑定失败
+```mermaid
+flowchart TD
+Start(["进入 Bind"]) --> CheckAuth["校验会话"]
+CheckAuth --> |失败| Err401["返回401"]
+CheckAuth --> |成功| ParseBody["解析JSON请求体"]
+ParseBody --> ValidateMachine{"machine_id为空?"}
+ValidateMachine --> |是| Err400["返回400"]
+ValidateMachine --> |否| SaveBinding["保存绑定记录"]
+SaveBinding --> Conflict{"是否设备冲突?"}
+Conflict --> |是| Err409["返回409 DEVICE_ALREADY_BOUND"]
+Conflict --> |否| RespOK["返回{ok:true, agent}"]
+```
 
-章节来源
-- [agent.go:35-93](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L35-L93)
-- [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
+**图表来源**
+- [agent.go:34-94](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L34-L94)
+- [agent_store.go:60-88](file://goodhr5/cloud/backend/internal/httpapi/agent_store.go#L60-L88)
 
-### GET /api/agents/current（云端：当前Agent信息）
-- 用途：返回当前登录用户最近连接的本地Agent信息。
-- 认证：需要有效的云端会话（Bearer token）。
-- 成功响应
-  - 未绑定：{ ok: true, agent: null }
-  - 已绑定：{ ok: true, agent: { machine_id, agent_version, local_port, public_key, bind_status, last_seen_at } }
-- 错误码
-  - 401：会话无效或过期
-  - 500：加载失败
+**章节来源**
+- [agent.go:34-94](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L34-L94)
+- [agent_store.go:60-88](file://goodhr5/cloud/backend/internal/httpapi/agent_store.go#L60-L88)
 
-章节来源
+### 当前Agent接口：GET /api/agents/current
+- 功能：返回当前登录用户最近连接的本地 Agent 信息。
+- 成功响应：
+  - ok: true
+  - agent: 包含 machine_id、agent_version、local_port、public_key、bind_status、last_seen_at
+- 无绑定时：
+  - ok: true
+  - agent: null
+- 错误处理：
+  - 未登录：401 session is invalid or expired
+  - 服务器错误：500 failed to load agent
+
+**章节来源**
 - [agent.go:96-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L96-L135)
-- [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
 
-### GET /api/agents/ws-status（云端：WebSocket在线状态）
-- 用途：查询当前登录用户是否有在线的Local Agent WebSocket连接。
-- 认证：需要有效的云端会话（Bearer token）。
-- 成功响应
-  - { ok: true, connected: boolean }
-- 错误码
-  - 401：会话无效或过期
+### WebSocket 连接：/api/agents/ws
+- 功能：Local Agent 主动连接云端，建立双向通信通道。
+- 鉴权方式：
+  - URL 参数 token 或 Authorization: Bearer <token>
+- 行为特性：
+  - 同一用户只保留一条在线连接，新连接会替换旧连接。
+  - 连接成功后启动读循环与写循环。
+  - 收到消息后自动回复 ack（type 追加 .ack），用于链路健康检查。
+- 错误处理：
+  - 未提供 token：401 missing token
+  - 会话无效或过期：401 session is invalid or expired
 
-章节来源
+**章节来源**
+- [agent_ws.go:54-80](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L80)
+
+### WebSocket 状态查询：GET /api/agents/ws-status
+- 功能：查询当前登录用户的 Local Agent WebSocket 是否在线。
+- 成功响应：
+  - ok: true
+  - connected: true/false
+- 错误处理：
+  - 未登录：401 session is invalid or expired
+
+**章节来源**
 - [agent_ws.go:82-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L82-L97)
-- [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
 
-### POST /api/v1/session/bind（本地：会话绑定入口）
-- 用途：本地Agent接收浏览器侧Token，读取本机设备编号，调用云端完成绑定。
-- 请求体字段
-  - token: string，必填，浏览器登录凭证
-- 成功响应
-  - { ok: true, data: { agent: {...} } }
-- 错误码
-  - 400：TOKEN_REQUIRED（Token为空）
-  - 503：DEVICE_BINDING_UNAVAILABLE（绑定能力未就绪）
-  - 500：DEVICE_ID_UNAVAILABLE（无法读取设备编号）
-  - 502：DEVICE_BIND_FAILED（云端返回绑定失败）
-
-章节来源
-- [agent_binding.go:18-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L18-L54)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
-
-### GET /health（本地：健康检查）
-- 用途：检查本地Agent进程是否存活及基础信息。
-- 成功响应
-  - { ok: true, data: { status, version, agent_version, port, dataDir, logsDir, profilesDir, extensionsDir, extensionPaths, downloadsDir, screenshotsDir, dbPath } }
-
-章节来源
-- [server.go:137-161](file://goodhr5/local-agent-go-new/internal/api/server.go#L137-L161)
-
-## WebSocket协议与事件
-
-### 连接建立
-- 地址：ws://<云端地址>/api/agents/ws
-- 认证：URL参数token或Authorization头中的Bearer token
-- 行为：同一用户仅保留一条在线连接，新连接会替换旧连接
-
-章节来源
-- [agent_ws.go:54-80](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L80)
-
-### 消息结构
-- 统一消息体：AgentWSMessage
-  - message_id: string，消息唯一标识
-  - reply_to: string，可选，表示这是对哪条消息的回复
-  - type: string，必填，消息类型
-  - position_id: string，可选，岗位ID
-  - attempt: int，可选，第几次尝试
-  - ok: bool，可选，执行结果标志
-  - error: string，可选，错误信息
-  - payload: map[string]any，可选，业务负载
-
-章节来源
-- [agent_ws.go:21-32](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L21-L32)
-
-### 事件类型与语义
-- 下行命令：云端 -> 本地
-  - type: 自定义业务类型（如启动任务、停止任务、截图、OCR等）
-  - payload: 具体参数
-  - 本地需回复 reply_to=message_id，type为原type + ".ack" 或直接携带业务结果
-- 上行回复：本地 -> 云端
-  - reply_to: 对应下行message_id
-  - ok: true/false
-  - error: 当ok=false时携带错误信息
-  - payload: 业务数据
-
-章节来源
-- [agent_ws.go:194-217](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L194-L217)
-- [agent_ws.go:325-350](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L325-L350)
-
-### 重试与超时
-- 云端发送命令默认超时90秒
-- 支持多次重试，每次attempt递增
-- 若本地无响应，云端返回超时错误
-
-章节来源
-- [agent_ws.go:19-19](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L19-L19)
-- [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
-- [agent_ws.go:325-350](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L325-L350)
-
-### 错误处理
-- 连接层：缺少token、会话无效、升级失败
-- 应用层：本地返回ok=false并附带error
-- 传输层：写入失败、队列满、连接关闭
-
-章节来源
-- [agent_ws.go:54-80](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L80)
-- [agent_ws.go:219-230](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L219-L230)
-- [agent_ws.go:352-366](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L352-L366)
-
-## 设备识别与心跳机制
-
-### 设备识别
-- 本地Agent在绑定前读取本机设备编号（machine_id），随绑定请求一起发送到云端。
-- 云端保存machine_id、agent_version、local_port、public_key等信息，并记录last_seen_at。
-
-章节来源
-- [agent_binding.go:33-40](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L33-L40)
-- [agent.go:53-66](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L53-L66)
-- [cloud-control-local-agent-architecture.md:200-244](file://docs/cloud-control-local-agent-architecture.md#L200-L244)
-
-### 心跳检测
-- 代码中未发现显式的心跳定时上报逻辑。
-- 实际心跳可通过以下方式体现：
-  - WebSocket连接保持活跃，断开即视为离线
-  - 云端WS Hub在收到消息时记录日志，可用于监控连通性
-  - 绑定接口返回last_seen_at，可在未来扩展为周期性上报
-
-章节来源
-- [agent_ws.go:194-217](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L194-L217)
-- [agent.go:82-93](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L82-L93)
-
-## 远程命令下发流程
+### WebSocket 消息协议
+- 统一消息结构：
+  - message_id：消息唯一标识（云端生成）
+  - reply_to：回复对应的 message_id
+  - type：消息类型（如 heartbeat、command、status 等）
+  - position_id：岗位运行相关消息需填写
+  - attempt：重试次数（云端发送时递增）
+  - ok：布尔值，表示执行是否成功
+  - error：错误信息（当 ok=false 时）
+  - payload：业务数据（键值对）
+- 自动确认机制：
+  - 云端收到消息后，若存在 message_id，会自动回复 type 为 "<原type>.ack" 的确认消息。
+- 超时与重试：
+  - 云端发送命令后等待回复，默认超时时间为 90 秒。
+  - 支持多次重试，每次重试 attempt 递增。
 
 ```mermaid
 sequenceDiagram
-participant Admin as "云端控制台"
-participant Hub as "WS Hub"
-participant Local as "本地Agent"
-Admin->>Hub : SendCommand(type, payload, retries)
-Hub->>Local : {message_id, type, payload, attempt}
-Local-->>Hub : {reply_to=message_id, ok, error, payload}
-Hub-->>Admin : 返回回复或超时错误
+participant C as "云端"
+participant L as "Local Agent"
+C->>L : {"message_id" : "msg_xxx","type" : "heartbeat","payload" : {...}}
+L-->>C : {"reply_to" : "msg_xxx","type" : "heartbeat.ack","ok" : true}
+C->>L : {"message_id" : "msg_yyy","type" : "command","payload" : {...}}
+L-->>C : {"reply_to" : "msg_yyy","type" : "command","ok" : false,"error" : "..."}
 ```
 
-图表来源
-- [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
+**图表来源**
+- [agent_ws.go:21-32](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L21-L32)
+- [agent_ws.go:194-217](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L194-L217)
 - [agent_ws.go:325-350](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L325-L350)
 
-章节来源
-- [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
+**章节来源**
+- [agent_ws.go:21-32](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L21-L32)
+- [agent_ws.go:194-217](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L194-L217)
+- [agent_ws.go:325-350](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L325-L350)
 
 ## 依赖关系分析
+- 路由层：Server 将 /api/agents/* 路由到对应处理器。
+- 认证层：所有 Agent 接口均通过 AuthService.SessionFromRequest 或 SessionFromToken 校验会话。
+- 存储层：AgentStore 抽象了绑定记录的持久化，默认内存实现，支持冲突检测与开发模式放宽。
+- WebSocket 层：AgentWSHub 维护用户维度的连接表，提供命令发送与回复匹配。
 
 ```mermaid
-graph LR
-A["本地Agent HTTP Server"] --> B["Cloud Client"]
-B --> C["云端HTTP /api/agents/bind"]
-A --> D["本地Agent HTTP /health"]
-E["云端HTTP Server"] --> F["Agent Service"]
-E --> G["WS Hub"]
-G --> H["本地Agent (WebSocket)"]
+classDiagram
+class Server {
++Routes() http.Handler
+}
+class AgentService {
++Bind(w,r)
++Current(w,r)
+}
+class AgentStore {
+<<interface>>
++SaveBinding(binding) AgentBinding
++CurrentBinding(email) AgentBinding
++HasActiveBinding(email,machineID) bool
+}
+class AgentWSHub {
++ServeWS(w,r)
++Status(w,r)
++SendCommand(userEmail,msg,retries) AgentWSMessage
+}
+class AuthService {
++SessionFromRequest(r) Session
++SessionFromToken(token) Session
+}
+Server --> AgentService : "路由"
+Server --> AgentWSHub : "路由"
+AgentService --> AgentStore : "持久化"
+AgentService --> AuthService : "鉴权"
+AgentWSHub --> AuthService : "鉴权"
 ```
 
-图表来源
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
-- [client.go:63-85](file://goodhr5/local-agent-go-new/internal/integration/cloud/client.go#L63-L85)
-- [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
-- [agent.go:35-135](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L35-L135)
-- [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
+**图表来源**
+- [server.go:16-45](file://goodhr5/cloud/backend/internal/httpapi/server.go#L16-L45)
+- [agent.go:11-32](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L11-L32)
+- [agent_store.go:36-43](file://goodhr5/cloud/backend/internal/httpapi/agent_store.go#L36-L43)
+- [agent_ws.go:34-52](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L34-L52)
 
-章节来源
-- [server.go:77-119](file://goodhr5/local-agent-go-new/internal/api/server.go#L77-L119)
-- [server.go:136-139](file://goodhr5/cloud/backend/internal/httpapi/server.go#L136-L139)
+**章节来源**
+- [server.go:16-45](file://goodhr5/cloud/backend/internal/httpapi/server.go#L16-L45)
 
 ## 性能与可靠性
-- 超时控制：云端WS命令默认90秒超时，避免长期阻塞
-- 重试机制：SendCommand支持retries参数，自动递增attempt并重试
-- 并发安全：Hub使用互斥锁保护客户端映射，单用户单连接
-- 资源清理：连接关闭时清理pending消息与通道，防止内存泄漏
-- 限流与防护：本地HTTP限制请求体大小，禁用未知字段，严格CORS白名单
+- 连接复用：每个用户仅保留一条在线 WebSocket 连接，避免多连接竞争。
+- 超时控制：命令回复默认 90 秒超时，防止阻塞。
+- 重试机制：支持多次重试，attempt 递增，便于定位问题。
+- 并发安全：Hub 与 Client 使用互斥锁保护共享状态。
+- 日志输出：关键步骤均有日志，便于追踪消息流向与错误原因。
 
-章节来源
-- [agent_ws.go:19-19](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L19-L19)
-- [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
-- [agent_ws.go:143-169](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L143-L169)
-- [agent_ws.go:395-413](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L395-L413)
-- [server.go:342-355](file://goodhr5/local-agent-go-new/internal/api/server.go#L342-L355)
-- [server.go:304-340](file://goodhr5/local-agent-go-new/internal/api/server.go#L304-L340)
+[本节为通用性能讨论，不直接分析具体文件]
 
 ## 故障排查指南
-- 绑定失败
-  - 检查本地Token是否为空（TOKEN_REQUIRED）
-  - 检查绑定能力是否就绪（DEVICE_BINDING_UNAVAILABLE）
-  - 检查设备编号是否可读（DEVICE_ID_UNAVAILABLE）
-  - 查看云端返回的错误码（DEVICE_BIND_FAILED）
-- WebSocket连接问题
-  - 确认token有效且会话未过期
-  - 检查是否已有同用户连接被替换
-  - 观察写入失败与队列满情况
-- 命令超时
-  - 增加retries或延长超时
-  - 检查本地是否及时回复reply_to
-- 常见错误码
-  - 400：请求格式错误或参数缺失
-  - 401：会话无效或过期
-  - 409：设备已绑定
-  - 500/502/503：服务端内部错误或不可用
+- 绑定失败：
+  - 检查是否已登录（401）。
+  - 检查 machine_id 是否为空（400）。
+  - 检查设备冲突（409），必要时由管理员解绑。
+- WebSocket 连接失败：
+  - 检查 token 是否正确（401）。
+  - 检查服务端是否已升级连接。
+- 命令无回复：
+  - 检查 Local Agent 是否在线（ws-status）。
+  - 检查消息类型与 payload 是否符合预期。
+  - 查看服务端日志中的 message_id 与 attempt。
 
-章节来源
-- [agent_binding.go:20-54](file://goodhr5/local-agent-go-new/internal/api/agent_binding.go#L20-L54)
-- [agent.go:47-93](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L47-L93)
-- [agent_ws.go:54-80](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L80)
-- [agent_ws.go:219-230](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L219-L230)
+**章节来源**
+- [agent.go:34-94](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L34-L94)
+- [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
 - [agent_ws.go:325-350](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L325-L350)
 
 ## 结论
-本API体系通过“本地HTTP绑定 + 云端REST记录 + WebSocket长连接”的组合，实现了稳定的设备绑定、状态查询与远程命令下发。云端WS Hub提供可靠的命令发送、重试与超时控制，本地Agent通过统一的JSON消息结构与云端交互。建议在生产环境中补充心跳上报与更细粒度的错误码，以便更好地监控与排障。
+本地 Agent 管理 API 提供了清晰的设备绑定、状态查询与 WebSocket 实时通信能力。通过统一的 JSON 协议、自动 ack 机制与超时重试，确保了云端与 Local Agent 之间的可靠交互。开发者可基于本文档快速集成绑定流程、状态监控与指令下发。
+
+[本节为总结性内容，不直接分析具体文件]
+
+## 附录：完整示例流程
+
+### 设备识别与绑定
+- 本地 Agent 生成 machine_id（建议使用稳定前缀 goodhr-device-v1-）。
+- 云端页面登录后调用 POST /api/agents/bind，提交 machine_id、agent_version、local_port、public_key。
+- 云端保存绑定记录并返回 agent 信息。
+
+**章节来源**
+- [cloud-control-local-agent-architecture.md:181-244](file://docs/cloud-control-local-agent-architecture.md#L181-L244)
+- [agent.go:34-94](file://goodhr5/cloud/backend/internal/httpapi/agent.go#L34-L94)
+
+### 心跳检测与状态同步
+- Local Agent 通过 WebSocket 连接云端，定期发送心跳消息。
+- 云端自动回复 ack，保持链路健康。
+- 云端可通过 ws-status 查询当前用户是否在线。
+
+**章节来源**
+- [agent_ws.go:54-97](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L54-L97)
+- [agent_ws.go:194-217](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L194-L217)
+
+### 远程命令下发与执行
+- 云端通过 Hub.SendCommand 向 Local Agent 发送命令，指定 type、position_id、payload。
+- Local Agent 执行后回复 ok 与 error。
+- 云端支持重试与超时处理。
+
+**章节来源**
+- [agent_ws.go:111-141](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L111-L141)
+- [agent_ws.go:325-350](file://goodhr5/cloud/backend/internal/httpapi/agent_ws.go#L325-L350)

@@ -525,7 +525,7 @@ export default function SubscriptionPage() {
           </Typography>
           <Tabs value={recordTab} onChange={(_, value) => setRecordTab(value)}>
             <Tab value='payments' label='支付记录' />
-            <Tab value='ai' label='AI 使用记录' />
+            <Tab value='ai' label='AI 使用记录' sx={{ display: "none" }} />
           </Tabs>
         </Stack>
         {recordTab === "payments" ? (

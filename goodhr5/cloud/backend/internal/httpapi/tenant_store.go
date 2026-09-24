@@ -21,6 +21,7 @@ type Tenant struct {
 type TenantMember struct {
 	InvitationID      string    `json:"invitation_id,omitempty"`
 	Email             string    `json:"email"`
+	DisplayName       string    `json:"display_name"`
 	Role              string    `json:"role"`
 	Status            string    `json:"status"`
 	InvitedBy         string    `json:"invited_by"`
@@ -251,7 +252,7 @@ func (s *PostgresTenantStore) GetOrCreateTenant(email string) (Tenant, error) {
 
 func (s *PostgresTenantStore) ListMembers(tenantID string) ([]TenantMember, error) {
 	rows, err := s.db.Query(`
-		SELECT '', u.email, u.role, 'active', u.invited_by,
+		SELECT '', u.email, COALESCE(u.display_name, ''), u.role, 'active', u.invited_by,
 		       COALESCE(u.tenant_joined_at, u.created_at),
 		       COALESCE(position_stats.today_greeted_count, 0)::int,
 		       true,
@@ -266,7 +267,7 @@ func (s *PostgresTenantStore) ListMembers(tenantID string) ([]TenantMember, erro
 		) position_stats ON position_stats.user_id = u.id
 		WHERE u.tenant_id = $1 AND u.status = 'active'
 		UNION ALL
-		SELECT invitation.id::text, invitation.invitee_email, invitation.role, invitation.status,
+		SELECT invitation.id::text, invitation.invitee_email, '', invitation.role, invitation.status,
 		       invitation.invited_by_email, invitation.created_at, 0,
 		       EXISTS (
 			   SELECT 1 FROM users registered
@@ -285,7 +286,7 @@ func (s *PostgresTenantStore) ListMembers(tenantID string) ([]TenantMember, erro
 	var members []TenantMember
 	for rows.Next() {
 		var m TenantMember
-		if err := rows.Scan(&m.InvitationID, &m.Email, &m.Role, &m.Status, &m.InvitedBy, &m.CreatedAt, &m.TodayGreetedCount, &m.Registered, &m.IsOwner); err != nil {
+		if err := rows.Scan(&m.InvitationID, &m.Email, &m.DisplayName, &m.Role, &m.Status, &m.InvitedBy, &m.CreatedAt, &m.TodayGreetedCount, &m.Registered, &m.IsOwner); err != nil {
 			return nil, err
 		}
 		members = append(members, m)

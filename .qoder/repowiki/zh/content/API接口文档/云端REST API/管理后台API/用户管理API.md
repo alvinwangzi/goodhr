@@ -2,12 +2,11 @@
 
 <cite>
 **本文引用的文件**
-- [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
 - [admin_user.go](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go)
+- [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
 - [auth.go](file://goodhr5/cloud/backend/internal/httpapi/auth.go)
-- [subscription.go](file://goodhr5/cloud/backend/internal/httpapi/subscription.go)
 - [ai_wallet.go](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go)
-- [postgres_user.go](file://goodhr5/cloud/backend/internal/httpapi/postgres_user.go)
+- [subscription.go](file://goodhr5/cloud/backend/internal/httpapi/subscription.go)
 </cite>
 
 ## 目录
@@ -22,348 +21,427 @@
 9. [结论](#结论)
 
 ## 简介
-本文件面向超级管理员，提供用户管理的后端API文档。覆盖以下能力：
-- 超级管理员用户列表查询（分页、搜索）
-- 单个用户信息获取（通过列表返回）
-- 会员天数调整（支持正负天数与会员类型选择）
-- AI余额调整（支持按分或按元输入）
-- 批量调整（all目标与邮箱列表）
-- 权限验证机制、错误处理策略
-- 高级功能：设备绑定解除等
+本文件面向超级管理员，提供用户管理的后端 API 文档。覆盖以下能力：
+- 查询用户列表（分页、搜索）
+- 调整单个用户的会员天数与会员类型
+- 调整单个用户的 AI 余额
+- 批量调整（支持 all 目标与邮箱列表）
+- 解除设备绑定
+- 权限校验、错误处理策略与请求响应示例
 
-所有接口均要求携带有效的登录会话令牌（Bearer Token），并仅允许系统超级管理员访问。
+所有接口均要求通过 Bearer Token 认证，且仅允许超级管理员访问。
 
 ## 项目结构
-云端HTTP服务在统一路由中注册了管理员用户相关接口，并通过服务层组合认证、订阅、AI钱包、邮件通知等能力。
+用户管理相关路由在 HTTP 服务中统一注册，由 AdminUserService 处理业务逻辑，并依赖认证、订阅、AI钱包、邮件通知等子系统。
 
 ```mermaid
 graph TB
-Client["前端/调用方"] --> Router["HTTP路由<br/>server.go"]
-Router --> AdminUserSvc["AdminUserService<br/>admin_user.go"]
-AdminUserSvc --> Auth["AuthService<br/>auth.go"]
-AdminUserSvc --> SubStore["SubscriptionStore<br/>subscription.go"]
-AdminUserSvc --> AIWallet["AIWalletService<br/>ai_wallet.go"]
-AdminUserSvc --> Mailer["Mailer"]
-AdminUserSvc --> AgentStore["AgentStore"]
-AdminUserSvc --> UserStore["AdminUserStore<br/>admin_user.go"]
-UserStore --> DB["PostgreSQL"]
+Client["客户端"] --> Router["HTTP 路由<br/>server.go"]
+Router --> AdminUser["AdminUserService<br/>admin_user.go"]
+AdminUser --> Auth["AuthService<br/>auth.go"]
+AdminUser --> SubStore["SubscriptionStore<br/>subscription.go"]
+AdminUser --> AIWallet["AIWalletStore<br/>ai_wallet.go"]
+AdminUser --> Mailer["Mailer 邮件通知"]
+AdminUser --> AgentStore["AgentStore 设备绑定"]
 ```
 
-图表来源
-- [server.go:123-166](file://goodhr5/cloud/backend/internal/httpapi/server.go#L123-L166)
-- [admin_user.go:113-127](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L113-L127)
-- [auth.go:452-470](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L452-L470)
+**图表来源**
+- [server.go:177-180](file://goodhr5/cloud/backend/internal/httpapi/server.go#L177-L180)
+- [admin_user.go:114-127](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L114-L127)
+- [auth.go:617-716](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L617-L716)
 - [subscription.go:34-48](file://goodhr5/cloud/backend/internal/httpapi/subscription.go#L34-L48)
 - [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
 
-章节来源
-- [server.go:123-166](file://goodhr5/cloud/backend/internal/httpapi/server.go#L123-L166)
+**章节来源**
+- [server.go:177-180](file://goodhr5/cloud/backend/internal/httpapi/server.go#L177-L180)
 
 ## 核心组件
-- 认证与会话校验：从请求头解析Bearer Token，校验会话有效性，判断是否为超级管理员。
-- 用户列表与统计：分页查询用户，支持关键词搜索；返回统计数据（今日注册数、Agent绑定数）。
-- 会员调整：按正负天数调整到期时间，可选设置会员类型（Plus/Max），发送通知邮件。
-- AI余额调整：按分或按元调整内置AI余额，写入流水并发送通知邮件。
-- 批量调整：支持all目标（遍历全部用户）或指定邮箱列表，分别对会员和AI余额进行调整。
-- 设备绑定解除：解除指定用户的全部有效设备占用，释放机器ID以便重新绑定其他账号。
+- 认证与会话：从请求头 Authorization 提取 Bearer Token，解析会话并校验是否为超级管理员。
+- 用户列表与统计：分页查询用户，支持关键词搜索；返回统计数据（今日注册数、设备绑定数）。
+- 会员调整：按正负天数调整到期时间，可选指定会员类型；发送通知邮件。
+- AI余额调整：按分或元调整内置AI余额，写入流水并发送通知邮件。
+- 批量调整：支持 target=all 或 emails 列表；分别对每个用户执行会员与AI余额调整，汇总结果。
+- 设备绑定解除：禁用指定用户的全部有效设备绑定。
 
-章节来源
-- [auth.go:452-470](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L452-L470)
-- [admin_user.go:151-189](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L151-L189)
-- [admin_user.go:191-227](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L191-L227)
-- [admin_user.go:266-317](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L266-L317)
-- [admin_user.go:319-397](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L319-L397)
-- [admin_user.go:229-264](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L229-L264)
+**章节来源**
+- [admin_user.go:17-127](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L17-L127)
+- [auth.go:617-716](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L617-L716)
+- [subscription.go:18-48](file://goodhr5/cloud/backend/internal/httpapi/subscription.go#L18-L48)
+- [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
 
 ## 架构总览
-管理员用户管理接口的调用流程如下：
+下图展示了典型调用链：客户端发起请求 -> 路由分发 -> 权限校验 -> 业务处理 -> 存储/通知 -> 响应。
 
 ```mermaid
 sequenceDiagram
 participant C as "客户端"
-participant R as "路由(server.go)"
-participant A as "AdminUserService(admin_user.go)"
-participant U as "AuthService(auth.go)"
-participant S as "SubscriptionStore(subscription.go)"
-participant W as "AIWalletService(ai_wallet.go)"
-participant M as "Mailer"
+participant R as "路由 server.go"
+participant A as "AdminUserService admin_user.go"
+participant U as "AuthService auth.go"
+participant S as "SubscriptionStore subscription.go"
+participant W as "AIWalletStore ai_wallet.go"
+participant M as "Mailer 邮件"
 C->>R : POST /api/admin/users/batch-adjust
 R->>A : BatchAdjust()
-A->>U : requireSuperAdmin()
-U-->>A : 授权通过/失败
-A->>A : 解析target/emails/days/amount
-A->>S : AdjustSubscriptionDays(若days!=0)
-S-->>A : 订阅结果
-A->>W : AdjustBalance(若amount!=0)
-W-->>A : 余额结果
-A->>M : 发送邮件通知(可能失败但记录)
-A-->>C : 批量结果(成功/失败计数+明细)
+A->>U : SessionFromRequest() + IsSuperAdmin()
+U-->>A : 会话/权限
+A->>S : AdjustSubscriptionDays(email, days, member_type)
+S-->>A : Subscription
+A->>M : sendSubscriptionRewardNotice(...)
+A->>W : AdjustBalance(email, amount_cents, reason)
+W-->>A : balance_units
+A-->>C : {ok, total_count, success_count, results}
 ```
 
-图表来源
-- [server.go:163-166](file://goodhr5/cloud/backend/internal/httpapi/server.go#L163-L166)
+**图表来源**
+- [server.go:177-180](file://goodhr5/cloud/backend/internal/httpapi/server.go#L177-L180)
 - [admin_user.go:319-397](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L319-L397)
-- [auth.go:452-470](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L452-L470)
+- [auth.go:617-716](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L617-L716)
 - [subscription.go:34-48](file://goodhr5/cloud/backend/internal/httpapi/subscription.go#L34-L48)
 - [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
 
 ## 详细接口说明
 
-### 通用说明
-- 鉴权方式：请求头 Authorization: Bearer <token>
-- 权限要求：必须为系统超级管理员
-- 统一响应格式：
-  - 成功：{"ok": true, ...}
-  - 失败：{"ok": false, "error": "错误信息"}
+### 通用约定
+- 认证方式：请求头 Authorization: Bearer <token>
+- 权限：仅超级管理员可调用
+- 统一成功格式：{ ok: true, ... }
+- 统一失败格式：{ ok: false, error: "..." }
+- 错误码：常见为 400/401/403/404/500/424（支付相关）等
 
-章节来源
-- [auth.go:452-470](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L452-L470)
-- [server.go:261-277](file://goodhr5/cloud/backend/internal/httpapi/server.go#L261-L277)
+**章节来源**
+- [auth.go:617-716](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L617-L716)
+- [server.go:297-313](file://goodhr5/cloud/backend/internal/httpapi/server.go#L297-L313)
+
+---
 
 ### GET /api/admin/users
-超级管理员用户列表查询（分页、搜索）
+超级管理员用户列表查询（分页、搜索），同时返回统计数据。
 
 - 方法：GET
 - 路径：/api/admin/users
 - 权限：超级管理员
-- 查询参数：
-  - page：页码，默认1，最小1
-  - page_size：每页数量，默认20，范围1-100
-  - q：搜索条件，模糊匹配邮箱、角色、状态、邀请人邮箱
-- 返回字段：
+- 查询参数
+  - page：页码，默认 1，最小 1
+  - page_size：每页数量，默认 20，范围 1..100
+  - q：搜索关键词，模糊匹配 email、role、status、inviter_email
+- 响应字段
   - ok：布尔
-  - users：数组，元素包含：
-    - id：字符串
-    - email：字符串
-    - role：字符串（user/admin/super_admin）
-    - status：字符串（如active）
-    - inviter_email：字符串
-    - agent：对象或null（machine_id、agent_version、public_key、bind_status、last_seen_at、created_at）
-    - subscription：对象（member_type、member_name、expires_at、active）
-    - notification_profile：对象
-    - ai_balance_units：整数（单位：0.0001元）
-    - ai_balance_cents：整数（分）
-    - ai_balance：字符串（元）
-    - flow：对象
-    - created_at：时间戳
-    - last_login_at：时间戳或null
+  - users：数组，元素为用户对象
   - total：总数
   - page：当前页
-  - page_size：每页数量
-  - stats：对象（today_registered_count、agent_binding_count）
+  - page_size：每页大小
+  - stats：统计信息
+    - today_registered_count：今日注册用户数
+    - agent_binding_count：活跃设备绑定数
 
-示例请求
+用户对象字段（部分）
+- id、email、role、status、inviter_email
+- agent：本地程序绑定信息（machine_id、agent_version、public_key、bind_status、last_seen_at、created_at）
+- subscription：会员状态（member_type、expires_at、active）
+- notification_profile：通知配置
+- ai_balance_units、ai_balance_cents、ai_balance：AI余额（单位转换）
+- flow：用户流程状态
+- created_at、last_login_at
+
+请求示例
 - GET /api/admin/users?page=1&page_size=20&q=test@example.com
 
-示例响应
-- {"ok":true,"users":[...],"total":100,"page":1,"page_size":20,"stats":{"today_registered_count":5,"agent_binding_count":12}}
+响应示例
+- {
+    "ok": true,
+    "users": [...],
+    "total": 123,
+    "page": 1,
+    "page_size": 20,
+    "stats": {
+      "today_registered_count": 5,
+      "agent_binding_count": 10
+    }
+  }
 
-章节来源
-- [server.go:163-163](file://goodhr5/cloud/backend/internal/httpapi/server.go#L163-L163)
+**章节来源**
 - [admin_user.go:151-189](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L151-L189)
 - [admin_user.go:543-583](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L543-L583)
 - [admin_user.go:508-541](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L508-L541)
-- [subscription.go:121-135](file://goodhr5/cloud/backend/internal/httpapi/subscription.go#L121-L135)
+
+---
 
 ### POST /api/admin/users
-单个用户会员调整
+调整单个用户的会员天数与会员类型。
 
 - 方法：POST
 - 路径：/api/admin/users
 - 权限：超级管理员
-- 请求体字段：
-  - email：字符串（必填，标准邮箱）
-  - days：整数（必填，非零，正数增加到期时间，负数减少）
-  - member_type：字符串（可选，仅支持“Plus”或“Max”，为空则沿用当前会员类型）
-  - reason：字符串（可选，为空时默认“超级管理员调整会员天数”）
-- 返回字段：
+- 请求体
+  - email：用户邮箱（必须合法）
+  - days：调整天数（整数，可为正或负，不能为 0）
+  - member_type：会员类型（可选，支持 Plus 或 Pro；为空则沿用现有类型）
+  - reason：操作原因（可选，为空时默认“超级管理员调整会员天数”）
+- 响应
   - ok：布尔
-  - subscription：对象（member_type、member_name、expires_at、active）
+  - subscription：调整后订阅信息（member_type、expires_at、active）
 
-示例请求
-- {"email":"user@example.com","days":30,"member_type":"Plus","reason":"活动赠送"}
+请求示例
+- {
+    "email": "user@example.com",
+    "days": 30,
+    "member_type": "Pro",
+    "reason": "活动赠送"
+  }
 
-示例响应
-- {"ok":true,"subscription":{"member_type":"Plus","member_name":"Plus会员","expires_at":"2026-01-01T00:00:00Z","active":true}}
+响应示例
+- {
+    "ok": true,
+    "subscription": {
+      "member_type": "Pro",
+      "expires_at": "2026-01-01T00:00:00Z",
+      "active": true
+    }
+  }
 
-章节来源
-- [server.go:163-163](file://goodhr5/cloud/backend/internal/httpapi/server.go#L163-L163)
+注意
+- 若邮件通知发送失败，会返回特定错误类型，但会员天数已调整成功。
+
+**章节来源**
 - [admin_user.go:191-227](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L191-L227)
-- [subscription.go:34-48](file://goodhr5/cloud/backend/internal/httpapi/subscription.go#L34-L48)
+- [admin_user.go:413-428](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L413-L428)
+
+---
 
 ### POST /api/admin/users/adjust-ai-balance
-单个用户AI余额调整
+调整单个用户的内置 AI 余额。
 
 - 方法：POST
 - 路径：/api/admin/users/adjust-ai-balance
 - 权限：超级管理员
-- 请求体字段：
-  - email：字符串（必填，标准邮箱）
-  - amount_cents：整数（可选，非零，单位为分）
-  - amount_yuan：字符串（可选，与amount_cents二选一，例如“1.00”）
-  - reason：字符串（可选，为空时默认“超级管理员调整AI余额”）
-- 返回字段：
+- 请求体
+  - email：用户邮箱（必须合法）
+  - amount_cents：以分为单位的金额（整数，非零）
+  - amount_yuan：以元为单位的金额文本（与 amount_cents 二选一）
+  - reason：操作原因（可选，为空时默认“超级管理员调整AI余额”）
+- 响应
   - ok：布尔
-  - balance_units：整数（调整后余额，单位：0.0001元）
-  - balance_cents：整数（调整后余额，单位：分）
-  - balance：字符串（调整后余额，单位：元）
+  - balance_units：调整后余额（单位：0.0001元）
+  - balance_cents：调整后余额（分）
+  - balance：调整后余额（元字符串）
 
-示例请求
-- {"email":"user@example.com","amount_yuan":"1.00","reason":"补偿"}
+请求示例
+- {
+    "email": "user@example.com",
+    "amount_yuan": "10.00",
+    "reason": "补偿"
+  }
 
-示例响应
-- {"ok":true,"balance_units":10000,"balance_cents":100,"balance":"1.00"}
+响应示例
+- {
+    "ok": true,
+    "balance_units": 100000,
+    "balance_cents": 1000,
+    "balance": "10.00"
+  }
 
-章节来源
-- [server.go:165-165](file://goodhr5/cloud/backend/internal/httpapi/server.go#L165-L165)
+**章节来源**
 - [admin_user.go:266-317](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L266-L317)
 - [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
 
+---
+
 ### POST /api/admin/users/batch-adjust
-批量调整会员天数与AI余额
+批量调整多个用户的会员天数与 AI 余额。
 
 - 方法：POST
 - 路径：/api/admin/users/batch-adjust
 - 权限：超级管理员
-- 请求体字段：
-  - target：字符串（必填，支持“all”表示全部用户；否则忽略）
-  - emails：字符串数组（可选，支持逗号、中文逗号、换行、分号、空格分隔的多个邮箱；当target为all时会被清空）
-  - days：整数（可选，非零时对每个用户执行会员调整）
-  - amount_cents：整数（可选，非零时对每个用户执行AI余额调整）
-  - amount_yuan：字符串（可选，与amount_cents二选一）
-  - reason：字符串（可选，为空时默认“超级管理员批量调整”）
-- 返回字段：
+- 请求体
+  - target：目标选择，支持 "all" 表示全部用户；或留空配合 emails 使用
+  - emails：邮箱列表，支持多种分隔符（逗号、中文逗号、换行、分号、空格），自动去重与规范化；若包含 "all" 也视为全部
+  - days：调整天数（整数，可为正或负，与 amount_cents 至少填一个）
+  - amount_cents：以分为单位的金额（整数，可为 0）
+  - amount_yuan：以元为单位的金额文本（与 amount_cents 二选一）
+  - reason：操作原因（可选，为空时默认“超级管理员批量调整”）
+- 响应
   - ok：布尔
-  - total_count：总数
+  - total_count：处理用户总数
   - success_count：完全成功的用户数
   - failed_count：失败的用户数
-  - results：数组，每项包含：
-    - email：字符串
-    - days_adjusted：布尔
-    - balance_adjusted：布尔
-    - errors：字符串数组（记录失败原因或通知邮件发送失败的提示）
+  - results：每个用户的调整结果
+    - email：邮箱
+    - days_adjusted：是否已调整会员天数
+    - balance_adjusted：是否已调整AI余额
+    - errors：错误信息列表（如通知邮件发送失败等）
 
-示例请求
-- {"target":"all","days":7,"amount_cents":100,"reason":"批量赠送"}
+请求示例
+- {
+    "target": "all",
+    "emails": [],
+    "days": 7,
+    "amount_cents": 0,
+    "reason": "系统维护补偿"
+  }
 
-示例响应
-- {"ok":true,"total_count":100,"success_count":98,"failed_count":2,"results":[{"email":"a@x.com","days_adjusted":true,"balance_adjusted":true,"errors":[]},{"email":"b@x.com","days_adjusted":false,"balance_adjusted":true,"errors":["会员天数调整失败：..."]}]}
+响应示例
+- {
+    "ok": true,
+    "total_count": 100,
+    "success_count": 98,
+    "failed_count": 2,
+    "results": [
+      {
+        "email": "u1@example.com",
+        "days_adjusted": true,
+        "balance_adjusted": false,
+        "errors": []
+      },
+      {
+        "email": "u2@example.com",
+        "days_adjusted": true,
+        "balance_adjusted": true,
+        "errors": ["AI 余额已调整，但通知邮件发送失败"]
+      }
+    ]
+  }
 
-章节来源
-- [server.go:166-166](file://goodhr5/cloud/backend/internal/httpapi/server.go#L166-L166)
+**章节来源**
 - [admin_user.go:319-397](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L319-L397)
+- [admin_user.go:455-506](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L455-L506)
+
+---
 
 ### POST /api/admin/users/unbind-agent
-解除用户设备绑定
+解除指定用户的全部有效设备绑定。
 
 - 方法：POST
 - 路径：/api/admin/users/unbind-agent
 - 权限：超级管理员
-- 请求体字段：
-  - email：字符串（必填，标准邮箱）
-- 返回字段：
+- 请求体
+  - email：用户邮箱（必须合法）
+- 响应
   - ok：布尔
 
-说明：该接口会解除指定用户的全部有效设备占用，使这些电脑可以重新绑定其他账号。
+请求示例
+- {
+    "email": "user@example.com"
+  }
 
-示例请求
-- {"email":"user@example.com"}
+响应示例
+- {
+    "ok": true
+  }
 
-示例响应
-- {"ok":true}
+**章节来源**
+- [admin_user.go:229-264](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L229-L264)
 
-章节来源
-- [server.go:164-164](file://goodhr5/cloud/backend/internal/httpapi/server.go#L164-L164)
+---
+
+### 权限验证机制
+- 所有管理接口均通过 AuthService.SessionFromRequest 解析 Bearer Token，并通过 IsSuperAdmin 校验是否为超级管理员。
+- 未登录或会话过期返回 401；非超管返回 403。
+
+**章节来源**
+- [auth.go:617-716](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L617-L716)
+- [admin_user.go:129-149](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L129-L149)
+- [admin_user.go:399-411](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L399-L411)
+
+---
+
+### 错误处理策略
+- 参数校验失败：400 Bad Request（如非法邮箱、金额为 0、JSON 无效）
+- 权限不足：401 Unauthorized 或 403 Forbidden
+- 业务异常：500 Internal Server Error（数据库/存储不可用、内部错误）
+- 通知邮件失败：会员/AI余额可能已成功调整，但会在结果中记录错误提示（用于区分数据变更与通知失败）
+
+**章节来源**
+- [server.go:297-313](file://goodhr5/cloud/backend/internal/httpapi/server.go#L297-L313)
+- [admin_user.go:191-227](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L191-L227)
+- [admin_user.go:319-397](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L319-L397)
+
+---
+
+### 用户状态管理与高级功能
+- 用户状态：列表返回 status 字段，可用于前端展示与筛选。
+- 设备绑定：可通过 UnbindAgent 解除绑定，便于释放设备占用。
+- 通知配置：notification_profile 字段反映用户通知偏好。
+- 流程状态：flow 字段用于跟踪用户引导/激活流程。
+
+**章节来源**
+- [admin_user.go:17-31](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L17-L31)
 - [admin_user.go:229-264](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L229-L264)
 
 ## 依赖关系分析
-- 路由注册：/api/admin/users、/api/admin/users/unbind-agent、/api/admin/users/adjust-ai-balance、/api/admin/users/batch-adjust 由服务器统一注册。
-- 权限校验：所有管理员接口通过 AuthService.SessionFromRequest 解析会话，并使用 IsSuperAdmin 进行权限控制。
-- 数据源：
-  - 用户列表与统计：AdminUserStore（内存/PostgreSQL实现）
-  - 会员调整：SubscriptionStore（Extend/Adjust/Replace）
-  - AI余额调整：AIWalletService（AdjustBalance、记录流水）
-  - 设备绑定：AgentStore（DisableBindings）
-- 通知：邮件通知在调整成功后尝试发送，失败不影响主流程，但会在批量结果中记录提示。
+- AdminUserService 依赖：
+  - AuthService：会话解析与超管判断
+  - SubscriptionStore：会员天数调整与套餐信息
+  - AIWalletStore：AI余额调整与流水记录
+  - Mailer：发送会员与AI余额调整通知
+  - AgentStore：设备绑定计数与解除绑定
+- 路由注册：Server.Routes 将 /api/admin/* 映射到对应处理器。
 
 ```mermaid
 classDiagram
-class Server {
-+Routes()
-}
 class AdminUserService {
-+Collection()
-+UnbindAgent()
-+AdjustAIBalance()
-+BatchAdjust()
++Collection(w, r)
++list(w, r)
++adjustSubscription(w, r)
++UnbindAgent(w, r)
++AdjustAIBalance(w, r)
++BatchAdjust(w, r)
 }
 class AuthService {
-+SessionFromRequest()
++SessionFromRequest(r)
 +IsSuperAdmin(email) bool
 }
 class SubscriptionStore {
-+AdjustSubscriptionDays(email, memberType, days) Subscription
++AdjustSubscriptionDays(email, memberType, days)
 }
-class AIWalletService {
-+AdjustBalance(record) int64
+class AIWalletStore {
++AdjustBalance(record)
 }
 class AgentStore {
-+DisableBindings(email) error
++ActiveBindingCount()
++DisableBindings(email)
 }
-Server --> AdminUserService : "路由分发"
 AdminUserService --> AuthService : "权限校验"
 AdminUserService --> SubscriptionStore : "会员调整"
-AdminUserService --> AIWalletService : "AI余额调整"
-AdminUserService --> AgentStore : "设备绑定解除"
+AdminUserService --> AIWalletStore : "AI余额调整"
+AdminUserService --> AgentStore : "设备绑定"
 ```
 
-图表来源
-- [server.go:123-166](file://goodhr5/cloud/backend/internal/httpapi/server.go#L123-L166)
-- [admin_user.go:113-127](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L113-L127)
-- [auth.go:452-470](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L452-L470)
+**图表来源**
+- [admin_user.go:114-127](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L114-L127)
+- [auth.go:617-716](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L617-L716)
 - [subscription.go:34-48](file://goodhr5/cloud/backend/internal/httpapi/subscription.go#L34-L48)
 - [ai_wallet.go:48-58](file://goodhr5/cloud/backend/internal/httpapi/ai_wallet.go#L48-L58)
 
-章节来源
-- [server.go:123-166](file://goodhr5/cloud/backend/internal/httpapi/server.go#L123-L166)
-- [admin_user.go:113-127](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L113-L127)
+**章节来源**
+- [server.go:177-180](file://goodhr5/cloud/backend/internal/httpapi/server.go#L177-L180)
+- [admin_user.go:114-127](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L114-L127)
 
 ## 性能与可用性
-- 分页与搜索：
-  - 默认每页20条，最大100条；搜索条件q支持邮箱、角色、状态、邀请人邮箱模糊匹配。
-  - PostgreSQL实现使用LIMIT/OFFSET与WHERE条件，查询超时保护（3秒）。
+- 列表查询：
+  - 分页参数限制：page_size 最大 100，避免大结果集拖慢响应。
+  - 搜索条件：q 对 email、role、status、inviter_email 进行模糊匹配，建议在大数据量下结合分页使用。
 - 批量调整：
-  - all目标会分页读取全部用户（每页100条），去重后排序处理。
-  - 会员与AI余额调整可独立生效，任一失败不影响另一项。
+  - 支持 all 目标时，服务端分页拉取全部用户邮箱（每批 100），再逐一调整。
+  - 每个用户独立处理，部分失败不影响其他用户；结果汇总返回。
 - 通知邮件：
-  - 调整成功后尝试发送邮件通知；若失败，不会回滚数据，仅在批量结果中记录提示。
-- 错误处理：
-  - 统一错误格式{"ok":false,"error":"..."}，便于前端展示。
-  - 常见错误包括：会话无效、非超级管理员、参数非法、数据库错误、AI钱包未就绪等。
+  - 邮件发送失败不阻断数据调整，仅在结果中记录错误，保证数据一致性。
 
-章节来源
-- [admin_user.go:543-583](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L543-L583)
-- [admin_user.go:658-727](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L658-L727)
-- [admin_user.go:466-506](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L466-L506)
-- [server.go:261-277](file://goodhr5/cloud/backend/internal/httpapi/server.go#L261-L277)
+[本节为通用指导，无需代码引用]
 
 ## 故障排查指南
-- 会话无效或过期：
-  - 检查Authorization头是否包含Bearer Token；必要时重新登录获取新token。
-- 非超级管理员：
-  - 确认当前登录用户是否为系统超级管理员。
-- 参数错误：
-  - email需为标准邮箱；days不能为0；amount_cents与amount_yuan至少一个非零；member_type仅支持Plus或Max。
-- 数据库或存储不可用：
-  - 检查PostgreSQL连接、AI钱包服务、AgentStore是否就绪。
-- 邮件通知失败：
-  - 不影响数据变更，可在批量结果中看到提示；检查邮件服务配置。
+- 401 Unauthorized：检查 Authorization 头是否正确携带 Bearer Token，确认会话未过期。
+- 403 Forbidden：确认当前用户是否为超级管理员。
+- 400 Bad Request：检查请求体字段是否完整、邮箱格式是否合法、金额是否为零、JSON 是否有效。
+- 500 Internal Server Error：检查数据库连接、存储实现是否就绪；查看日志中的具体错误信息。
+- 通知邮件失败：检查邮件服务配置；关注批量结果中的 errors 字段。
 
-章节来源
-- [auth.go:452-470](file://goodhr5/cloud/backend/internal/httpapi/auth.go#L452-L470)
+**章节来源**
+- [server.go:297-313](file://goodhr5/cloud/backend/internal/httpapi/server.go#L297-L313)
 - [admin_user.go:191-227](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L191-L227)
-- [admin_user.go:266-317](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L266-L317)
 - [admin_user.go:319-397](file://goodhr5/cloud/backend/internal/httpapi/admin_user.go#L319-L397)
 
 ## 结论
-本API为超级管理员提供了完整的用户管理能力，涵盖用户列表查询、会员调整、AI余额调整、批量操作及设备绑定解除。接口设计遵循统一的鉴权与错误处理规范，具备良好的可扩展性与可维护性。建议在生产环境结合监控与日志，关注批量调整成功率与邮件通知状态，确保运营操作的可靠性与可追溯性。
+本 API 为超级管理员提供了完整的用户管理能力，包括用户列表查询、会员天数与类型调整、AI余额调整、批量调整以及设备绑定解除。所有接口具备严格的权限校验与统一的错误处理策略，确保数据安全与一致性。建议在生产环境中结合监控与日志，重点关注批量调整的结果与邮件通知状态。
+
+[本节为总结性内容，无需代码引用]

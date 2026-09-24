@@ -1,13 +1,16 @@
 # 系统配置API
 
 <cite>
-**本文引用的文件**
+**本文引用的文件**   
 - [server.go](file://goodhr5/cloud/backend/internal/httpapi/server.go)
+- [config.go](file://goodhr5/cloud/backend/internal/httpapi/config.go)
+- [system_config_store.go](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go)
 - [runtime_config.go](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go)
 - [default_prompts.go](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go)
-- [system_config_store.go](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go)
+- [system_public_test.go](file://goodhr5/cloud/backend/internal/httpapi/system_public_test.go)
+- [runtime_config_test.go](file://goodhr5/cloud/backend/internal/httpapi/runtime_config_test.go)
+- [0002_add_system_configs.sql](file://goodhr5/cloud/backend/db/migrations/0002_add_system_configs.sql)
 - [0021_system_app_config.sql](file://goodhr5/cloud/backend/db/migrations/0021_system_app_config.sql)
-- [0015_system_default_prompts.down.sql](file://goodhr5/cloud/backend/db/migrations/0015_system_default_prompts.down.sql)
 </cite>
 
 ## 目录
@@ -20,183 +23,220 @@
 7. [性能与一致性](#性能与一致性)
 8. [故障排查指南](#故障排查指南)
 9. [结论](#结论)
-10. [附录：配置示例与最佳实践](#附录配置示例与最佳实践)
+10. [附录：配置项分类与示例](#附录配置项分类与示例)
 
 ## 简介
-本文件面向系统配置相关 API，覆盖三类能力：
-- 应用配置：对外暴露前端公共系统配置（版本要求、公告、广告位等）。
-- 运行时配置：为已登录用户返回本地程序与运行组件的下载与版本信息。
-- 默认提示词：统一从系统配置表读取 AI 默认提示词，供岗位模板空字段兜底使用。
+本文档面向 GoodHR 5 云端后端的“系统配置 API”，重点说明以下三类能力：
+- 应用配置：前端公共系统参数，例如免费每日打招呼上限、公告、后台横幅等。
+- 运行时配置：本地程序与运行组件的下载信息、控制台地址、版本要求等。
+- 默认提示词管理：AI 筛选、打开详情、复核评分等默认提示词。
 
-这些接口均基于统一的系统配置存储抽象，支持内存实现（开发）与 PostgreSQL 实现（生产），并通过迁移脚本提供初始数据。
+这些接口统一基于云端后端的系统配置存储层，支持内存实现（开发环境）和 PostgreSQL 持久化实现（生产环境），并通过管理员接口进行动态更新。
 
 ## 项目结构
-与系统配置 API 相关的后端代码集中在云端 HTTP API 包中：
-- 路由注册与公共响应封装位于 server.go。
+系统配置相关代码集中在云端后端 HTTP API 包中：
+- 路由注册与通用响应封装位于 server.go。
+- 环境变量与后端启动配置位于 config.go。
+- 系统配置的抽象接口与内存/PostgreSQL 双实现位于 system_config_store.go。
 - 运行时配置服务位于 runtime_config.go。
-- 默认提示词服务位于 default_prompts.go。
-- 系统配置存储抽象与实现位于 system_config_store.go。
-- 数据库迁移定义系统配置初始值与回滚逻辑。
+- 默认提示词读取逻辑位于 default_prompts.go。
+- 数据库迁移定义在 db/migrations 下。
 
 ```mermaid
 graph TB
-Client["客户端"] --> Router["HTTP 路由<br/>server.go"]
-Router --> AppCfg["应用配置处理器<br/>GetAppConfig"]
+Client["前端或调用方"] --> Router["HTTP 路由<br/>server.go"]
+Router --> AppConfig["应用配置处理器<br/>GetAppConfig"]
 Router --> RuntimeCfg["运行时配置处理器<br/>RuntimeConfigService.Current"]
-Router --> Prompts["默认提示词处理器<br/>GetDefaultPrompts"]
-AppCfg --> Store["系统配置存储<br/>SystemConfigStore"]
+Router --> DefaultPrompts["默认提示词处理器<br/>GetDefaultPrompts"]
+AppConfig --> Store["SystemConfigStore<br/>system_config_store.go"]
 RuntimeCfg --> Store
-Prompts --> Store
-Store --> Mem["内存实现<br/>MemorySystemConfigStore"]
-Store --> PG["PostgreSQL 实现<br/>PostgresSystemConfigStore"]
+DefaultPrompts --> Store
+Store --> Memory["MemorySystemConfigStore"]
+Store --> Postgres["PostgresSystemConfigStore"]
+Postgres --> DB["PostgreSQL system_configs 表"]
 ```
 
-图表来源
-- [server.go:123-211](file://goodhr5/cloud/backend/internal/httpapi/server.go#L123-L211)
-- [runtime_config.go:20-38](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L20-L38)
-- [default_prompts.go:59-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L59-L76)
-- [system_config_store.go:19-27](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L19-L27)
+**图表来源**
+- [server.go:172-217](file://goodhr5/cloud/backend/internal/httpapi/server.go#L172-L217)
+- [system_config_store.go:11-27](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L11-L27)
 
-章节来源
-- [server.go:123-211](file://goodhr5/cloud/backend/internal/httpapi/server.go#L123-L211)
-- [system_config_store.go:19-27](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L19-L27)
+**章节来源**
+- [server.go:160-229](file://goodhr5/cloud/backend/internal/httpapi/server.go#L160-L229)
+- [system_config_store.go:11-27](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L11-L27)
 
 ## 核心组件
-- 系统配置存储抽象 SystemConfigStore：定义 Get/List/Save 三个方法，屏蔽底层存储差异。
-- 内存实现 MemorySystemConfigStore：用于未启用 PostgreSQL 的开发环境，内置默认配置键值。
-- PostgreSQL 实现 PostgresSystemConfigStore：通过 system_configs 表持久化配置，支持按前缀列出启用配置。
-- 运行时配置服务 RuntimeConfigService：校验会话后，从 system.onboarding_config 读取并返回本地程序与运行组件配置。
-- 默认提示词处理 GetDefaultPrompts：校验会话后，从 ai.default_prompts 读取 JSON，缺失时回退内置提示词。
-- 应用配置处理 GetAppConfig：无需鉴权，直接返回 system.app_config 的 JSON。
+- SystemConfigStore：系统配置持久化抽象，提供 Get、List、Save 三个方法。
+- MemorySystemConfigStore：内存实现，适合未启用 PostgreSQL 的开发环境。
+- PostgresSystemConfigStore：PostgreSQL 实现，使用 system_configs 表持久化配置。
+- RuntimeConfigService：运行时配置服务，负责返回本地程序与运行组件配置，并在开发环境下覆盖组件下载地址。
+- Server.GetAppConfig：应用配置接口实现，从 system.app_config 键读取 JSON 并返回。
+- Server.GetDefaultPrompts：默认提示词接口实现，从 ai.default_prompts 键读取并兜底内置复核提示词。
 
-章节来源
+**章节来源**
 - [system_config_store.go:11-27](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L11-L27)
-- [system_config_store.go:33-43](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L33-L43)
-- [system_config_store.go:380-462](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L380-L462)
-- [runtime_config.go:9-38](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L9-L38)
+- [runtime_config.go:10-20](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L10-L20)
+- [server.go:315-342](file://goodhr5/cloud/backend/internal/httpapi/server.go#L315-L342)
 - [default_prompts.go:29-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L29-L76)
-- [server.go:279-306](file://goodhr5/cloud/backend/internal/httpapi/server.go#L279-L306)
 
 ## 架构总览
-系统配置 API 采用“路由层 + 服务层 + 存储抽象”的分层设计：
-- 路由层负责 HTTP 方法校验、鉴权（部分接口）、参数解析与统一响应封装。
-- 服务层聚焦业务语义：如读取 onboarding_config、ai.default_prompts。
-- 存储层提供一致的 Get/List/Save 接口，支持内存与数据库双实现。
+系统配置 API 的整体流程如下：
+1. 客户端发起 HTTP 请求到对应路由。
+2. 路由分发到具体处理器。
+3. 处理器通过 SystemConfigStore 读取系统配置。
+4. 配置值以 JSON 字符串形式存储，处理器按需反序列化为业务结构。
+5. 处理器返回统一 JSON 响应，包含 ok 字段和业务数据。
 
 ```mermaid
 sequenceDiagram
 participant C as "客户端"
-participant R as "路由层<br/>server.go"
-participant S as "服务层"
-participant ST as "存储层<br/>SystemConfigStore"
-participant DB as "PostgreSQL"
+participant R as "HTTP 路由<br/>server.go"
+participant H as "配置处理器"
+participant S as "SystemConfigStore"
+participant D as "PostgreSQL"
 C->>R : GET /api/system/app-config
-R->>ST : Get("system.app_config")
-ST-->>R : {config_key, config_value, description, enabled}
-R-->>C : {ok : true, config : <JSON>}
-C->>R : GET /api/runtime/config
-R->>S : RuntimeConfigService.Current()
-S->>ST : Get("system.onboarding_config")
-ST-->>S : {config_value}
-S-->>C : {ok : true, config : {local_agent, runtime_components}}
-C->>R : GET /api/system/default-prompts
-R->>S : GetDefaultPrompts()
-S->>ST : Get("ai.default_prompts")
-ST-->>S : {config_value}
-S-->>C : {ok : true, prompts : {filter_prompt, open_detail_prompt, review_prompt}}
+R->>H : GetAppConfig
+H->>S : Get("system.app_config")
+S->>D : SELECT system_configs WHERE config_key=...
+D-->>S : 配置记录
+S-->>H : SystemConfig
+H-->>C : {ok : true, config : ...}
 ```
 
-图表来源
-- [server.go:279-306](file://goodhr5/cloud/backend/internal/httpapi/server.go#L279-L306)
-- [runtime_config.go:20-38](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L20-L38)
-- [default_prompts.go:59-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L59-L76)
-- [system_config_store.go:380-462](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L380-L462)
+**图表来源**
+- [server.go:315-342](file://goodhr5/cloud/backend/internal/httpapi/server.go#L315-L342)
+- [system_config_store.go:384-405](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L384-L405)
 
 ## 详细接口说明
 
 ### /api/system/app-config（应用配置）
-- 功能：返回前端公共系统配置，包含本地执行器最低版本、邮箱域名白名单、系统公告、后台横幅等。
-- 鉴权：无需登录。
-- 请求：GET
-- 响应：
-  - ok: boolean
-  - config: object（来自 system.app_config 的 JSON）
-- 错误：
-  - 404：未找到 system.app_config
-  - 500：配置项无效或加载失败
-- 数据来源：system_configs 表中 config_key = "system.app_config" 的 config_value 字段。
-- 动态更新：修改该配置后，下一次请求即生效（无缓存）。
-- 版本兼容：前端根据 local_agent_version 进行版本校验；announcements 列表控制公告展示。
+- 方法：GET
+- 认证：无需登录，前端初始化即可获取公共系统配置。
+- 数据来源：system.app_config 配置键。
+- 返回值：
+  - ok：布尔值，表示请求是否成功。
+  - config：任意 JSON 对象，包含前端公共系统参数。
+- 典型配置项：
+  - free_daily_greet_limit：免费用户每日打招呼上限。
+  - position_requirement_optimize_prompt：岗位要求优化提示词。
+  - email_domain_whitelist：邮箱域名白名单。
+  - announcements_enabled：公告开关。
+  - announcements：公告列表，包含 id、title、content、url、once、enabled、created_at。
+  - admin_banner：后台横幅配置，包含 enabled、text、background_color、text_color、url。
+  - admin_banners：后台横幅数组。
+- 错误处理：
+  - 配置不存在时返回 404。
+  - 配置 JSON 无效时返回 500。
+  - 非 GET 方法返回 405。
 
-章节来源
-- [server.go:279-306](file://goodhr5/cloud/backend/internal/httpapi/server.go#L279-L306)
-- [system_config_store.go:380-462](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L380-L462)
-- [0021_system_app_config.sql:1-24](file://goodhr5/cloud/backend/db/migrations/0021_system_app_config.sql#L1-L24)
+```mermaid
+flowchart TD
+Start(["请求进入"]) --> CheckMethod["检查 HTTP 方法是否为 GET"]
+CheckMethod --> |否| Return405["返回 405 方法不允许"]
+CheckMethod --> |是| LoadConfig["读取 system.app_config"]
+LoadConfig --> Found{"配置存在？"}
+Found --> |否| Return404["返回 404 配置不存在"]
+Found --> |是| ParseJSON["解析配置 JSON"]
+ParseJSON --> Valid{"JSON 有效？"}
+Valid --> |否| Return500["返回 500 配置无效"]
+Valid --> |是| ReturnOK["返回 200 与配置对象"]
+```
+
+**图表来源**
+- [server.go:315-342](file://goodhr5/cloud/backend/internal/httpapi/server.go#L315-L342)
+
+**章节来源**
+- [server.go:315-342](file://goodhr5/cloud/backend/internal/httpapi/server.go#L315-L342)
+- [system_config_store.go:45-85](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L45-L85)
+- [system_public_test.go:11-33](file://goodhr5/cloud/backend/internal/httpapi/system_public_test.go#L11-L33)
 
 ### /api/runtime/config（运行时配置）
-- 功能：为已登录用户返回本地程序与运行组件的配置，包括本地程序版本列表、各平台运行组件下载地址与哈希、控制台地址等。
-- 鉴权：需要有效会话。
-- 请求：GET
-- 响应：
-  - ok: boolean
-  - config: object
-    - local_agent: array（本地程序版本与下载信息）
-    - runtime_components: object（node_runtime、cloakbrowser、ocr 等组件的版本与下载信息）
-- 错误：
-  - 401：会话无效或过期
-  - 405：非 GET 方法
-  - 500：加载失败
-- 数据来源：system_configs 表中 config_key = "system.onboarding_config" 的 config_value 字段。
-- 动态更新：修改该配置后，下一次请求即生效。
-- 版本兼容：前端依据 local_agent.version 与 runtime_components.*.version 判断是否需要更新。
+- 方法：GET
+- 认证：需要已登录会话。
+- 数据来源：system.onboarding_config 配置键中的 local_agent 与 runtime_components。
+- 返回值：
+  - ok：布尔值。
+  - config：运行时配置对象，包含 local_agent 与 runtime_components。
+- 开发环境行为：
+  - 若运行环境为 dev，则自动将 runtime_components 中 cloakbrowser、node_runtime、ocr 的下载地址覆盖为本地后端 /uploads/ 路径，避免依赖外部 OSS。
+- 错误处理：
+  - 非 GET 方法返回 405。
+  - 会话无效或过期返回 401。
 
-章节来源
-- [runtime_config.go:20-38](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L20-L38)
-- [system_config_store.go:380-462](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L380-L462)
+```mermaid
+sequenceDiagram
+participant C as "客户端"
+participant R as "HTTP 路由"
+participant S as "RuntimeConfigService"
+participant A as "AuthService"
+participant SC as "SystemConfigStore"
+C->>R : GET /api/runtime/config
+R->>S : Current
+S->>A : SessionFromRequest
+A-->>S : 会话或错误
+S->>SC : Get("system.onboarding_config")
+SC-->>S : onboarding_config
+S->>S : applyDevComponentURLs()
+S-->>C : {ok : true, config : {local_agent,runtime_components}}
+```
+
+**图表来源**
+- [runtime_config.go:22-45](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L22-L45)
+- [runtime_config.go:47-67](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L47-L67)
+
+**章节来源**
+- [runtime_config.go:10-77](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L10-L77)
+- [runtime_config_test.go:11-35](file://goodhr5/cloud/backend/internal/httpapi/runtime_config_test.go#L11-L35)
 
 ### /api/system/default-prompts（默认提示词）
-- 功能：返回系统级 AI 默认提示词，供岗位模板空字段兜底使用。
-- 鉴权：需要有效会话。
-- 请求：GET
-- 响应：
-  - ok: boolean
-  - prompts: object
-    - filter_prompt: string（筛选提示词）
-    - open_detail_prompt: string（打开详情提示词）
-    - review_prompt: string（复核提示词，为空时使用内置默认值）
-- 错误：
-  - 401：会话无效或过期
-  - 405：非 GET 方法
-  - 500：加载失败
-- 数据来源：system_configs 表中 config_key = "ai.default_prompts" 的 config_value 字段。
-- 动态更新：修改该配置后，下一次请求即生效。
-- 版本兼容：review_prompt 为空时自动回退到内置默认提示词，保证向后兼容。
+- 方法：GET
+- 认证：需要已登录会话。
+- 数据来源：ai.default_prompts 配置键。
+- 返回值：
+  - ok：布尔值。
+  - prompts：默认提示词对象，包含 filter_prompt、open_detail_prompt、review_prompt。
+- 默认行为：
+  - 如果 review_prompt 为空，则使用内置复核提示词作为兜底。
+  - 所有提示词字段会进行空白字符修剪。
+- 错误处理：
+  - 非 GET 方法返回 405。
+  - 会话无效或过期返回 401。
 
-章节来源
-- [default_prompts.go:29-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L29-L76)
-- [system_config_store.go:380-462](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L380-L462)
-- [0015_system_default_prompts.down.sql:1-3](file://goodhr5/cloud/backend/db/migrations/0015_system_default_prompts.down.sql#L1-L3)
+```mermaid
+flowchart TD
+Start(["请求进入"]) --> CheckMethod["检查 HTTP 方法是否为 GET"]
+CheckMethod --> |否| Return405["返回 405"]
+CheckMethod --> |是| AuthCheck["校验会话"]
+AuthCheck --> AuthOK{"会话有效？"}
+AuthOK --> |否| Return401["返回 401"]
+AuthOK --> |是| LoadPrompts["加载 ai.default_prompts"]
+LoadPrompts --> Trim["修剪提示词空白"]
+Trim --> ReviewEmpty{"review_prompt 为空？"}
+ReviewEmpty --> |是| UseBuiltin["使用内置复核提示词"]
+ReviewEmpty --> |否| ReturnOK["返回 prompts"]
+UseBuiltin --> ReturnOK
+```
+
+**图表来源**
+- [default_prompts.go:36-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L36-L76)
+
+**章节来源**
+- [default_prompts.go:1-77](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L1-L77)
 
 ## 依赖关系分析
-- 路由层依赖：
-  - 认证服务：对需要鉴权的接口进行会话校验。
-  - 系统配置存储：统一读取 system_configs。
-- 存储层依赖：
-  - 内存实现：适用于开发环境，内置默认配置键值。
-  - PostgreSQL 实现：通过 system_configs 表持久化配置，支持按前缀列出启用配置。
-- 迁移脚本：
-  - 0021_system_app_config.sql：初始化 system.app_config。
-  - 0015_system_default_prompts.down.sql：回滚移除 ai.default_prompts。
+- 路由层：server.go 注册 /api/system/app-config、/api/runtime/config、/api/system/default-prompts 等路由。
+- 认证层：runtime_config.go 与 default_prompts.go 依赖 AuthService 校验会话；app-config 不强制登录。
+- 配置存储层：所有配置均通过 SystemConfigStore 读取，支持内存与 PostgreSQL 两种实现。
+- 环境变量层：config.go 提供后端启动配置，包括 AppEnv、Redis、PostgreSQL、SMTP 等，用于决定运行环境与降级策略。
 
 ```mermaid
 classDiagram
 class Server {
-+Routes()
 +GetAppConfig(w, r)
 +GetDefaultPrompts(w, r)
 }
 class RuntimeConfigService {
 +Current(w, r)
+-applyDevComponentURLs(config)
 }
 class SystemConfigStore {
 <<interface>>
@@ -214,133 +254,113 @@ class PostgresSystemConfigStore {
 +List(prefix) []SystemConfig
 +Save(cfg) error
 }
-Server --> RuntimeConfigService : "调用"
-Server --> SystemConfigStore : "注入"
-RuntimeConfigService --> SystemConfigStore : "读取"
+class AuthService {
++SessionFromRequest(r) Session
++IsSuperAdmin(email) bool
+}
+Server --> SystemConfigStore : "读取系统配置"
+RuntimeConfigService --> SystemConfigStore : "读取 onboarding_config"
+RuntimeConfigService --> AuthService : "校验会话"
 MemorySystemConfigStore ..|> SystemConfigStore
 PostgresSystemConfigStore ..|> SystemConfigStore
 ```
 
-图表来源
-- [server.go:16-44](file://goodhr5/cloud/backend/internal/httpapi/server.go#L16-L44)
-- [server.go:279-306](file://goodhr5/cloud/backend/internal/httpapi/server.go#L279-L306)
-- [runtime_config.go:9-38](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L9-L38)
+**图表来源**
+- [server.go:315-342](file://goodhr5/cloud/backend/internal/httpapi/server.go#L315-L342)
+- [runtime_config.go:10-45](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L10-L45)
 - [system_config_store.go:11-27](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L11-L27)
-- [system_config_store.go:33-43](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L33-L43)
-- [system_config_store.go:380-462](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L380-L462)
 
-章节来源
-- [server.go:16-44](file://goodhr5/cloud/backend/internal/httpapi/server.go#L16-L44)
-- [system_config_store.go:11-27](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L11-L27)
+**章节来源**
+- [server.go:160-229](file://goodhr5/cloud/backend/internal/httpapi/server.go#L160-L229)
+- [config.go:23-71](file://goodhr5/cloud/backend/internal/httpapi/config.go#L23-L71)
 
 ## 性能与一致性
-- 读取路径：所有配置读取均为单次数据库查询（或内存映射），无额外缓存层，确保最新配置即时生效。
-- 并发安全：内存存储在进程内读写，适合单进程开发；PostgreSQL 实现由数据库保证一致性与并发安全。
-- 序列化开销：配置以 JSON 字符串存储，读取后进行反序列化为对象，注意大 JSON 时的网络与 CPU 开销。
-- 建议：
-  - 将频繁读取且稳定的配置（如平台选择器）放在独立的 key，避免一次读取过大 JSON。
-  - 在生产环境开启连接池与合理的超时设置（已在数据库连接处配置）。
+- 配置读取路径短：每个接口仅一次 Get 操作，无复杂缓存层。
+- 配置值以 JSON 字符串存储，处理器按需反序列化，避免额外中间结构。
+- 开发环境运行时配置会覆盖组件 URL，属于轻量级 map 操作，不影响性能。
+- 配置变更即时生效：管理员通过 /api/admin/system/configs/ 或 /api/admin/platforms/config/ 更新配置后，后续请求直接读取最新值。
+- 并发安全：内存存储在单进程内简单 map 读写；PostgreSQL 实现由数据库保证一致性。
 
 [本节为通用指导，不直接分析具体文件]
 
 ## 故障排查指南
-- 401 未授权：
-  - 检查会话是否有效或过期。
-  - 确认请求携带了正确的认证头。
-- 404 未找到：
-  - 检查 system.app_config 是否存在于 system_configs 表。
-  - 检查迁移脚本是否正确执行。
-- 500 内部错误：
+- 404 配置不存在：
+  - 检查 system.app_config 或 ai.default_prompts 是否已在数据库中插入。
+  - 确认配置记录的 enabled 字段为 true。
+- 500 配置无效：
   - 检查配置 JSON 是否合法。
-  - 检查数据库连接与权限。
-- 默认提示词为空：
-  - 若 ai.default_prompts 不存在或 review_prompt 为空，系统将回退到内置默认提示词。
+  - 检查后端日志中“系统应用配置无效”或类似错误。
+- 401 会话无效：
+  - 检查 Authorization 头是否正确携带 Token。
+  - 检查会话是否过期。
+- 405 方法不允许：
+  - 确认请求方法为 GET。
+- 运行时配置缺少 runtime_components：
+  - 检查 system.onboarding_config 是否存在且 JSON 合法。
+  - 检查开发环境 URL 覆盖逻辑是否被正确执行。
 
-章节来源
-- [server.go:279-306](file://goodhr5/cloud/backend/internal/httpapi/server.go#L279-L306)
-- [default_prompts.go:59-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L59-L76)
-- [system_config_store.go:380-462](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L380-L462)
+**章节来源**
+- [server.go:307-342](file://goodhr5/cloud/backend/internal/httpapi/server.go#L307-L342)
+- [runtime_config.go:22-45](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L22-L45)
+- [default_prompts.go:58-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L58-L76)
 
 ## 结论
-系统配置 API 通过统一的存储抽象，提供了稳定、可扩展的配置管理能力。应用配置、运行时配置与默认提示词三大接口覆盖了前端与本地执行器的关键需求。配置变更即时生效，便于热重载；同时通过迁移脚本保障初始数据与版本演进。建议在团队内建立配置变更流程，确保键名、结构与描述的一致性。
+GoodHR 5 的系统配置 API 围绕统一的 SystemConfigStore 构建，提供应用配置、运行时配置与默认提示词三类能力。接口设计简洁、错误处理明确，支持开发环境与生产环境的不同行为。管理员可通过管理员接口动态更新配置，实现热重载效果。建议在部署时确保 system_configs 表结构与初始数据完整，并合理配置环境变量以保证运行稳定性。
 
 [本节为总结性内容，不直接分析具体文件]
 
-## 附录：配置示例与最佳实践
+## 附录：配置项分类与示例
 
 ### 配置项分类
-- 应用配置（system.app_config）：
-  - local_agent_version：本地程序最低版本要求。
-  - email_domain_whitelist：邮箱域名白名单。
-  - announcements_enabled：是否启用公告。
-  - announcements：公告数组，包含 id、title、content、once、enabled、created_at。
-  - admin_banner/admin_banners：后台横幅配置。
-- 运行时配置（system.onboarding_config）：
-  - local_agent：本地程序版本与下载信息数组。
-  - local_agent_console_url：本地程序控制台地址。
-  - runtime_components：运行组件（node_runtime、cloakbrowser、ocr）在各平台的版本、URL、SHA256 与说明。
-  - trial_days：试用天数。
-- 默认提示词（ai.default_prompts）：
-  - filter_prompt：筛选提示词。
-  - open_detail_prompt：打开详情提示词。
-  - review_prompt：复核提示词（为空时使用内置默认值）。
+- 基础配置：
+  - system.app_config：前端公共系统配置。
+  - system.guide：帮助中心与系统指南。
+- AI 配置：
+  - ai.default_prompts：AI 默认提示词。
+- 订阅支付：
+  - system.subscription_plans：订阅套餐。
+  - system.payment_wechat：微信支付配置。
+- 本地组件：
+  - system.onboarding_config：本地程序与运行组件。
+- 邀请帮助：
+  - system.invite_config：邀请奖励。
 
-章节来源
+**章节来源**
 - [system_config_store.go:45-187](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L45-L187)
-- [0021_system_app_config.sql:1-24](file://goodhr5/cloud/backend/db/migrations/0021_system_app_config.sql#L1-L24)
 
-### 动态更新与热重载
-- 所有配置读取均直接从存储层获取，无缓存，修改后立即生效。
-- 建议：
-  - 在低峰期发布配置变更。
-  - 对关键配置增加描述与变更记录，便于回溯。
+### 动态更新机制
+- 管理员可通过 /api/admin/system/configs/{key} 或 /api/admin/platforms/config/{key} 更新任意系统配置。
+- 更新成功后，后续请求直接读取最新配置，无需重启服务。
+- 配置保存使用 Upsert 语义，避免重复插入。
 
-章节来源
-- [server.go:279-306](file://goodhr5/cloud/backend/internal/httpapi/server.go#L279-L306)
-- [runtime_config.go:20-38](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L20-L38)
-- [default_prompts.go:59-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L59-L76)
+**章节来源**
+- [server.go:470-531](file://goodhr5/cloud/backend/internal/httpapi/server.go#L470-L531)
+- [system_config_store.go:441-456](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L441-L456)
 
 ### 配置验证规则
-- 必填字段：
-  - system.app_config：至少包含 local_agent_version 与 announcements_enabled。
-  - system.onboarding_config：至少包含 local_agent 与 runtime_components。
-  - ai.default_prompts：至少包含 filter_prompt 与 open_detail_prompt；review_prompt 可为空。
-- 类型约束：
-  - local_agent_version：字符串，遵循语义化版本。
-  - announcements：数组，每项需包含 id、title、content、once、enabled、created_at。
-  - runtime_components：对象，键为组件名，值为平台对象（win/mac），包含 version、url、sha256、note。
-- 行为约束：
-  - 仅启用（enabled=true）的配置会被 List 返回。
-  - review_prompt 为空时回退到内置默认提示词。
+- 配置键必须唯一。
+- 配置值必须为合法 JSON 字符串。
+- 配置记录必须启用（enabled=true）才会被读取。
+- 默认提示词中 review_prompt 为空时使用内置兜底。
 
-章节来源
-- [system_config_store.go:45-187](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L45-L187)
-- [default_prompts.go:29-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L29-L76)
+**章节来源**
+- [system_config_store.go:343-370](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L343-L370)
+- [default_prompts.go:49-55](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L49-L55)
 
-### 配置备份与恢复
-- 备份：
-  - 导出 system_configs 表的全部记录，保留 config_key、config_value、description、enabled。
-- 恢复：
-  - 导入备份 SQL，注意 ON CONFLICT 策略以避免重复插入。
-- 建议：
-  - 变更前先备份。
-  - 对关键配置（如支付、订阅）增加变更审批与回滚预案。
+### 热重载机制
+- 配置变更后，下一次请求即读取新值。
+- 运行时配置在开发环境下自动覆盖组件下载地址。
+- 应用配置与默认提示词均为实时读取，无进程级缓存。
 
-[本节为通用指导，不直接分析具体文件]
+**章节来源**
+- [runtime_config.go:40-67](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L40-L67)
+- [server.go:315-342](file://goodhr5/cloud/backend/internal/httpapi/server.go#L315-L342)
 
-### 完整示例：系统参数调整与平台配置更新
-- 调整系统参数：
-  - 修改 system.app_config 中的 local_agent_version，以强制前端升级本地程序。
-  - 更新 announcements 列表，发布新版本公告。
-- 更新平台配置：
-  - 修改 system.onboarding_config 中的 runtime_components，发布新的 node_runtime 或 cloakbrowser 版本。
-  - 更新 local_agent_console_url，指向新的控制台地址。
-- 默认提示词优化：
-  - 在 ai.default_prompts 中完善 filter_prompt 与 open_detail_prompt，提升筛选与详情打开质量。
-  - 如需自定义 review_prompt，可替换为空或新文本，否则保持为空以使用内置默认值。
+### 配置备份恢复建议
+- 由于配置存储在 PostgreSQL 的 system_configs 表中，建议使用数据库备份工具对表进行定期备份。
+- 恢复时确保配置键与 JSON 结构一致，避免业务异常。
+- 对于敏感配置（如微信支付密钥），应结合密钥管理系统或环境变量进行保护。
 
-章节来源
-- [system_config_store.go:45-187](file://goodhr5/cloud/backend/internal/httpapi/system_config_store.go#L45-L187)
-- [server.go:279-306](file://goodhr5/cloud/backend/internal/httpapi/server.go#L279-L306)
-- [runtime_config.go:20-38](file://goodhr5/cloud/backend/internal/httpapi/runtime_config.go#L20-L38)
-- [default_prompts.go:59-76](file://goodhr5/cloud/backend/internal/httpapi/default_prompts.go#L59-L76)
+**章节来源**
+- [0002_add_system_configs.sql](file://goodhr5/cloud/backend/db/migrations/0002_add_system_configs.sql)
+- [0021_system_app_config.sql](file://goodhr5/cloud/backend/db/migrations/0021_system_app_config.sql)

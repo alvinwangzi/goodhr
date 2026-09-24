@@ -1,0 +1,97 @@
+# 本文件用于在 Ubuntu 服务器上一键部署 GoodHR 5 生产环境。
+# 包含四个服务：PostgreSQL 数据库、Redis 缓存、Go 后端、Next.js 前端，数据通过命名卷持久化。
+# Nginx 与 HTTPS 证书在宿主机单独安装，反向代理到本文件发布到 127.0.0.1 的端口。
+#
+# 使用方式（在 goodhr5/ 目录下执行）：
+#   1. 先复制环境变量模板并填写真实值： cp .env.prod.example .env
+#   2. 构建并启动： docker compose -f docker-compose.prod.yml up -d --build
+#
+# 说明：所有配置项集中在同目录的 .env 文件里，本文件通过 ${变量} 引用，避免多处重复填写。
+name: goodhr5-prod
+
+services:
+  # PostgreSQL 主数据库；首次启动会自动创建库，后端启动时自动执行 db/migrations 建表。
+  postgres:
+    image: postgres:17.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-goodhr5}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?必须在 goodhr5/.env 里设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-goodhr5}
+      TZ: Asia/Shanghai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - goodhr5-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-goodhr5} -d ${POSTGRES_DB:-goodhr5}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Redis 会话与缓存；仅在内网 goodhr5-net 中可达，不对宿主机暴露端口。
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - goodhr5-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Go 后端；监听 :8084，只发布到宿主机 127.0.0.1，供本机 Nginx 反代。
+  backend:
+    build: ./cloud/backend
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      # 下面两项由 compose 依据 .env 自动拼接，覆盖 .env 中可能存在的空值。
+      GOODHR_APP_ENV: prod
+      GOODHR_CLOUD_ADDR: :8084
+      GOODHR_PG_DSN: postgres://${POSTGRES_USER:-goodhr5}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-goodhr5}?sslmode=disable
+      GOODHR_REDIS_ADDR: redis:6379
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:8084:8084"
+    volumes:
+      # 挂载源码目录：数据库迁移文件、uploads 上传目录都随宿主机持久化。
+      - ./cloud/backend:/app
+      - /app/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - goodhr5-net
+
+  # Next.js 前端；容器内 :3000，发布到宿主机 127.0.0.1:5173，供本机 Nginx 反代。
+  frontend:
+    build:
+      context: ./cloud/frontend-next
+      args:
+        # 构建期注入正式域名，用于 sitemap、SEO 和邀请链接；同域反代时 API 地址留空走相对路径。
+        NEXT_PUBLIC_SITE_URL: ${SITE_URL:-}
+        NEXT_PUBLIC_CLOUD_API_BASE: ${PUBLIC_API_BASE:-}
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:5173:3000"
+    depends_on:
+      - backend
+    networks:
+      - goodhr5-net
+
+networks:
+  goodhr5-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

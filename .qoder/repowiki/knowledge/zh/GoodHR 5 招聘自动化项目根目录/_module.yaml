@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: ""
+title: GoodHR 5 招聘自动化项目根目录
+scope:
+    - AGENTS.md
+    - .gitignore
+    - CLAUDE.md
+    - LICENSE
+    - README.md
+source_files: []
+depends_on: []
+related_to: []

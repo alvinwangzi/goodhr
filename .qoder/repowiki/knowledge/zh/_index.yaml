@@ -3,14 +3,14 @@ schema_version: 1
 locale: zh-CN
 branch: dev
 nodes_managed: true
-exported_at: "2026-09-22T03:18:08Z"
+exported_at: "2026-09-24T12:53:55Z"
 modules:
     "":
-        dir_name: 项目根目录与 AI 助手约定
-        title: 项目根目录与 AI 助手约定
+        dir_name: GoodHR 5 招聘自动化项目根目录
+        title: GoodHR 5 招聘自动化项目根目录
         scope:
-            - .agents/
             - AGENTS.md
+            - .gitignore
             - CLAUDE.md
             - LICENSE
             - README.md

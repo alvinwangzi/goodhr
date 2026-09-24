@@ -132,7 +132,7 @@ const menuGroups: MenuGroup[] = [
       // ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       // AI 配置只有团队管理员可以查看和填写，普通成员不显示入口。
       ["/admin/ai-config", "AI配置", AutoAwesomeRoundedIcon, true],
-      ["/admin/personal-config", "个人配置", SettingsRoundedIcon],
+      ["/admin/personal-config", "操作配置", SettingsRoundedIcon],
       ["/admin/subscription", "订阅会员", CreditCardRoundedIcon],
     ],
   },
