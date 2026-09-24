@@ -22,7 +22,7 @@ func replyTestConfig() replyPageConfig {
 	for _, key := range []string{"id", "direction", "kind", "timestamp", "text"} {
 		messageFields[key] = platformcore.SelectorField{Attribute: key}
 	}
-	return replyPageConfig{Jobs: spec("jobs"), JobFields: map[string]platformcore.SelectorField{"id": {Attribute: "id"}, "name": {Attribute: "name"}}, Verified: true, MessagesURL: "https://fixture.invalid/chat", Unread: spec("unread"), Conversation: spec("conversation"), Active: spec("active"), Messages: spec("messages"), Input: spec("input"), Send: spec("send"), IdentityAttribute: "id", ConversationFields: fields, MessageFields: messageFields, Directions: map[string]string{"in": "inbound", "out": "outbound"}, Kinds: map[string]string{"text": "text", "file": "attachment"}}
+	return replyPageConfig{Jobs: spec("jobs"), JobFields: map[string]platformcore.SelectorField{"id": {Attribute: "id"}, "name": {Attribute: "name"}}, Verified: true, MessagesURL: "https://fixture.invalid/chat", Unread: spec("unread"), UnreadFilter: spec("unread_filter"), Conversation: spec("conversation"), Active: spec("active"), Messages: spec("messages"), Input: spec("input"), Send: spec("send"), IdentityAttribute: "id", ConversationFields: fields, MessageFields: messageFields, Directions: map[string]string{"in": "inbound", "out": "outbound"}, Kinds: map[string]string{"text": "text", "file": "attachment"}}
 }
 
 // replyPage 模拟会话点击后列表重排和已读，不模拟业务决策。
@@ -122,6 +122,9 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 			return pageItems(p.messages[p.active]...), nil
 		}
 	case "/api/v1/page/click":
+		if key == "unread_filter" {
+			return map[string]any{"clicked": true}, nil
+		}
 		if key == "conversation" {
 			p.active = request.Selector.Attributes["id"]
 			p.unread = []string{"b"}

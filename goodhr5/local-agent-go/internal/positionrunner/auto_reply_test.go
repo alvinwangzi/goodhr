@@ -33,6 +33,7 @@ type replyFixture struct {
 	stagedText, sentText     string
 	reviewScore, resumeCalls int
 	reviewReason             string
+	action                   string
 	generate                 func(context.Context) (string, error)
 }
 
@@ -73,6 +74,10 @@ func (f *replyFixture) GenerateReply(ctx context.Context, request localai.ReplyR
 	var err error
 	if f.generate != nil {
 		text, err = f.generate(ctx)
+	}
+	// 不发送决策的正文和索要位必须为空，与生产边界校验保持一致。
+	if f.action == "skip" || f.action == "uncertain" {
+		return localai.ReplyDecision{Action: f.action, Reason: "测试不发送"}, err
 	}
 	return localai.ReplyDecision{Action: "reply", Text: text, Reason: "测试回答", RequestResume: request.AllowResumeRequest}, err
 }
@@ -223,6 +228,48 @@ func TestReplyFlowQualifiedKeepsAI(t *testing.T) {
 	action, err := flow.resumeAfterReplyIfNeeded(t.Context(), c.Conversation)
 	if err != nil || action != "requested" || f.resumeCalls != 1 {
 		t.Fatalf("合格候选人未继续索要：%q %v", action, err)
+	}
+}
+
+// TestReplyFlowAlreadyRejectedDefersToAI 验证会话已发过拒绝话术后，评分不达标不再发第二条拒绝，改交 AI 结合上下文判断。
+func TestReplyFlowAlreadyRejectedDefersToAI(t *testing.T) {
+	flow, f, c := newReplyFlowFixture(t)
+	flow.positionSnapshot = map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70.0}}
+	flow.rejectTemplate = "暂不匹配，感谢关注。"
+	c.Messages = []platformcore.ReplyMessage{
+		{ID: "m1", Direction: "inbound", Kind: "text", Text: "你好"},
+		{ID: "m2", Direction: "outbound", Kind: "text", Text: "暂不匹配，感谢关注。"},
+		{ID: "m3", Direction: "inbound", Kind: "text", Text: "好吧"},
+	}
+	f.reviewScore = 0
+	f.action = "skip"
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "skipped" {
+		t.Fatalf("已拒绝会话应交AI判断后跳过：%s %v", outcome, err)
+	}
+	if f.generations != 1 {
+		t.Fatalf("已拒绝会话未交AI判断：generations=%d", f.generations)
+	}
+	if f.sends != 0 || f.stagedText != "" {
+		t.Fatalf("已拒绝会话仍发出第二条拒绝：sends=%d staged=%q", f.sends, f.stagedText)
+	}
+}
+
+// TestReplyFlowAlreadyRejectedDefaultTemplate 验证系统默认拒绝话术已发过后，岗位自定义话术也不得重复拒绝。
+func TestReplyFlowAlreadyRejectedDefaultTemplate(t *testing.T) {
+	flow, f, c := newReplyFlowFixture(t)
+	flow.positionSnapshot = map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70.0}}
+	flow.rejectTemplate = "暂不匹配，感谢关注。"
+	c.Messages = []platformcore.ReplyMessage{
+		{ID: "m1", Direction: "inbound", Kind: "text", Text: "你好"},
+		{ID: "m2", Direction: "outbound", Kind: "text", Text: defaultRejectTemplate()},
+		{ID: "m3", Direction: "inbound", Kind: "text", Text: "好吧"},
+	}
+	f.reviewScore = 0
+	f.action = "skip"
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "skipped" || f.generations != 1 || f.sends != 0 {
+		t.Fatalf("默认拒绝话术已发过仍重复拒绝：%s %v generations=%d sends=%d", outcome, err, f.generations, f.sends)
 	}
 }
 

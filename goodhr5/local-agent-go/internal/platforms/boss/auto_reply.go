@@ -26,6 +26,7 @@ type replyPageConfig struct {
 	UnavailableReason   string                                `json:"unavailable_reason"`
 	MessagesURL         string                                `json:"messages_url"`
 	Unread              platformcore.SelectorSpec             `json:"unread"`
+	UnreadFilter        platformcore.SelectorSpec             `json:"unread_filter"`
 	Conversation        platformcore.SelectorSpec             `json:"conversation"`
 	Active              platformcore.SelectorSpec             `json:"active"`
 	Messages            platformcore.SelectorSpec             `json:"messages"`
@@ -214,6 +215,7 @@ func replyChildSelector(child, parent platformcore.SelectorSpec) platformcore.Se
 }
 
 // ScanUnreadReplies 只把确认属于当前岗位的稳定会话加入队列，重复身份不入队。
+// 先点击"未读"筛选按钮切换到未读消息列表，再从上往下扫描。
 func (r *Runtime) ScanUnreadReplies(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, limit int) ([]platformcore.ReplyConversation, error) {
 	if err := r.AutoReplyAvailable(); err != nil {
 		return nil, err
@@ -222,6 +224,16 @@ func (r *Runtime) ScanUnreadReplies(ctx context.Context, exec platformcore.Execu
 		limit = 100
 	}
 	cfg := r.replyPageSettings()
+	// 点击"未读"筛选按钮，只显示未读会话。
+	if len(cfg.UnreadFilter.Selectors) > 0 {
+		_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: cfg.UnreadFilter})
+		// 等待会话列表刷新。
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(3 * time.Second):
+		}
+	}
 	fields, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.Unread, Fields: cfg.ConversationFields, MaxItems: limit})
 	if err != nil {
 		return nil, err

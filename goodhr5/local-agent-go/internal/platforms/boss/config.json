@@ -15,6 +15,9 @@
   "unread": {
     "selectors": [".user-list .geek-item"]
   },
+  "unread_filter": {
+    "selectors": [".chat-message-filter-left span:has-text(\"未读\")"]
+  },
   "conversation": {
     "selectors": [".user-list .geek-item"]
   },

@@ -224,6 +224,12 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 		f.reviewScore = 100
 	}
 	request.AllowResumeRequest = float64(f.reviewScore) >= threshold && request.ResumeStatus == "none" && !f.acceptedResume
+	// 会话里已发过拒绝话术时不再重复拒绝，改交 AI 结合上下文判断是否需要回答。
+	if strings.TrimSpace(request.RejectTemplate) != "" &&
+		historyContainsReject(current.Messages, request.RejectTemplate, defaultRejectTemplate()) {
+		f.flowLog("info", fmt.Sprintf("会话已发过拒绝话术，不再重复拒绝，改由AI判断：候选人=%s", current.Conversation.Name))
+		request.RejectTemplate = ""
+	}
 	decision := localai.ReplyDecision{Action: "reply"}
 	text := strings.TrimSpace(request.RejectTemplate)
 	if text != "" {
@@ -463,6 +469,22 @@ func positionFAQ(position localdb.Position) []localai.FAQEntry {
 // defaultRejectTemplate 返回系统默认拒绝话术。
 func defaultRejectTemplate() string {
 	return "感谢你的关注，我们看了你的信息，跟我们的岗位要求不匹配。下次有机会再合作。"
+}
+
+// historyContainsReject 判断会话历史中是否已存在我方发送过的拒绝话术原文。
+func historyContainsReject(messages []platformcore.ReplyMessage, rejects ...string) bool {
+	for _, message := range messages {
+		if message.Direction != "outbound" {
+			continue
+		}
+		text := strings.TrimSpace(message.Text)
+		for _, reject := range rejects {
+			if text != "" && text == strings.TrimSpace(reject) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runAutoReplyTask 组装自动回复依赖并执行整轮编排。
