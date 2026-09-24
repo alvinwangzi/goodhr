@@ -3,17 +3,17 @@ INSERT INTO system_configs (config_key, config_value, description, enabled)
 VALUES (
   'system.app_config',
   '{
-    "local_agent_version": "5.0.0",
+    "local_agent_version": "0.1.1",
     "email_domain_whitelist": ["qq.com", "foxmail.com", "163.com", "126.com", "yeah.net", "sina.com", "sina.cn", "sohu.com", "aliyun.com", "139.com", "189.cn", "wo.cn", "gmail.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "yahoo.com", "proton.me", "protonmail.com"],
     "announcements_enabled": true,
     "announcements": [
       {
-        "id": "2026-05-26-v1",
-        "title": "GoodHR 5 更新公告",
-        "content": "GoodHR 5 本地执行器版本从 5.0.0 起步，低版本请及时更新。",
+        "id": "2026-09-26-v1",
+        "title": "HRPlus 更新公告",
+        "content": "HRPlus 本地执行器版本从 0.1.1 起步，低版本请及时更新。",
         "once": true,
         "enabled": true,
-        "created_at": "2026-05-26"
+        "created_at": "2026-09-26"
       }
     ]
   }'::jsonb,

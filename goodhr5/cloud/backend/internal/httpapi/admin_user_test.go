@@ -186,7 +186,7 @@ func TestPublicTodayStats(t *testing.T) {
 	bindReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/agents/bind",
-		bytes.NewBufferString(`{"machine_id":"sha256-public","agent_version":"5.0.0","local_port":55271}`),
+		bytes.NewBufferString(`{"machine_id":"sha256-public","agent_version":"0.1.1","local_port":55271}`),
 	)
 	bindReq.Header.Set("Authorization", "Bearer "+token)
 	bindResp := httptest.NewRecorder()

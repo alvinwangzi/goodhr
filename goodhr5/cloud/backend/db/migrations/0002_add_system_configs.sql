@@ -1,4 +1,4 @@
--- 本文件定义 GoodHR 5 云端系统配置表。
+-- 本文件定义 HRPlus 云端系统配置表。
 CREATE TABLE IF NOT EXISTS system_configs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     config_key TEXT NOT NULL UNIQUE,
