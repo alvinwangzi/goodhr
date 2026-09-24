@@ -1,6 +1,6 @@
----
+﻿---
 kind: configuration_system
-name: GoodHR 5 配置系统：环境变量 + 构建注入 + 运行时系统配置表
+name: HRPlus 配置系统：环境变量 + 构建注入 + 运行时系统配置表
 category: configuration_system
 scope:
     - '**'
@@ -17,7 +17,7 @@ source_files:
 
 ## 1. 总体方案
 
-GoodHR 5 是一个多组件 Go/Node 项目，包含云端后端（`goodhr5/cloud/backend`）、本地 Agent（`goodhr5/local-agent-go`）和 Next.js 控制台前端。配置系统按“启动期配置”和“运行时业务配置”两条线组织：
+HRPlus 是一个多组件 Go/Node 项目，包含云端后端（`goodhr5/cloud/backend`）、本地 Agent（`goodhr5/local-agent-go`）和 Next.js 控制台前端。配置系统按“启动期配置”和“运行时业务配置”两条线组织：
 
 - **启动期配置**：通过 `os.Getenv` 读取环境变量，配合少量命令行 flag。
 - **运行时业务配置**：通过云端后端的 `system_configs` 数据库表（JSONB），由 `SystemConfigStore` 抽象提供内存/PostgreSQL 双实现。
@@ -63,7 +63,7 @@ GoodHR 5 是一个多组件 Go/Node 项目，包含云端后端（`goodhr5/cloud
 `runtime_config.go` 的 `RuntimeConfigService.Current` 读取 `system.onboarding_config` 返回给前端；开发环境下 `applyDevComponentURLs` 会把组件下载 URL 覆盖为 `http://localhost:8084/uploads/<filename>`，避免依赖外部 OSS。
 
 ### 3.4 目录与数据布局（本地 Agent）
-`Config.EnsureDirs()` 在启动时创建 `DataDir`、`RuntimeDir`、`LogsDir`、`OCRDir`、`FrontendDir`、`ProfilesDir`、`DownloadsDir`、`ScreenshotsDir` 八个目录，权限 `0755`。默认数据目录位于 `os.UserConfigDir()/HRPlus`，下载目录优先使用系统 Downloads 目录，失败则回退到 `os.TempDir()/GoodHR/Downloads`。
+`Config.EnsureDirs()` 在启动时创建 `DataDir`、`RuntimeDir`、`LogsDir`、`OCRDir`、`FrontendDir`、`ProfilesDir`、`DownloadsDir`、`ScreenshotsDir` 八个目录，权限 `0755`。默认数据目录位于 `os.UserConfigDir()/HRPlus`，下载目录优先使用系统 Downloads 目录，失败则回退到 `os.TempDir()/HRPlus/Downloads`。
 
 ### 3.5 存储层切换策略
 云端的几乎所有 Store（Auth、Agent、UserFlow、AIConfig、Subscription、Position、Cookie、Tenant、Payment 等）都遵循同一模式：`Config.XxxStore(db)` 根据 `db != nil` 选择 Postgres 实现，否则返回 Memory 实现。`PostgresDB()` 会先 Ping 再执行迁移，失败直接报错；未配置 DSN 时返回 nil，使整个应用可在无 PG 环境下运行。

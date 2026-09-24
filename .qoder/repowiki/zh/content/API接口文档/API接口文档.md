@@ -1,4 +1,4 @@
-# API接口文档
+﻿# API接口文档
 
 <cite>
 **本文引用的文件**
@@ -30,10 +30,10 @@
 10. [附录：版本、兼容性与速率限制](#附录版本兼容性与速率限制)
 
 ## 简介
-本文件为 GoodHR5 的完整 API 参考，覆盖云端 RESTful API、WebSocket 长连接、本地 Agent HTTP API 及认证机制。面向客户端开发者提供端点、请求参数、响应格式、错误码、状态码、示例与最佳实践，帮助快速集成云端与本地程序协同工作。
+本文件为 HRPlus5 的完整 API 参考，覆盖云端 RESTful API、WebSocket 长连接、本地 Agent HTTP API 及认证机制。面向客户端开发者提供端点、请求参数、响应格式、错误码、状态码、示例与最佳实践，帮助快速集成云端与本地程序协同工作。
 
 ## 项目结构
-GoodHR5 由云端后端与本地 Agent 两部分组成：
+HRPlus5 由云端后端与本地 Agent 两部分组成：
 - 云端后端：基于 Go 的 HTTP 服务，集中注册路由、统一响应封装、鉴权中间件、业务服务编排。
 - 本地 Agent：运行在用户机器上的进程，暴露本地 HTTP 接口，负责浏览器控制、任务执行、与云端通信。
 
@@ -285,7 +285,7 @@ Resolve --> End(["完成"])
 
 ### 系统配置与公共能力
 - GET /health
-  - 响应：{ ok: true, name: "GoodHR 5 Cloud API", version: "0.1.0" }
+  - 响应：{ ok: true, name: "HRPlus Cloud API", version: "0.1.0" }
 - GET /api/system/app-config
   - 响应：{ ok: true, config: {...} }
 - GET /api/system/local-agent-updates
@@ -431,7 +431,7 @@ Server --> PlatformAccountService : "依赖"
 - [diagnostics.go:84-104](file://goodhr5/local-agent-go-new/internal/api/diagnostics.go#L84-L104)
 
 ## 结论
-GoodHR5 提供了完整的云端与本地协同API体系：云端负责认证、业务编排与持久化，本地Agent负责浏览器自动化与任务执行。通过WebSocket实现可靠指令通道，结合严格的设备绑定与权限控制，保障运行安全。建议客户端遵循统一响应格式、正确携带认证头、合理重试与超时策略，并在集成前充分测试健康检查与诊断接口。
+HRPlus5 提供了完整的云端与本地协同API体系：云端负责认证、业务编排与持久化，本地Agent负责浏览器自动化与任务执行。通过WebSocket实现可靠指令通道，结合严格的设备绑定与权限控制，保障运行安全。建议客户端遵循统一响应格式、正确携带认证头、合理重试与超时策略，并在集成前充分测试健康检查与诊断接口。
 
 ## 附录：版本、兼容性与速率限制
 - 版本管理

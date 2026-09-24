@@ -1,6 +1,6 @@
----
+﻿---
 kind: dependency_management
-name: GoodHR5 多语言依赖管理（Go modules + pnpm/npm + 镜像源）
+name: HRPlus5 多语言依赖管理（Go modules + pnpm/npm + 镜像源）
 category: dependency_management
 scope:
     - '**'

@@ -1,6 +1,6 @@
----
+﻿---
 kind: build_system
-name: GoodHR 5 构建与部署体系（Docker Compose + Shell/PowerShell 脚本）
+name: HRPlus 构建与部署体系（Docker Compose + Shell/PowerShell 脚本）
 category: build_system
 scope:
     - '**'
@@ -17,7 +17,7 @@ source_files:
     - goodhr5/local-agent-go/scripts/build_go_binary.ps1
     - goodhr5/local-agent-go/cmd/build-local-agent/main.go
     - goodhr5/local-agent-go/packaging/environments/prod.json
-    - goodhr5/local-agent-go/packaging/GoodHRLocalAgentGo.iss
+    - goodhr5/local-agent-go/packaging/HRPlusLocalAgentGo.iss
     - goodhr5/local-agent-go/build_windows_installer.bat
 ---
 
@@ -46,7 +46,7 @@ source_files:
 | Go 二进制构建脚本（Windows） | `goodhr5/local-agent-go/scripts/build_go_binary.ps1` |
 | 统一构建入口（Go） | `goodhr5/local-agent-go/cmd/build-local-agent/main.go` |
 | 生产环境嵌入配置 | `goodhr5/local-agent-go/packaging/environments/prod.json` |
-| Windows 安装包定义 | `goodhr5/local-agent-go/packaging/GoodHRLocalAgentGo.iss` |
+| Windows 安装包定义 | `goodhr5/local-agent-go/packaging/HRPlusLocalAgentGo.iss` |
 | Windows 安装器构建 | `goodhr5/local-agent-go/build_windows_installer.bat` |
 
 ## 3. 架构与约定
@@ -86,7 +86,7 @@ source_files:
   - Windows 目标追加 `-H windowsgui` 隐藏控制台窗口。
   - 强制 `CGO_ENABLED=0`，输出命名形如 `hrplus-agent-<env>-<os>-<arch>[.exe]`，默认落 `dist/bin/<env>/`。
 - `scripts/build_go_binary.sh` / `build_go_binary.ps1` 是对该入口的薄封装，分别支持 bash 与 PowerShell，并在调用前将 GOOS/GOARCH 设为宿主值。
-- 发布包通过 Inno Setup（`GoodHRLocalAgentGo.iss`）打包，配套 PowerShell 脚本 `build_windows_installer.ps1`。
+- 发布包通过 Inno Setup（`HRPlusLocalAgentGo.iss`）打包，配套 PowerShell 脚本 `build_windows_installer.ps1`。
 
 ### 3.4 版本与构建环境
 

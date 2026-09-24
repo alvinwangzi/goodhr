@@ -1,4 +1,4 @@
----
+﻿---
 kind: logging_system
 name: Go 标准库 log 日志系统（云端后端 + 本地 Agent）
 category: logging_system
@@ -14,7 +14,7 @@ source_files:
 
 ## 1. 使用的框架/方案
 
-GoodHR 5 的 Go 代码（`goodhr5/cloud/backend` 与 `goodhr5/local-agent-go`）统一使用 **Go 标准库 `log`**，没有引入 zap、logrus、zerolog、slog 等第三方日志框架。所有业务模块直接调用 `log.Printf` / `log.Fatal` / `log.Println`。
+HRPlus 的 Go 代码（`goodhr5/cloud/backend` 与 `goodhr5/local-agent-go`）统一使用 **Go 标准库 `log`**，没有引入 zap、logrus、zerolog、slog 等第三方日志框架。所有业务模块直接调用 `log.Printf` / `log.Fatal` / `log.Println`。
 
 前端 Next.js 部分未发现专门的日志框架引用，未纳入本卡片范围。
 
