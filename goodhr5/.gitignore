@@ -1,4 +1,4 @@
-# 本文件用于忽略 GoodHR 5 运行和部署过程产生的本地文件。
+# 本文件用于忽略 HRPlus 运行和部署过程产生的本地文件。
 deploy.log
 .deploy.lock/
 **/dist/
@@ -6,3 +6,5 @@ deploy.log
 # 生产环境变量与数据库备份不入库
 .env
 backups/
+# Go 构建产物
+*.exe
