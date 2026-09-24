@@ -72,6 +72,46 @@ goodhr5/
 
 候选人详情、招聘平台登录状态、截图、OCR 结果和本地任务数据优先保存在用户电脑中。云端主要保存账号、岗位配置、任务摘要和本地程序状态，减少敏感招聘数据在不同环境之间流转。
 
+## 开发环境上手
+
+### 前置依赖
+
+- **Docker**：用于启动 PostgreSQL 数据库
+- **Go 1.24+**：云端后端和本地程序
+- **Node.js 18+**：云端前端（Next.js）
+
+### 一键启动
+
+```powershell
+git clone https://github.com/alvinwangzi/goodhr.git
+cd goodhr
+git checkout dev
+cd goodhr5
+.\scripts\dev.ps1
+```
+
+脚本会自动完成以下步骤：
+
+1. 用 `docker-compose.local.yml` 启动 PostgreSQL（端口 25432）
+2. 检查 `cloud/backend/.env` 是否存在，不存在则自动生成默认开发配置
+3. 启动后端 Go 服务（端口 8084）
+4. 检查前端 `node_modules` 是否存在，不存在则自动 `npm install`
+5. 启动 Next.js 前端（端口 3000）
+
+启动完成后访问：
+
+- 前端：http://localhost:3000
+- 后端：http://localhost:8084
+- 数据库：localhost:25432
+
+按 `Ctrl+C` 停止所有服务并清理 Docker 容器。
+
+### 环境变量说明
+
+后端环境变量保存在 `cloud/backend/.env`（已被 gitignore 忽略），脚本首次启动时会自动生成。如需自定义配置，可参考 `cloud/backend/.env.example` 模板。
+
+前端开发时脚本已硬编码注入 `NEXT_PUBLIC_CLOUD_API_BASE` 和 `NEXT_PUBLIC_SITE_URL`，通常不需要手动配置 `.env`。
+
 ## 部署与使用
 
 ### 云端服务
