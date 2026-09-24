@@ -79,7 +79,7 @@
     "text": "同意"
   },
   "resume_button": {
-    "selectors": [".operate-icon-item:visible:not(.disabled):not([disabled])"],
+    "selectors": [".operate-icon-item:visible:not(.disabled):not([disabled]) > span.operate-btn:visible"],
     "text": "求简历"
   },
   "resume_confirm": {

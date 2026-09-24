@@ -57,19 +57,26 @@ function attachmentFixture(mode) {
 // resumeRequestFixture 用原生链接与 :target 模拟索要确认弹窗，只在点击“确定”后展示请求状态。
 function resumeRequestFixture(mode) {
  const dialog = `<div class="exchange-tooltip"><span class="text"> 确定向牛人索取简历吗？</span><div class="btn-box"><span class="boss-btn-outline boss-btn"><a href="#cancelled">取消</a></span><span class="boss-btn-primary boss-btn"><a href="#requested">确定</a></span></div></div>`;
+ // 保留真实入口内的按钮、重复提示和隐藏确认框；仅用按钮内原生链接与弹窗外 :target 容器替代页面事件。
+ const entry = `<div class="operate-icon-item${mode === "disabled" ? " disabled" : ""}"${mode === "disabled-attribute" ? " disabled" : ""}${mode === "hidden" ? " hidden" : ""}>
+ <span class="operate-btn"${mode === "hidden-button" ? " hidden" : ""}><a href="#resume-popup">${mode === "other-label" ? "求简历说明" : "求简历"}</a></span>
+ <span class="chat-tooltip-custom">求简历</span>
+ <div id="resume-popup">${dialog}${mode === "duplicate" ? dialog : ""}</div></div>`;
+ const activeEntry = mode === "absent" ? "" : entry;
  return `<!doctype html><html><head><style>
  #resume-popup,#requested{display:none}#resume-popup:target,#requested:target{display:block}
+ .chat-tooltip-custom{display:${mode === "visible-tooltip" ? "inline" : "none"}}
  .exchange-tooltip{padding:12px}.btn-box a{display:inline-block;padding:12px}
  </style></head><body>
- <a class="operate-icon-item" href="#wrong-panel">求简历</a>
+ <div class="operate-icon-item"><span class="operate-btn"><a href="#wrong-panel">求简历</a></span><span class="chat-tooltip-custom">求简历</span></div>
  <a class="boss-btn-primary" href="#wrong-generic">确定</a>
  ${dialog.replace("索取简历", "交换微信").replace("#requested", "#wrong-contact")}
- <section class="chat-conversation">
- <a class="operate-icon-item" href="#wrong-phone">换电话</a><a class="operate-icon-item" href="#wrong-wechat">换微信</a>
- <a class="operate-icon-item${mode === "disabled" ? " disabled" : ""}" href="#resume-popup">求简历</a>
- <div hidden><a class="operate-icon-item" href="#wrong-hidden">求简历</a>${dialog}</div>
- <div id="resume-popup">${dialog}${mode === "duplicate" ? dialog : ""}</div>
- <div id="requested">简历请求已发送</div>
+ <section class="chat-conversation"><div class="toolbar-box-right"><div class="operate-exchange-left">
+ <div class="operate-icon-item"><span class="operate-btn"><a href="#wrong-phone">换电话</a></span><span class="chat-tooltip-custom">交换手机</span></div>
+ <div class="operate-icon-item"><span class="operate-btn"><a href="#wrong-wechat">换微信</a></span><span class="chat-tooltip-custom">交换微信</span></div>
+ ${activeEntry}${mode === "duplicate-entry" ? entry.replaceAll("resume-popup", "duplicate-resume-popup") : ""}
+ <div hidden>${entry.replaceAll("resume-popup", "hidden-resume-popup")}</div>
+ </div></div><div id="requested">简历请求已发送</div>
  </section></body></html>`;
 }
 
@@ -223,25 +230,47 @@ function pendingResumeSpec() {
 }
 
 // 使用实际内嵌选择器验证主按钮、确认弹窗和结果，不以模拟执行器代替 DOM 定位。
-test("索要简历：只点击当前面板求简历与对应弹窗确定", async t => {
- const page = await fixturePage(t, "/resume-request");
- const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
- await executeLocatorAction(page, "click", { selector_spec: { ...config.resume_button, parent: config.active } });
- assert.equal(new URL(page.url()).hash, "#resume-popup");
- assert.equal(await page.locator("#requested").isVisible(), false, "打开弹窗不能算请求已发送");
- await executeLocatorAction(page, "click", { selector_spec: config.resume_confirm });
- assert.equal(new URL(page.url()).hash, "#requested");
- assert.equal(await page.locator("#requested").innerText(), "简历请求已发送");
- assert.equal(await page.locator("#requested").isVisible(), true);
-});
+for (const mode of ["pending", "visible-tooltip"]) {
+ test(`索要简历：${mode} 重复提示和嵌套确认框不影响两步点击`, async t => {
+  const page = await fixturePage(t, `/resume-request?mode=${mode}`);
+  const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+  const spec = { ...config.resume_button, parent: config.active };
+  const found = await executeLocatorAction(page, "find-elements", { selector_spec: spec });
+  assert.equal(found.count, 1, "包含重复提示和隐藏确认框时仍须定位唯一的求简历按钮");
+  assert.equal(await locatorActions.resolveSelector(page, spec).textContent(), "求简历", "点击目标不能包含提示和确认文案");
+  await executeLocatorAction(page, "click", { selector_spec: spec });
+  assert.equal(new URL(page.url()).hash, "#resume-popup");
+  assert.equal(await page.locator("#resume-popup .exchange-tooltip").isVisible(), true);
+  assert.equal(await page.locator("#requested").isVisible(), false, "打开弹窗不能算请求已发送");
+  await executeLocatorAction(page, "click", { selector_spec: config.resume_confirm });
+  assert.equal(new URL(page.url()).hash, "#requested");
+  assert.equal(await page.locator("#requested").innerText(), "简历请求已发送");
+  assert.equal(await page.locator("#requested").isVisible(), true);
+  assert.equal(await page.locator("#resume-popup").isVisible(), false);
+ });
+}
 
-test("索要简历：disabled入口不得点击", async t => {
- const page = await fixturePage(t, "/resume-request?mode=disabled");
+// 收窄到真实按钮后，仍须继承外层禁用状态，不得误点提示文字或隐藏入口。
+for (const mode of ["disabled", "disabled-attribute", "hidden", "hidden-button", "absent", "other-label"]) {
+ test(`索要简历：${mode} 入口不得点击`, async t => {
+  const page = await fixturePage(t, `/resume-request?mode=${mode}`);
+  const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+  const spec = { ...config.resume_button, parent: config.active };
+  const found = await executeLocatorAction(page, "find-elements", { selector_spec: spec });
+  assert.equal(found.count, 0);
+  await assert.rejects(executeLocatorAction(page, "click", { selector_spec: spec }), /唯一|可见/);
+  assert.equal(new URL(page.url()).hash, "");
+ });
+}
+
+// 多个有效入口仍须拒绝动作，不能用取第一个元素的方式掩盖页面歧义。
+test("索要简历：两个真实入口保留唯一性保护", async t => {
+ const page = await fixturePage(t, "/resume-request?mode=duplicate-entry");
  const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
  const spec = { ...config.resume_button, parent: config.active };
  const found = await executeLocatorAction(page, "find-elements", { selector_spec: spec });
- assert.equal(found.count, 0);
- await assert.rejects(executeLocatorAction(page, "click", { selector_spec: spec }), /唯一|可见/);
+ assert.equal(found.count, 2);
+ await assert.rejects(executeLocatorAction(page, "click", { selector_spec: spec }), /唯一/);
  assert.equal(new URL(page.url()).hash, "");
 });
 
