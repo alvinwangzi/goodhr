@@ -40,7 +40,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
     <html lang="zh-CN">
       <body>
         <StructuredData data={[
-          { "@context": "https://schema.org", "@type": "Organization", name: "HR Plus", url: SITE_URL, email: "425942228@qq.com", telephone: "+86-17607080935", description: "面向 HR、招聘团队和猎头顾问的 AI 招聘自动化工具。" },
+          { "@context": "https://schema.org", "@type": "Organization", name: "HR Plus", url: SITE_URL, email: "425942228@qq.com", telephone: "+86-15365142034", description: "面向 HR、招聘团队和猎头顾问的 AI 招聘自动化工具。" },
           { "@context": "https://schema.org", "@type": "WebSite", name: "HR Plus", url: SITE_URL, inLanguage: "zh-CN", description: "招聘平台自动筛选、自动打招呼、AI自动回复和简历管理工具。" },
         ]} />
 				<Providers><InviteCapture />{children}</Providers>

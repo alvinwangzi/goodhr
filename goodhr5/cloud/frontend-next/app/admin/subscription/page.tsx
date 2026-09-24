@@ -44,6 +44,7 @@ import {
 } from "@/components/payment/WechatPayDialog";
 import {
   estimateSubscriptionQuote,
+  membershipName,
   normalizeSubscriptionPlans,
   type SubscriptionPlan,
   type SubscriptionUpgradeQuote,
@@ -345,7 +346,7 @@ export default function SubscriptionPage() {
         <InfoCard
           icon={<WorkspacePremiumRoundedIcon />}
           title='当前会员'
-          value={subscription.member_name || "免费版"}
+          value={subscription.active ? subscription.member_name || "免费版" : "普通用户"}
           tone={subscription.active ? "dark" : "plain"}
           compact
           sx={{
@@ -360,21 +361,39 @@ export default function SubscriptionPage() {
               textAlign: { xs: "left", sm: "right" },
             }}
           >
-            <Chip
-              size='small'
-              label={
-                subscription.active
-                  ? `${subscription.remaining_days} 天 · 自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`
-                  : "未开通或已到期"
-              }
-              color={subscription.active ? "primary" : "default"}
-            />
-            <Typography
-              noWrap
-              sx={{ color: "text.secondary", fontSize: 13 }}
-            >
-              到期：{formatDate(subscription.expires_at) || "--"}
-            </Typography>
+            {subscription.active ? (
+              <>
+                <Chip
+                  size='small'
+                  label={`${subscription.remaining_days} 天 · 自动回复${subscription.allow_auto_reply ? "可用" : "不可用"}`}
+                  color='primary'
+                />
+                {subscription.expires_at ? (
+                  <Typography
+                    noWrap
+                    sx={{ color: "text.secondary", fontSize: 13 }}
+                  >
+                    到期：{formatDate(subscription.expires_at)}
+                  </Typography>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Chip
+                  size='small'
+                  label='已过期'
+                  color='default'
+                />
+                {subscription.member_type && subscription.member_type !== "free" && subscription.expires_at ? (
+                  <Typography
+                    noWrap
+                    sx={{ color: "text.secondary", fontSize: 12 }}
+                  >
+                    {membershipName(subscription.member_type)} 已于 {formatDate(subscription.expires_at)} 过期
+                  </Typography>
+                ) : null}
+              </>
+            )}
           </Stack>
         </InfoCard>
 

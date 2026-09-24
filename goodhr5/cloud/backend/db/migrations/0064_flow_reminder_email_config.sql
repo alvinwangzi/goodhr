@@ -4,7 +4,7 @@ SET config_value = jsonb_set(
     jsonb_set(
         config_value,
         '{wechat}',
-        to_jsonb('17607080935'::text),
+        to_jsonb('15365142034'::text),
         true
     ),
     '{website}',

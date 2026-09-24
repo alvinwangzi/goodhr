@@ -229,6 +229,25 @@ func TestReplyReadSkipsDividerItems(t *testing.T) {
 	}
 }
 
+// TestConfirmReplyIgnoresStatusLabels 验证出站文本带“送达/已读”等状态标签时不影响发送确认。
+func TestConfirmReplyIgnoresStatusLabels(t *testing.T) {
+	cfg := replyTestConfig()
+	runtime := &Runtime{replyConfig: &cfg}
+	page := newReplyPage()
+	page.active = "a"
+	page.messages["a"] = []map[string]string{
+		{"id": "a1", "direction": "in", "kind": "text", "text": "你好"},
+		{"id": "a2", "direction": "out", "kind": "text", "text": "送达\n请发送一份最新简历。\n已读"},
+	}
+	target := platformcore.ReplyTarget{PositionID: "job1"}
+	conversation := platformcore.ReplyConversation{ID: "a", PositionID: "job1", Name: "同名"}
+	inbound := platformcore.ReplyInboundFingerprint("a", []platformcore.ReplyMessage{{ID: "a1", Direction: "inbound", Kind: "text", Text: "你好"}})
+	confirmed, err := runtime.ConfirmReply(t.Context(), page, target, conversation, inbound, platformcore.ReplyHash("请发送一份最新简历。"))
+	if err != nil || !confirmed {
+		t.Fatalf("状态标签导致发送确认失败：confirmed=%t err=%v", confirmed, err)
+	}
+}
+
 // TestAutoReplyStableIdentity 验证列表重排、同名和点击后已读均不导致串会话。
 func TestAutoReplyStableIdentity(t *testing.T) {
 	cfg := replyTestConfig()

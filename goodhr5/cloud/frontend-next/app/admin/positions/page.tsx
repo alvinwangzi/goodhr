@@ -198,6 +198,43 @@ export default function PositionsPage() {
     void loadLatestTaskStats(items);
   }, [agentBase, items.map((item) => item.id).join(","), user?.email]);
 
+  /** correctStaleRunningStatus 检查云端标记为 running 但本地实际未运行的岗位，纠正为 stopped。 */
+  useEffect(() => {
+    if (!agentBase || items.length === 0) return;
+    const runningItems = items.filter(
+      (item) => item.status === "running" && isCurrentUserPosition(item, user?.email),
+    );
+    if (runningItems.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      await Promise.all(
+        runningItems.map(async (item) => {
+          try {
+            const task = await localRequest(
+              agentBase,
+              `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
+            );
+            if (cancelled) return;
+            const localStatus = normalizeFloatingTaskStatus(task?.status);
+            if (localStatus !== "running") {
+              await cloudRequest(`/api/positions/${encodeURIComponent(item.id)}/stop`, {
+                method: "POST",
+              });
+              setItems((current) =>
+                current.map((p) => (p.id === item.id ? { ...p, status: "stopped" } : p)),
+              );
+            }
+          } catch {
+            // 本地请求失败时保留云端状态，不阻塞页面加载。
+          }
+        }),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentBase, items.map((item) => `${item.id}:${item.status}`).join(","), user?.email]);
+
   useEffect(() => {
     const expandedPosition = items.find((item) => item.id === expandedLogPositionID);
     if (!expandedPosition || expandedPosition.status !== "running") return undefined;
@@ -1682,17 +1719,6 @@ export default function PositionsPage() {
                           }}
                           slotProps={{ htmlInput: { min: 0, max: 100 } }}
                           helperText='详情评分大于等于该值时执行打招呼。'
-                        />
-                        <PromptField
-                          label='复核提示词（可选）（一般不需要修改）'
-                          value={form.review_prompt}
-                          defaultValue=''
-                          defaultActionLabel='清空'
-                          emptyPlaceholder='可留空，不填写则不会触发复核'
-                          description='当详情分数接近打招呼阈值时执行二次复核；留空则不会触发复核。'
-                          onChange={(value) =>
-                            setForm({ ...form, review_prompt: value })
-                          }
                         />
                       </Stack>
                     </Collapse>

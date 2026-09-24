@@ -79,8 +79,8 @@ func TestFlowHelpEmailTemplates(t *testing.T) {
 
 // TestAppendEmailFooter 验证统一反馈文案会插入模板占位符。
 func TestAppendEmailFooter(t *testing.T) {
-	html := appendEmailFooter("<html><body>{{footer}}</body></html>", "17607080935", "https://goodhr5.58it.cn")
-	if !strings.Contains(html, "联系电话") || !strings.Contains(html, "微信号") || strings.Count(html, "17607080935") != 2 || !strings.Contains(html, "goodhr5.58it.cn") || strings.Contains(html, "{{footer}}") || strings.Contains(html, "</html><p") {
+	html := appendEmailFooter("<html><body>{{footer}}</body></html>", "15365142034", "https://goodhr5.58it.cn")
+	if !strings.Contains(html, "联系电话") || !strings.Contains(html, "微信号") || strings.Count(html, "15365142034") != 2 || !strings.Contains(html, "goodhr5.58it.cn") || strings.Contains(html, "{{footer}}") || strings.Contains(html, "</html><p") {
 		t.Fatalf("footer html = %s", html)
 	}
 }

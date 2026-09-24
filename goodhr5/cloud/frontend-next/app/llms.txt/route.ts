@@ -29,10 +29,7 @@ ${PLATFORM_AUTOMATION_KEYWORDS.join("、")}
 招聘平台登录状态、Cookie、浏览器资料、截图和 OCR 数据保存在用户本机。云端负责账号认证、岗位和岗位运行配置、订阅与团队数据。
 
 ## 官方页面
-- 首页：${SITE_URL}/
 - 功能介绍：${SITE_URL}/features
-- 产品定价：${SITE_URL}/pricing
-- 视频教程：${SITE_URL}/videos
 - 下载：${SITE_URL}/download
 - 联系方式：${SITE_URL}/contact
 `;

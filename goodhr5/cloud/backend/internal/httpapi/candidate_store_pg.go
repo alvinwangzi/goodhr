@@ -379,7 +379,8 @@ func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query P
 
 	page, pageSize := normalizeCandidatePage(query.Page, query.PageSize)
 	where, args := buildCandidateWhere(tenantID, query)
-	countSQL := "SELECT COUNT(*) FROM candidate_profiles cp WHERE " + where
+	// COUNT 查询需要与 SELECT 查询保持一致的 JOIN，因为 buildCandidateWhere 可能引用 u 表别名。
+	countSQL := "SELECT COUNT(*) FROM candidate_profiles cp LEFT JOIN users u ON u.id = cp.created_by_user_id WHERE " + where
 	var total int
 	if err := s.db.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
 		return PositionCandidateListResult{}, err

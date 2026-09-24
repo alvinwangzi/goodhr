@@ -48,7 +48,7 @@ type replyFlow struct {
 	reviewScore                        int            // 回复前详细简历评分，供回复后索要简历使用
 	acceptedResume                     bool           // 已直接接受候选人主动发送的简历，跳过索要流程
 	rejectedReply                      bool           // 本次使用拒绝话术，回复后不再索要简历
-	requestResume                      bool           // 本次 AI 决策允许且确实需要索要简历。
+	allowResumeRequest                 bool           // 前置结论：评分过阈值且简历未索要/未收到，回复成功后直接点求简历。
 }
 
 // normalizeTaskType 保持省略时为打招呼，拒绝未知流程。
@@ -108,7 +108,7 @@ func hasTaskType(types []string, target string) bool {
 func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyContext) (string, error) {
 	f.rejectedReply = false
 	f.acceptedResume = false
-	f.requestResume = false
+	f.allowResumeRequest = false
 	f.reviewScore = -1
 	f.flowLog("info", fmt.Sprintf("自动回复处理开始：候选人=%s，会话ID=%s，消息数=%d", current.Conversation.Name, current.Conversation.ID, len(current.Messages)))
 	if err := ctx.Err(); err != nil {
@@ -196,6 +196,13 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 			f.flowLog("info", fmt.Sprintf("扫描记录未命中：候选人=%s，将走回复前简历评估", current.Conversation.Name))
 		}
 	}
+	// 本会话已发过拒绝话术时不再重复拒绝，也不再重开简历评估，直接交 AI 结合上下文判断。
+	rejectedBefore := f.alreadyRejected(ctx, current.Messages, key, f.rejectTemplate, defaultRejectTemplate())
+	if rejectedBefore {
+		f.flowLog("info", fmt.Sprintf("会话已发过拒绝话术，不再重复拒绝和重评简历，改由AI判断：候选人=%s", current.Conversation.Name))
+		request.RejectTemplate = ""
+		skipReview = true
+	}
 	// 无扫描记录时，回复前先评估候选人。
 	// 第1步：面板初筛（硬性条件快筛）→ 第2步：详细简历评分。
 	if !skipReview {
@@ -219,17 +226,13 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 		} else if float64(score) >= threshold {
 			f.flowLog("info", fmt.Sprintf("简历评分通过：候选人=%s，评分=%d，阈值=%.0f，原因=%s", current.Conversation.Name, score, threshold, reason))
 		}
-	} else {
+	} else if !rejectedBefore {
 		// 跳过看简历时沿用已通过的评分；是否索要仍由简历状态和 AI 决策共同决定。
+		// 已拒绝过的会话不沿用高分，避免对已拒绝候选人再索要简历。
 		f.reviewScore = 100
 	}
 	request.AllowResumeRequest = float64(f.reviewScore) >= threshold && request.ResumeStatus == "none" && !f.acceptedResume
-	// 会话里已发过拒绝话术时不再重复拒绝，改交 AI 结合上下文判断是否需要回答。
-	if strings.TrimSpace(request.RejectTemplate) != "" &&
-		historyContainsReject(current.Messages, request.RejectTemplate, defaultRejectTemplate()) {
-		f.flowLog("info", fmt.Sprintf("会话已发过拒绝话术，不再重复拒绝，改由AI判断：候选人=%s", current.Conversation.Name))
-		request.RejectTemplate = ""
-	}
+	f.allowResumeRequest = request.AllowResumeRequest
 	decision := localai.ReplyDecision{Action: "reply"}
 	text := strings.TrimSpace(request.RejectTemplate)
 	if text != "" {
@@ -251,7 +254,6 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 			return "failed", fmt.Errorf("AI 回复决策类型无法识别")
 		}
 		text = decision.Text
-		f.requestResume = decision.Action == "reply" && decision.RequestResume && request.AllowResumeRequest
 		f.flowLog("info", fmt.Sprintf("AI回复判断：候选人=%s，结果=%s，原因=%s", current.Conversation.Name, decision.Action, truncateForLog(decision.Reason, 200)))
 	}
 	if ctx.Err() != nil {
@@ -264,7 +266,7 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	if decision.Action != "reply" && (text != "" || decision.RequestResume) {
 		return "failed", fmt.Errorf("不发送决策包含发送动作")
 	}
-	f.flowLog("info", fmt.Sprintf("回复内容已准备：候选人=%s，内容长度=%d，内容前50字=%q", current.Conversation.Name, utf8.RuneCountInString(text), truncateForLog(text, 50)))
+	f.flowLog("info", fmt.Sprintf("回复内容已准备：候选人=%s，内容长度=%d，允许索要=%t，内容前50字=%q", current.Conversation.Name, utf8.RuneCountInString(text), f.allowResumeRequest, truncateForLog(text, 50)))
 	checked, err := f.runtime.RecheckReplyContext(ctx, f.exec, f.target, current)
 	if err != nil {
 		return replyOutcome(err), err
@@ -383,10 +385,15 @@ func (f *replyFlow) confirm(ctx context.Context, c platformcore.ReplyConversatio
 }
 
 // resumeAfterReplyIfNeeded 在自动回复成功后判断是否需要索要简历。
-// 只有评分允许且本轮 AI 明确需要索要时，才交给平台再次检查并点击"求简历"。
-// 已直接接受候选人主动发送的简历时跳过。
+// 只用前置结论 allowResumeRequest（评分过阈值且简历未索要/未收到），不再看正文措辞或 AI 标志。
+// 已直接接受候选人主动发送的简历或使用拒绝话术时跳过。
 func (f *replyFlow) resumeAfterReplyIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation) (string, error) {
-	if f.runtime == nil || f.positionSnapshot == nil || f.acceptedResume || f.rejectedReply || !f.requestResume {
+	if f.runtime == nil || f.positionSnapshot == nil || f.acceptedResume || f.rejectedReply {
+		f.flowLog("info", fmt.Sprintf("索要简历跳过：候选人=%s，已接受简历=%t，本次拒绝=%t", conversation.Name, f.acceptedResume, f.rejectedReply))
+		return "", nil
+	}
+	if !f.allowResumeRequest {
+		f.flowLog("info", fmt.Sprintf("索要简历跳过：候选人=%s，前置结论不允许索要（评分未过阈值或简历已索要/已收到）", conversation.Name))
 		return "", nil
 	}
 	resumeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -471,17 +478,40 @@ func defaultRejectTemplate() string {
 	return "感谢你的关注，我们看了你的信息，跟我们的岗位要求不匹配。下次有机会再合作。"
 }
 
-// historyContainsReject 判断会话历史中是否已存在我方发送过的拒绝话术原文。
+// historyContainsReject 判断会话历史中是否已存在我方发送过的拒绝话术。
+// 页面抽取的出站文本可能拼接“已读”等状态标签，方向字段也可能带不可见差异，
+// 因此方向和正文都用包含匹配，精确相等会漏判已发过的拒绝。
 func historyContainsReject(messages []platformcore.ReplyMessage, rejects ...string) bool {
 	for _, message := range messages {
-		if message.Direction != "outbound" {
+		if !strings.Contains(message.Direction, "outbound") {
 			continue
 		}
-		text := strings.TrimSpace(message.Text)
 		for _, reject := range rejects {
-			if text != "" && text == strings.TrimSpace(reject) {
+			if reject = strings.TrimSpace(reject); reject != "" && strings.Contains(message.Text, reject) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// alreadyRejected 判断会话是否已发过拒绝话术：先查页面历史原文，再查本地发送记录指纹。
+func (f *replyFlow) alreadyRejected(ctx context.Context, messages []platformcore.ReplyMessage, key localdb.AutoReplyRecord, templates ...string) bool {
+	if historyContainsReject(messages, templates...) {
+		return true
+	}
+	for _, template := range templates {
+		template = strings.TrimSpace(template)
+		if template == "" {
+			continue
+		}
+		sent, err := f.db.HasSentReplyFingerprint(ctx, key.ProfileScope, key.Platform, key.ConversationID, platformcore.ReplyHash(template))
+		if err != nil {
+			f.flowLog("warning", fmt.Sprintf("查询拒绝发送记录失败：%s", err.Error()))
+			continue
+		}
+		if sent {
+			return true
 		}
 	}
 	return false

@@ -11,10 +11,10 @@ import BrandMark from "./BrandMark";
 import PublicStats from "./PublicStats";
 
 const navItems = [
-  { label: "首页", href: "/" },
+  // { label: "首页", href: "/" },
   { label: "功能介绍", href: "/features" },
-  { label: "产品定价", href: "/pricing" },
-  { label: "视频教程", href: "/videos" },
+  // { label: "产品定价", href: "/pricing" },
+  // { label: "视频教程", href: "/videos" },
   { label: "下载", href: "/download" },
   { label: "联系我们", href: "/contact" },
 ];

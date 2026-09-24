@@ -32,6 +32,7 @@ type replyFixture struct {
 	sends, generations       int
 	stagedText, sentText     string
 	reviewScore, resumeCalls int
+	reviewCalls              int
 	reviewReason             string
 	action                   string
 	generate                 func(context.Context) (string, error)
@@ -126,6 +127,7 @@ func (f *replyFixture) AcceptPendingResumeOffer(context.Context, platformcore.Ex
 
 // ReviewProfileBeforeReply 返回平台评分边界的预设结果，不调用真实 AI 或打开简历。
 func (f *replyFixture) ReviewProfileBeforeReply(context.Context, platformcore.Executor, platformcore.ReplyConversation, map[string]any, any, string) (int, string, error) {
+	f.reviewCalls++
 	if f.reviewReason != "" {
 		return f.reviewScore, f.reviewReason, nil
 	}
@@ -253,6 +255,9 @@ func TestReplyFlowAlreadyRejectedDefersToAI(t *testing.T) {
 	if f.sends != 0 || f.stagedText != "" {
 		t.Fatalf("已拒绝会话仍发出第二条拒绝：sends=%d staged=%q", f.sends, f.stagedText)
 	}
+	if f.reviewCalls != 0 {
+		t.Fatalf("已拒绝会话仍走简历评估：reviewCalls=%d", f.reviewCalls)
+	}
 }
 
 // TestReplyFlowAlreadyRejectedDefaultTemplate 验证系统默认拒绝话术已发过后，岗位自定义话术也不得重复拒绝。
@@ -270,6 +275,84 @@ func TestReplyFlowAlreadyRejectedDefaultTemplate(t *testing.T) {
 	outcome, err := flow.process(t.Context(), c)
 	if err != nil || outcome != "skipped" || f.generations != 1 || f.sends != 0 {
 		t.Fatalf("默认拒绝话术已发过仍重复拒绝：%s %v generations=%d sends=%d", outcome, err, f.generations, f.sends)
+	}
+}
+
+// TestReplyFlowAlreadyRejectedWithReadMarker 验证出站消息文本带“已读”等页面状态标签时，仍能识别出已发过的拒绝话术。
+func TestReplyFlowAlreadyRejectedWithReadMarker(t *testing.T) {
+	flow, f, c := newReplyFlowFixture(t)
+	flow.positionSnapshot = map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70.0}}
+	flow.rejectTemplate = ""
+	c.Messages = []platformcore.ReplyMessage{
+		{ID: "m1", Direction: "inbound", Kind: "text", Text: "我对这个岗位很感兴趣"},
+		{ID: "m2", Direction: "outbound", Kind: "text", Text: "已读\n" + defaultRejectTemplate()},
+		{ID: "m3", Direction: "inbound", Kind: "text", Text: "感谢您的关注，很遗憾不能与您共事。"},
+	}
+	f.reviewScore = 0
+	f.action = "skip"
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "skipped" || f.generations != 1 || f.sends != 0 {
+		t.Fatalf("带已读标签的拒绝话术未被识别：%s %v generations=%d sends=%d", outcome, err, f.generations, f.sends)
+	}
+}
+
+// TestReplyFlowAlreadyRejectedBySentRecord 验证页面历史读不出拒绝原文时，本地发送记录仍能阻止重复拒绝。
+func TestReplyFlowAlreadyRejectedBySentRecord(t *testing.T) {
+	flow, f, c := newReplyFlowFixture(t)
+	flow.positionSnapshot = map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70.0}}
+	flow.rejectTemplate = ""
+	record, err := flow.db.PrepareAutoReply(t.Context(), localdb.AutoReplyRecord{
+		ProfileScope: flow.scope, Platform: flow.platform, ConversationID: c.Conversation.ID,
+		InboundFingerprint: "old-inbound", PositionID: flow.positionID, RunID: flow.runID,
+		ContextFingerprint: "old-context", ReplyFingerprint: platformcore.ReplyHash(defaultRejectTemplate()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := flow.db.TransitionAutoReply(t.Context(), record.ID, "prepared", "sending", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := flow.db.TransitionAutoReply(t.Context(), record.ID, "sending", "sent", ""); err != nil {
+		t.Fatal(err)
+	}
+	c.Messages = []platformcore.ReplyMessage{
+		{ID: "m1", Direction: "inbound", Kind: "text", Text: "我对这个岗位很感兴趣"},
+		{ID: "m2", Direction: "inbound", Kind: "text", Text: "期待您的回复"},
+	}
+	f.reviewScore = 0
+	f.action = "skip"
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "skipped" || f.generations != 1 || f.sends != 0 {
+		t.Fatalf("本地发送记录未阻止重复拒绝：%s %v generations=%d sends=%d", outcome, err, f.generations, f.sends)
+	}
+}
+
+// screeningFindBody 模拟扫描记录查询接口返回的低分记录。
+const screeningFindBody = `{"item":{"id":"screen1","position_id":"position1","platform":"boss","platform_candidate_id":"c1","candidate_name":"测试候选人","score":0,"status":"skipped","resume_status":"none","source":"greeting"}}`
+
+// TestReplyFlowAlreadyRejectedSkipsReviewFromScreening 验证已拒绝会话即使命中低分扫描记录，也不再重开简历评估，直接交 AI 判断。
+func TestReplyFlowAlreadyRejectedSkipsReviewFromScreening(t *testing.T) {
+	flow, f, c := newReplyFlowFixture(t)
+	c.Conversation.Name = "测试候选人"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(screeningFindBody))
+	}))
+	defer server.Close()
+	flow.cloudClient = cloudapi.New(server.URL)
+	flow.token = "test-token"
+	flow.positionSnapshot = map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70.0}}
+	flow.rejectTemplate = ""
+	c.Messages = []platformcore.ReplyMessage{
+		{ID: "m1", Direction: "inbound", Kind: "text", Text: "你好"},
+		{ID: "m2", Direction: "outbound", Kind: "text", Text: defaultRejectTemplate()},
+		{ID: "m3", Direction: "inbound", Kind: "text", Text: "好吧"},
+	}
+	f.reviewScore = 90
+	f.action = "skip"
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "skipped" || f.generations != 1 || f.sends != 0 || f.reviewCalls != 0 {
+		t.Fatalf("已拒绝会话命中低分记录仍重开评估：%s %v generations=%d sends=%d reviewCalls=%d", outcome, err, f.generations, f.sends, f.reviewCalls)
 	}
 }
 
@@ -527,6 +610,25 @@ func TestReplyFlowDecisionSafety(t *testing.T) {
 	}
 }
 
+// TestReplyFlowQualifiedReplyAlwaysRequestsResume 验证简历评分过阈值且未索要过时，回复成功后不论正文措辞与 AI 标志都触发求简历。
+func TestReplyFlowQualifiedReplyAlwaysRequestsResume(t *testing.T) {
+	flow, f, c := newReplyFlowFixture(t)
+	flow.positionSnapshot = map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70.0}}
+	f.reviewScore = 90
+	response := `{"action":"reply","text":"上午九点上班。","reason":"只答疑","request_resume":false}`
+	calls := 0
+	captured := ""
+	flow.generator = decisionTestClient(t, &response, &calls, &captured)
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "sent" {
+		t.Fatalf("回复失败：%s %v", outcome, err)
+	}
+	action, err := flow.resumeAfterReplyIfNeeded(t.Context(), c.Conversation)
+	if err != nil || action != "requested" || f.resumeCalls != 1 {
+		t.Fatalf("评分过阈值未触发索要：%q %v calls=%d", action, err, f.resumeCalls)
+	}
+}
+
 // TestReplyFlowReceivedResumeAnswers 验证收到简历仍回答问题，最近多条对话和 FAQ 被传给 AI，且不再索要。
 func TestReplyFlowReceivedResumeAnswers(t *testing.T) {
 	flow, f, c := newReplyFlowFixture(t)
@@ -605,7 +707,7 @@ func TestReplyFlowResumeDecision(t *testing.T) {
 		wantCalls            int
 	}{
 		{"允许且需要索要", "none", "reply", true, 1},
-		{"只需回答", "none", "reply", false, 0},
+		{"只需回答", "none", "reply", false, 1},
 		{"已索要继续答疑", "requested", "reply", false, 0},
 		{"已收到继续答疑", "received", "reply", false, 0},
 		{"状态未知只答疑", "unknown", "reply", false, 0},
@@ -638,8 +740,11 @@ func TestReplyFlowResumeDecision(t *testing.T) {
 			if tc.action == "reply" && f.sentText != text {
 				t.Fatalf("发送内容不是正文：%q", f.sentText)
 			}
-			if _, err := flow.resumeAfterReplyIfNeeded(t.Context(), c.Conversation); err != nil {
-				t.Fatal(err)
+			// 索要只在回复成功后判断；AI 选择 skip 时本轮不发送也不索要。
+			if tc.action == "reply" {
+				if _, err := flow.resumeAfterReplyIfNeeded(t.Context(), c.Conversation); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if f.resumeCalls != tc.wantCalls {
 				t.Fatalf("索要次数=%d want=%d", f.resumeCalls, tc.wantCalls)

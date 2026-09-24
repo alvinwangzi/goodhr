@@ -736,7 +736,7 @@ func automaticEmailTemplateHTML(name string) string {
 }
 
 func (s *AdminEmailService) recoveryConfig() recoveryEmailConfig {
-	cfg := recoveryEmailConfig{Enabled: false, Hour: 9, Wechat: "17607080935", Website: "https://goodhr5.58it.cn", Templates: defaultRecoveryEmailTemplates()}
+	cfg := recoveryEmailConfig{Enabled: false, Hour: 9, Wechat: "15365142034", Website: "https://goodhr5.58it.cn", Templates: defaultRecoveryEmailTemplates()}
 	item, err := s.systemConfigs.Get("system.email_recovery")
 	if err != nil {
 		return cfg

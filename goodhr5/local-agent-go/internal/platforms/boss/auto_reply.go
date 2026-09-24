@@ -121,20 +121,23 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 		return platformcore.ReplyTarget{}, err
 	}
 	cfg := r.replyPageSettings()
-	// 点击岗位下拉容器，展开选项列表。
-	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
-		Selector: platformcore.SelectorSpec{Selectors: []string{".job-select"}},
-	})
-	// 等待下拉选项渲染。
-	select {
-	case <-ctx.Done():
-		return platformcore.ReplyTarget{}, ctx.Err()
-	case <-time.After(1 * time.Second):
-	}
-	fields, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.Jobs, Fields: cfg.JobFields, MaxItems: 1000})
+	fields, err := readJobOptions(ctx, exec, cfg, 1*time.Second)
 	if err != nil {
 		return platformcore.ReplyTarget{}, err
 	}
+	// 首次读取 0 个选项说明下拉异步渲染未完成，重新展开并加长等待重试一次。
+	if len(fields) == 0 {
+		exec.Log("warning", "岗位下拉首次读取0个选项，重新展开重试")
+		fields, err = readJobOptions(ctx, exec, cfg, 2*time.Second)
+		if err != nil {
+			return platformcore.ReplyTarget{}, err
+		}
+	}
+	names := make([]string, 0, len(fields))
+	for _, field := range fields {
+		names = append(names, field["name"])
+	}
+	exec.Log("info", fmt.Sprintf("岗位下拉读取：选项数=%d，选项名=%v", len(fields), names))
 	if name == "" || len(fields) >= 1000 {
 		return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe
 	}
@@ -150,6 +153,7 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 			matchIndex = i
 		}
 	}
+	exec.Log("info", fmt.Sprintf("岗位匹配：目标=%s，匹配数=%d", name, matches))
 	if matches != 1 {
 		return platformcore.ReplyTarget{}, platformcore.ErrReplyUnsafe
 	}
@@ -165,6 +169,20 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 	case <-time.After(1 * time.Second):
 	}
 	return target, nil
+}
+
+// readJobOptions 点击展开岗位下拉并读取选项列表，wait 为等待异步渲染的时长。
+func readJobOptions(ctx context.Context, exec platformcore.Executor, cfg replyPageConfig, wait time.Duration) ([]map[string]string, error) {
+	// 点击岗位下拉容器，展开选项列表。
+	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+		Selector: platformcore.SelectorSpec{Selectors: []string{".job-select"}},
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(wait):
+	}
+	return replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.Jobs, Fields: cfg.JobFields, MaxItems: 1000})
 }
 
 // replyFields 仅在旧 Executor 协议边界解码动态数据。
@@ -336,7 +354,7 @@ func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Execut
 			Direction: direction,
 			Kind:      kind,
 			Timestamp: field["timestamp"],
-			Text:      field["text"],
+			Text:      trimStatusLabels(field["text"]),
 		})
 	}
 	draft, err := exec.Post(ctx, "/api/v1/page/extract-text", platformcore.LocatorRequest{Selector: replyChildSelector(cfg.Input, parent), Editable: true})
@@ -443,7 +461,19 @@ func (r *Runtime) ConfirmReply(ctx context.Context, exec platformcore.Executor, 
 	return false, nil
 }
 
-// mapClassToValue 把页面提取的 class 属性值（可能包含多个空格分隔的类名）映射到配置中的目标值。
+// trimStatusLabels 剥离出站文本首尾的已读状态标签（如“送达”“已读”）。
+// 页面会把状态标签拼进抽取正文，污染发送确认的指纹比对与模型上下文，必须在抽取层去除。
+func trimStatusLabels(text string) string {
+	t := strings.TrimSpace(text)
+	for _, label := range []string{"已读", "送达"} {
+		for strings.HasPrefix(t, label) || strings.HasSuffix(t, label) {
+			t = strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(t, label), label))
+		}
+	}
+	return t
+}
+
+// mapClassToValue 把页面提取的 class 属性值（可能包含多个空格分隔的类名）映射为配置中的目标值。
 // 先尝试精确匹配，再逐个拆分匹配，支持 "item-myself clearfix" 这样的多类名字符串。
 func mapClassToValue(mapping map[string]string, raw string) string {
 	if v, ok := mapping[raw]; ok {

@@ -93,6 +93,16 @@ UPDATE auto_reply_records SET status='unknown', error_code='interrupted', update
 	return nil
 }
 
+// HasSentReplyFingerprint 查询指定会话内是否已存在回复正文指纹匹配的发送成功记录。
+// 用于判断拒绝话术是否已发过，不依赖页面文本抽取。
+func (db *DB) HasSentReplyFingerprint(ctx context.Context, scope, platform, conversationID, replyFingerprint string) (bool, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx, `SELECT COUNT(1) FROM auto_reply_records
+ WHERE profile_scope=? AND platform=? AND conversation_id=? AND reply_fingerprint=? AND status IN ('sent','unknown')`,
+		scope, platform, conversationID, replyFingerprint).Scan(&count)
+	return count > 0, err
+}
+
 // PrepareAutoReply 原子保存新生成的发送意图；sent、sending、unknown 不允许覆盖。
 // 调用方必须已重新读取同一条仍未回复的候选人消息，不能传入旧答案。
 func (db *DB) PrepareAutoReply(ctx context.Context, record AutoReplyRecord) (AutoReplyRecord, error) {
