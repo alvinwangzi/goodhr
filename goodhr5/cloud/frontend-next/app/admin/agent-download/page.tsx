@@ -46,6 +46,15 @@ const componentNames: Record<string, string> = {
   ocr: "OCR 组件",
 };
 
+// componentStatusKeys 把组件键映射到本地程序状态接口的真实安装标志字段，
+// 避免用“有路径”代替“已安装”造成误报。
+const componentStatusKeys: Record<string, string> = {
+  node_runtime: "node_installed",
+  node_worker: "worker_installed",
+  cloakbrowser: "cloakbrowser_installed",
+  ocr: "ocr_installed",
+};
+
 /** AgentDownloadPage 展示组件状态并触发运行组件更新。 */
 export default function AgentDownloadPage() {
   const { agentBase, onboardingConfig, refreshAgent, notify } = useAdmin();
@@ -301,6 +310,8 @@ function buildComponents(
         componentConfig[isWindows ? "windows" : "macos"],
     );
     const local = asRecord(installed[key]);
+    const statusKey = componentStatusKeys[key] || `${key}_installed`;
+    const statusFlag = runtime[statusKey] ?? nestedRuntime[statusKey];
     const pathKey = `${key.replace("_runtime", "")}_path`;
     const path =
       textValue(runtime[pathKey]) ||
@@ -314,12 +325,10 @@ function buildComponents(
       name: componentNames[key],
       required: key !== "ocr",
       bundled: key === "node_worker",
-      installed: Boolean(
-        textValue(local.version) ||
-          path ||
-          runtime[`${key}_installed`] ||
-          nestedRuntime[`${key}_installed`],
-      ),
+      installed:
+        statusFlag !== undefined
+          ? Boolean(statusFlag)
+          : Boolean(textValue(local.version) || path),
       configVersion: textValue(asset.version),
       installedVersion: textValue(local.version),
       url: textValue(asset.url),

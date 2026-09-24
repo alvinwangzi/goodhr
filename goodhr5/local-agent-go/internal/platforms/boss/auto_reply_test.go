@@ -202,6 +202,30 @@ func TestReplyWorkerEnvelope(t *testing.T) {
 	}
 }
 
+// TestReplyReadSkipsDividerItems 验证日期分隔线等非消息元素（方向与类型双双映射为空）不进入消息列表，会话仍能通过上下文校验。
+func TestReplyReadSkipsDividerItems(t *testing.T) {
+	cfg := replyTestConfig()
+	runtime := &Runtime{replyConfig: &cfg}
+	page := newReplyPage()
+	page.messages["a"] = []map[string]string{
+		{"id": "", "direction": "", "kind": "", "timestamp": "2026-09-23", "text": ""},
+		{"id": "a1", "direction": "in", "kind": "text", "text": "你好"},
+		{"id": "", "direction": "", "kind": "", "timestamp": "2026-09-24", "text": ""},
+	}
+	target := platformcore.ReplyTarget{PositionID: "job1"}
+	conversation := platformcore.ReplyConversation{ID: "a", PositionID: "job1", Name: "同名"}
+	value, err := runtime.ReadReplyContext(t.Context(), page, target, conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Messages) != 1 {
+		t.Fatalf("分隔线条目进入消息列表：%+v", value.Messages)
+	}
+	if _, err := platformcore.ValidateReplyContext(value, target); err != nil {
+		t.Fatalf("含分隔线的会话应通过校验：%v", err)
+	}
+}
+
 // TestAutoReplyStableIdentity 验证列表重排、同名和点击后已读均不导致串会话。
 func TestAutoReplyStableIdentity(t *testing.T) {
 	cfg := replyTestConfig()

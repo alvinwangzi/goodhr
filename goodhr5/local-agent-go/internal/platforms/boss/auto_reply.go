@@ -314,6 +314,11 @@ func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Execut
 		if kind == "system" {
 			direction = "system"
 		}
+		// 日期分隔线等非消息元素不含任何消息子节点，方向与类型双双映射为空；
+		// 这类条目不能进入消息列表，否则下游方向白名单校验会把整个会话判为不安全。
+		if direction == "" && kind == "" {
+			continue
+		}
 		value.Messages = append(value.Messages, platformcore.ReplyMessage{
 			ID:        field["id"],
 			Direction: direction,

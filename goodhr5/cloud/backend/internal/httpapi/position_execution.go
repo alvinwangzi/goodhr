@@ -180,6 +180,7 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	var payload struct {
 		Status          string `json:"status"`
 		TaskType        string `json:"task_type"`
+		RunID           string `json:"run_id"`
 		RunGreetedCount int    `json:"run_greeted_count"`
 		RunSkippedCount int    `json:"run_skipped_count"`
 		MachineID       string `json:"machine_id"`
@@ -202,6 +203,14 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
+	}
+	// 停止/完成响应需要回传执行任务 ID：优先用本地上传的值，缺失时回退到当前运行中的记录；
+	// 必须在 finishTaskRun 结束记录之前读取，否则查不到运行中的执行任务。
+	echoRunID := strings.TrimSpace(payload.RunID)
+	if echoRunID == "" && s.runStore != nil {
+		if active, activeErr := s.runStore.ActiveTaskRunByPosition(position.ID); activeErr == nil {
+			echoRunID = active.ID
+		}
 	}
 	if status == "running" {
 		if failure := s.verifyActiveDevice(session.Email, payload.MachineID); failure != nil {
@@ -263,7 +272,7 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 	if payload.RunGreetedCount > 0 {
 		s.recordUserFlow(position.UserEmail, UserFlowUpdate{Step: userFlowFirstGreetSuccess, Status: "completed", Source: "local_agent", PositionID: position.ID})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": noticeSent})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status, "notice_sent": noticeSent, "run_id": echoRunID})
 }
 
 // verifyActiveDevice 确认岗位启动请求来自当前账号刚刚绑定的稳定设备。

@@ -207,6 +207,35 @@ func TestPositionStartAllowsAnyDeviceOwnedByAccount(t *testing.T) {
 	}
 }
 
+// TestSyncStoppedStatusEchoesRunID 验证停止状态响应原样回传本地上传的执行任务 ID，避免本地自动回复收尾校验误报。
+func TestSyncStoppedStatusEchoesRunID(t *testing.T) {
+	server := mustNewServer(t)
+	server.positionExecution.mailer = &recordingMailer{}
+	routes := server.Routes()
+	token := loginForTest(t, routes, "position-stop-run@example.com")
+	positionID := createPositionForTest(t, routes, token)
+
+	stoppedResp := postPositionExecutionForTest(
+		t,
+		routes,
+		token,
+		"/api/positions/"+positionID+"/status",
+		`{"status":"stopped","task_type":"auto_reply","run_id":"run-stop-echo-1"}`,
+	)
+	if stoppedResp.Code != http.StatusOK {
+		t.Fatalf("stopped status = %d, body = %s", stoppedResp.Code, stoppedResp.Body.String())
+	}
+	var stoppedPayload struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.NewDecoder(stoppedResp.Body).Decode(&stoppedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if stoppedPayload.RunID != "run-stop-echo-1" {
+		t.Fatalf("stopped 响应 run_id = %q, 期望 run-stop-echo-1", stoppedPayload.RunID)
+	}
+}
+
 // TestSyncCompletedStatusSendsNoticeWithCurrentCounts 验证完成状态会发送包含最新统计的邮件，并返回明确的发送结果。
 func TestSyncCompletedStatusSendsNoticeWithCurrentCounts(t *testing.T) {
 	server := mustNewServer(t)
