@@ -93,6 +93,20 @@ while ($Attempt -lt 20) {
 # 3. 启动前端
 Write-Host "`n[3/3] 启动前端 Next.js 服务..." -ForegroundColor Yellow
 Set-Location $FrontendDir
+
+# 首次克隆时 node_modules 不存在，自动安装依赖
+$NodeModulesDir = Join-Path $FrontendDir "node_modules"
+if (-not (Test-Path $NodeModulesDir)) {
+    Write-Host "node_modules 不存在，自动安装前端依赖..." -ForegroundColor Yellow
+    Set-Location $FrontendDir
+    npm install
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "前端依赖安装失败" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "前端依赖安装完成" -ForegroundColor Green
+}
+
 $FrontendJob = Start-Job -ScriptBlock {
     Set-Location $using:FrontendDir
     $env:NEXT_PUBLIC_CLOUD_API_BASE = "http://localhost:8084"
