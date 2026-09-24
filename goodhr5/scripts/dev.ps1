@@ -45,22 +45,29 @@ Write-Host "`n[2/3] 启动后端 Go 服务..." -ForegroundColor Yellow
 Set-Location $BackendDir
 
 # 从 .env 文件加载环境变量，新增变量只需改 .env，不用动这个脚本
+# .env 不存在时自动生成默认开发配置，避免每次手动创建
 $EnvFile = Join-Path $BackendDir ".env"
-if (Test-Path $EnvFile) {
-    foreach ($line in Get-Content $EnvFile) {
-        $line = $line.Trim()
-        if ($line -eq "" -or $line.StartsWith("#")) { continue }
-        $eqIdx = $line.IndexOf("=")
-        if ($eqIdx -le 0) { continue }
-        $key = $line.Substring(0, $eqIdx).Trim()
-        $val = $line.Substring($eqIdx + 1).Trim()
-        [System.Environment]::SetEnvironmentVariable($key, $val)
-    }
-    Write-Host "已从 .env 加载环境变量" -ForegroundColor Gray
-} else {
-    Write-Host ".env 文件不存在：$EnvFile" -ForegroundColor Red
-    exit 1
+if (-not (Test-Path $EnvFile)) {
+    Write-Host ".env 不存在，自动生成默认开发配置..." -ForegroundColor Yellow
+    $DefaultEnv = @"
+# GoodHR 5 云端后端开发环境配置（自动生成）
+GOODHR_APP_ENV=dev
+GOODHR_PG_DSN=postgres://goodhr5_dev:goodhr5_dev@localhost:25432/goodhr5_dev?sslmode=disable
+GOODHR_AGENT_BINDING_ENABLED=false
+"@
+    Set-Content -Path $EnvFile -Value $DefaultEnv -Encoding UTF8
+    Write-Host "已创建 $EnvFile" -ForegroundColor Green
 }
+foreach ($line in Get-Content $EnvFile) {
+    $line = $line.Trim()
+    if ($line -eq "" -or $line.StartsWith("#")) { continue }
+    $eqIdx = $line.IndexOf("=")
+    if ($eqIdx -le 0) { continue }
+    $key = $line.Substring(0, $eqIdx).Trim()
+    $val = $line.Substring($eqIdx + 1).Trim()
+    [System.Environment]::SetEnvironmentVariable($key, $val)
+}
+Write-Host "已从 .env 加载环境变量" -ForegroundColor Gray
 
 $BackendJob = Start-Job -ScriptBlock {
     Set-Location $using:BackendDir

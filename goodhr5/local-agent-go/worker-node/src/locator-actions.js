@@ -14,13 +14,83 @@ export function createActionGate() {
 }
 
 /** locatorActionHandler 保持原协议可用；新协议页面关闭时不创建新页面或切到其他标签。 */
-export function locatorActionHandler(currentPage, legacy, action) {
+export function locatorActionHandler(currentPage, legacy, action, downloadTracker) {
   return async (payload, signal) => {
     if (!Object.hasOwn(payload, "selector_spec")) return legacy(payload);
     const page = currentPage();
     if (!page || page.isClosed()) throw new Error("浏览器页面已关闭");
+    if (action === "click" && payload.download) {
+      if (!downloadTracker) throw new Error("当前 Worker 不支持等待下载，请更新本地程序");
+      return downloadTracker.clickAndWait(page, payload, signal);
+    }
     return executeLocatorAction(page, action, payload, signal);
   };
+}
+
+/** createDownloadTracker 关联一次点击与文件保存结果，复用页面监听，避免重复保存同一个下载事件。 */
+export function createDownloadTracker(saveDownload) {
+  const pending = new WeakMap();
+  const saves = new WeakMap();
+
+  /** capture 接管页面下载事件；业务关联键作为不透明元数据透传，不解析平台含义。 */
+  function capture(page, download) {
+    if (saves.has(download)) return saves.get(download);
+    const request = pending.get(page);
+    const claimed = request?.armed && !request.captured;
+    if (claimed) request.captured = true;
+    const metadata = claimed ? request.metadata : {};
+    const saved = Promise.resolve().then(() => saveDownload(download, page, metadata));
+    saves.set(download, saved);
+    if (claimed) {
+      request.resolve(saved);
+      // 超时后仍保存原关联，迟到的下载事件不能被记到下一个候选人的请求上。
+      const settled = () => { request.settled = true; if (request.finished && pending.get(page) === request) pending.delete(page); };
+      saved.then(settled, settled);
+    }
+    return saved;
+  }
+
+  /** clickAndWait 在真实点击前监听下载，等待文件保存，取消或超时后清理监听但不重复点击。 */
+  async function clickAndWait(page, payload, signal) {
+    signal?.throwIfAborted();
+    const id = payload.download?.id;
+    if (typeof id !== "string" || !id.trim() || id.length > 200) throw new Error("缺少有效下载记录标识");
+    if (pending.has(page)) return { clicked: false, download: { id, status: "failed", error: "上次下载仍待确认，请等待完成或重启浏览器后再试" } };
+    const timeout = Number(payload.download.timeout_ms ?? 20000);
+    if (!Number.isFinite(timeout) || timeout < 100 || timeout > 60000) throw new Error("下载等待时间不正确");
+    let resolve, reject;
+    const completed = new Promise(res => { resolve = res; });
+    const interrupted = new Promise((_, fail) => { reject = fail; });
+    // 保存仍在进行时，取消和截止时间也必须能中断等待。
+    completed.catch(() => {});
+    interrupted.catch(() => {});
+    const request = { metadata: { id, position_id: String(payload.download.position_id || ""), source_key: String(payload.download.source_key || "") }, resolve, armed: false, captured: false, settled: false, finished: false };
+    const controller = new AbortController();
+    const interrupt = error => { controller.abort(error); reject(error); };
+    const onDownload = download => { void capture(page, download).catch(() => {}); };
+    const onAbort = () => interrupt(signal.reason || new Error("下载等待已取消"));
+    const onClose = () => interrupt(new Error("下载期间页面已关闭"));
+    pending.set(page, request);
+    page.on("download", onDownload);
+    page.on("close", onClose);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => interrupt(new Error("等待下载完成超时，未确认成功，请勿重复点击")), timeout);
+    if (signal?.aborted) onAbort();
+    try {
+      const clicked = await executeLocatorAction(page, "click", payload, controller.signal, () => { request.armed = true; });
+      controller.signal.throwIfAborted();
+      const download = await Promise.race([completed, interrupted]);
+      return { ...clicked, download };
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      page.off("download", onDownload);
+      page.off("close", onClose);
+      request.finished = true;
+      if (!request.armed || request.settled) pending.delete(page);
+    }
+  }
+  return { capture, clickAndWait };
 }
 
 /** cssString 转义属性值，防止动态标识改变选择器含义。 */
@@ -73,7 +143,7 @@ async function moveToVisible(page, locator) {
 }
 
 /** executeLocatorAction 在现有通用路由上处理新选择器协议，旧格式仍由原适配器处理。 */
-export async function executeLocatorAction(page, action, payload, signal) {
+export async function executeLocatorAction(page, action, payload, signal, beforeClick) {
   signal?.throwIfAborted();
   if (payload.include_html) throw new Error("不支持 HTML 读取");
   const locator = resolveSelector(page, payload.selector_spec);
@@ -126,6 +196,7 @@ export async function executeLocatorAction(page, action, payload, signal) {
     await moveToVisible(page, locator);
     await uniqueVisible(locator);
     signal?.throwIfAborted();
+    beforeClick?.();
     await locator.click({ timeout: 1000 });
     return { clicked: true };
   }

@@ -64,6 +64,15 @@
   "resume_received": {
     "selectors": [".resume-btn-file:not(.disabled)"]
   },
+  "attachment_toolbar": {
+    "selectors": [".attachment-resume-btns:visible"]
+  },
+  "attachment_download": {
+    "selectors": [".attachment-resume-btns:visible .popover.icon-content:visible:has(use[*|href=\"#icon-attacthment-download\"])"]
+  },
+  "attachment_close": {
+    "selectors": [".close-btn[data-v-12b9a7dc]:visible"]
+  },
   "resume_requested_text": "简历请求已发送",
   "pending_resume_accept": {
     "selectors": [".notice-list.notice-blue-list:visible:has(> .text:has-text(\"对方想发送附件简历给您\")) > .op > a.btn:visible"],

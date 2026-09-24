@@ -447,6 +447,104 @@ func TestReplyConfirmationUsesInboundBoundary(t *testing.T) {
 	}
 }
 
+// attachmentExecutor 模拟外部浮层和文件保存响应，使用真实平台方法验证动作顺序与作用域。
+type attachmentExecutor struct {
+	*replyPage
+	opened      bool
+	actions     []string
+	downloadErr error
+	closeErr    error
+}
+
+// Post 在通用协议边界检查附件入口、页面级下载按钮和关闭按钮。
+func (e *attachmentExecutor) Post(ctx context.Context, path string, payload any) (map[string]any, error) {
+	req, ok := payload.(platformcore.LocatorRequest)
+	if !ok {
+		return nil, errors.New("非强类型请求")
+	}
+	key := req.Selector.Selectors[0]
+	if path == "/api/v1/page/find-elements" && (key == "attachment-toolbar" || key == "attachment-close") {
+		if e.opened {
+			return pageItems(map[string]string{}), nil
+		}
+		return pageItems(), nil
+	}
+	if path == "/api/v1/page/click" {
+		switch key {
+		case "resume-received":
+			if req.Selector.Parent == nil {
+				return nil, errors.New("附件入口缺少当前面板范围")
+			}
+			e.actions = append(e.actions, "open")
+			e.opened = true
+			return map[string]any{"clicked": true}, nil
+		case "attachment-download":
+			if req.Selector.Parent != nil || !e.opened || req.Download == nil {
+				return nil, errors.New("下载不在全屏浮层或缺少记录关联")
+			}
+			e.actions = append(e.actions, "download")
+			if e.downloadErr != nil {
+				return nil, e.downloadErr
+			}
+			return map[string]any{"ok": true, "data": map[string]any{"clicked": true, "download": map[string]any{"id": req.Download.ID, "source_key": req.Download.SourceKey, "status": "saved", "file_path": "saved.pdf"}}}, nil
+		case "attachment-close":
+			if req.Selector.Parent != nil || ctx.Err() != nil {
+				return nil, errors.New("关闭作用域或清理上下文错误")
+			}
+			e.actions = append(e.actions, "close")
+			if e.closeErr != nil {
+				return nil, e.closeErr
+			}
+			e.opened = false
+			return map[string]any{"clicked": true}, nil
+		}
+	}
+	return e.replyPage.Post(ctx, path, payload)
+}
+
+// TestAttachmentDownloadFlow 验证真实平台代码在成功和失败时均关闭全屏浮层，保留已保存结果。
+func TestAttachmentDownloadFlow(t *testing.T) {
+	for _, mode := range []string{"saved", "download-error", "close-error"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := replyTestConfig()
+			if err := json.Unmarshal([]byte(`{"resume_received":{"selectors":["resume-received"]},"attachment_toolbar":{"selectors":["attachment-toolbar"]},"attachment_download":{"selectors":["attachment-download"]},"attachment_close":{"selectors":["attachment-close"]}}`), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			runtime := &Runtime{replyConfig: &cfg}
+			downloader, ok := any(runtime).(platformcore.ResumeAttachmentDownloader)
+			if !ok {
+				t.Fatal("缺少附件两步下载能力")
+			}
+			page := newReplyPage()
+			page.active = "a"
+			page.resumeReceived = true
+			exec := &attachmentExecutor{replyPage: page}
+			if mode == "download-error" {
+				exec.downloadErr = errors.New("下载响应超时")
+			}
+			if mode == "close-error" {
+				exec.closeErr = errors.New("关闭失败")
+			}
+			record, err := downloader.DownloadResumeAttachment(t.Context(), exec, platformcore.ReplyConversation{ID: "a", PositionID: "job1", Name: "同名"}, platformcore.DownloadRequest{ID: "d1", SourceKey: "s1", PositionID: "p1", TimeoutMS: 1000})
+			if !reflect.DeepEqual(exec.actions, []string{"open", "download", "close"}) {
+				t.Fatalf("动作顺序错误：%v err=%v", exec.actions, err)
+			}
+			if mode == "saved" && (err != nil || record["status"] != "saved") {
+				t.Fatalf("下载未完成：%v %v", record, err)
+			}
+			if mode != "saved" && err == nil {
+				t.Fatal("错误被吞掉")
+			}
+			if mode == "download-error" && record["status"] == "saved" {
+				t.Fatal("点击失败误记成功")
+			}
+			if mode == "close-error" && record["status"] != "saved" {
+				t.Fatal("关闭失败丢失已保存的下载结果")
+			}
+		})
+	}
+}
+
 // resumeOfferExecutor 记录平台发给 Worker 的请求，复用页面执行器的日志和等待能力。
 type resumeOfferExecutor struct {
 	*replyPage

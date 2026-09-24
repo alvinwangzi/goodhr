@@ -39,6 +39,21 @@ type LocatorRequest struct {
 	MaxItems int                      `json:"max_items,omitempty"`
 	Text     string                   `json:"text,omitempty"`
 	Editable bool                     `json:"editable,omitempty"`
+	Download *DownloadRequest         `json:"download,omitempty"`
+}
+
+// DownloadRequest 关联一次浏览器点击及文件保存记录；Worker 只透传来源摘要，不解析业务含义。
+type DownloadRequest struct {
+	ID         string `json:"id"`
+	SourceKey  string `json:"source_key"`
+	PositionID string `json:"position_id"`
+	TimeoutMS  int    `json:"timeout_ms"`
+}
+
+// ResumeAttachmentDownloader 是可选附件下载能力，不影响未实现的平台。
+// 成功返回 saved 文件记录；failed 表示确定未完成，unknown 表示已点击但无法确认结果。
+type ResumeAttachmentDownloader interface {
+	DownloadResumeAttachment(context.Context, Executor, ReplyConversation, DownloadRequest) (map[string]any, error)
 }
 
 // ReplyTarget 保存岗位对应的平台 ID 或经核实唯一的完整名称。

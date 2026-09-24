@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -38,6 +39,9 @@ type replyPageConfig struct {
 	Directions          map[string]string                     `json:"directions"`
 	Kinds               map[string]string                     `json:"kinds"`
 	ResumeReceived      platformcore.SelectorSpec             `json:"resume_received"`
+	AttachmentToolbar   platformcore.SelectorSpec             `json:"attachment_toolbar"`
+	AttachmentDownload  platformcore.SelectorSpec             `json:"attachment_download"`
+	AttachmentClose     platformcore.SelectorSpec             `json:"attachment_close"`
 	ResumeRequestedText string                                `json:"resume_requested_text"`
 	PendingResumeAccept platformcore.SelectorSpec             `json:"pending_resume_accept"`
 	ResumeButton        platformcore.SelectorSpec             `json:"resume_button"`
@@ -820,4 +824,88 @@ func (r *Runtime) AcceptPendingResumeOffer(ctx context.Context, exec platformcor
 	return nil
 }
 
+// waitAttachmentState 通过标准元素查询等待附件控件出现或消失，不用页面脚本。
+func (r *Runtime) waitAttachmentState(ctx context.Context, exec platformcore.Executor, selector platformcore.SelectorSpec, visible bool) error {
+	for attempt := 0; attempt < 20; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		found, err := r.hasElement(ctx, exec, selector)
+		if err != nil {
+			return err
+		}
+		if found == visible {
+			return nil
+		}
+		if err := exec.Delay(ctx, "等待附件简历页面更新", 0.25); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("附件简历控件未按预期更新")
+}
+
+// DownloadResumeAttachment 先打开附件全屏浮层，再点击下载并等待文件保存；无论结果如何都尝试关闭本次打开的浮层。
+// download 为主流程提供的记录关联信息，失败时保留 failed 或 unknown，关闭失败不丢弃已经保存的文件结果。
+func (r *Runtime) DownloadResumeAttachment(ctx context.Context, exec platformcore.Executor, conversation platformcore.ReplyConversation, download platformcore.DownloadRequest) (record map[string]any, resultErr error) {
+	record = map[string]any{"status": "failed"}
+	cfg := r.replyPageSettings()
+	if len(cfg.AttachmentToolbar.Selectors) == 0 || len(cfg.AttachmentDownload.Selectors) == 0 || len(cfg.AttachmentClose.Selectors) == 0 {
+		return record, fmt.Errorf("当前平台缺少附件简历下载配置")
+	}
+	// 先核对当前面板，不能把别人的文件关联到当前候选人。
+	_, err := r.readCurrentReply(ctx, exec, platformcore.ReplyTarget{PositionID: conversation.PositionID, PositionName: conversation.PositionName}, conversation)
+	if err != nil {
+		return record, err
+	}
+	if opened, err := r.hasElement(ctx, exec, cfg.AttachmentToolbar); err != nil || opened {
+		return record, fmt.Errorf("附件浮层状态无法确认或已有浮层打开：%v", err)
+	}
+	entry := replyChildSelector(cfg.ResumeReceived, cfg.Active)
+	if err := r.waitAttachmentState(ctx, exec, entry, true); err != nil {
+		return record, err
+	}
+	if _, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: entry}); err != nil {
+		return record, fmt.Errorf("打开附件简历失败：%w", err)
+	}
+	defer func() {
+		// 停止只禁止新业务动作；已打开的浮层仍须用独立短超时关闭。
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 6*time.Second)
+		defer cancel()
+		if err := r.waitAttachmentState(cleanup, exec, cfg.AttachmentClose, true); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("附件浮层关闭按钮未就绪：%w", err))
+			return
+		}
+		if _, err := exec.Post(cleanup, "/api/v1/page/click", platformcore.LocatorRequest{Selector: cfg.AttachmentClose}); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("关闭附件简历浮层失败：%w", err))
+			return
+		}
+		if err := r.waitAttachmentState(cleanup, exec, cfg.AttachmentToolbar, false); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("附件简历浮层仍未关闭：%w", err))
+		}
+	}()
+	if err := r.waitAttachmentState(ctx, exec, cfg.AttachmentToolbar, true); err != nil {
+		return record, err
+	}
+	if err := ctx.Err(); err != nil {
+		return record, err
+	}
+	// 浮层位于页面根级，下载和关闭均不能套用 cfg.Active 聊天面板范围。
+	record = map[string]any{"status": "unknown"}
+	response, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: cfg.AttachmentDownload, Download: &download})
+	if err != nil {
+		return record, fmt.Errorf("附件简历下载结果未确认：%w", err)
+	}
+	data, ok := workerDataMap(response)["download"].(map[string]any)
+	if !ok || stringFromMap(data, "id") != download.ID {
+		return record, fmt.Errorf("未收到对应文件的下载结果，请更新本地程序并检查下载记录")
+	}
+	record = data
+	if stringFromMap(record, "status") != "saved" || stringFromMap(record, "file_path") == "" {
+		return record, fmt.Errorf("附件简历未保存成功：%s", stringFromMap(record, "error"))
+	}
+	exec.Log("info", fmt.Sprintf("附件简历已保存：候选人=%s", conversation.Name))
+	return record, nil
+}
+
+var _ platformcore.ResumeAttachmentDownloader = (*Runtime)(nil)
 var _ platformcore.AutoReplyRuntime = (*Runtime)(nil)

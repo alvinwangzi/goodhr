@@ -2,7 +2,9 @@
 package localdb
 
 import (
+	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"goodhr5/local-agent-go/internal/config"
@@ -119,6 +121,63 @@ WHERE id=?
 	}
 	if updated.ScannedCount != 62 || updated.GreetedCount != 53 || updated.SkippedCount != 9 || updated.FailedCount != 0 {
 		t.Fatalf("position counts = %+v", updated)
+	}
+}
+
+// TestDownloadSavedCannotBeDowngraded 验证异步成功通知先到时，迟到的失败或等待结果不能抹掉文件记录。
+func TestDownloadSavedCannotBeDowngraded(t *testing.T) {
+	db := openTestDB(t)
+	if _, err := db.SaveDownload(map[string]any{"id": "download1", "source_key": "account-platform-conversation", "position_id": "p1", "status": "saved", "file_path": "resume.pdf", "size": 100}); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"pending", "failed"} {
+		if _, err := db.SaveDownload(map[string]any{"id": "download1", "status": status}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := db.LatestSourceDownload("account-platform-conversation")
+		if err != nil || got.Status != "saved" || got.FilePath != "resume.pdf" || got.PositionID != "p1" {
+			t.Fatalf("成功记录被迟到消息覆盖：%+v %v", got, err)
+		}
+	}
+}
+
+// TestDownloadSourceMigrationPreservesHistory 验证旧下载表升级后保留历史，不猜测旧文件归属，重启后仍可按来源去重。
+func TestDownloadSourceMigrationPreservesHistory(t *testing.T) {
+	dir := t.TempDir()
+	conn, err := sql.Open("sqlite", filepath.Join(dir, "goodhr_local_go.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conn.Exec(`CREATE TABLE local_downloads (id TEXT PRIMARY KEY, position_id TEXT, url TEXT, file_path TEXT, file_name TEXT, mime_type TEXT, size INTEGER, status TEXT, created_at TEXT, updated_at TEXT);
+INSERT INTO local_downloads VALUES ('legacy','p1','','old.pdf','old.pdf','',10,'saved','2026-01-01','2026-01-01')`)
+	_ = conn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{DataDir: dir}
+	db, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	list, err := db.ListDownloads("p1")
+	if err != nil || len(list) != 1 || list[0].SourceKey != "" || list[0].FilePath != "old.pdf" {
+		t.Fatalf("旧记录丢失或错误关联：%+v %v", list, err)
+	}
+	if _, err := db.SaveDownload(map[string]any{"id": "new", "source_key": "source1", "status": "saved", "file_path": "new.pdf"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	db, err = Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.LatestSourceDownload("source1")
+	if err != nil || got.ID != "new" || got.Status != "saved" {
+		t.Fatalf("重启后关联丢失：%+v %v", got, err)
+	}
+	if _, err := db.LatestSourceDownload("different-account"); err != sql.ErrNoRows {
+		t.Fatalf("不同来源错误命中：%v", err)
 	}
 }
 

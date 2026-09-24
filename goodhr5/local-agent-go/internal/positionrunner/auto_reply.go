@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
@@ -114,6 +116,34 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	if err := ctx.Err(); err != nil {
 		return "skipped", err
 	}
+	// 接收附件不依赖文字消息；先校验岗位和会话，再单独处理附件，避免被文字回复去重挡住。
+	if !platformcore.ReplyPositionMatches(current.Conversation, f.target) || strings.TrimSpace(current.Draft) != "" {
+		return "skipped", platformcore.ErrReplyUnsafe
+	}
+	hasPendingOffer, pendingErr := f.runtime.HasPendingResumeOffer(ctx, f.exec)
+	f.flowLog("info", fmt.Sprintf("待接受简历检测：候选人=%s，hasPending=%v，err=%v", current.Conversation.Name, hasPendingOffer, pendingErr))
+	if pendingErr == nil && hasPendingOffer {
+		if err := f.runtime.AcceptPendingResumeOffer(ctx, f.exec); err != nil {
+			return "failed", fmt.Errorf("接受简历失败：%w", err)
+		}
+		f.acceptedResume = true
+		if err := f.exec.Delay(ctx, "接受简历后", 1.5); err != nil {
+			return "skipped", err
+		}
+		if pending, err := f.runtime.HasPendingResumeOffer(ctx, f.exec); err != nil || pending {
+			return "failed", fmt.Errorf("简历仍待接受，暂不下载")
+		}
+		if err := f.downloadResumeIfNeeded(ctx, current.Conversation, true); err != nil {
+			return "failed", err
+		}
+		return "accepted_resume", nil
+	}
+	if current.ResumeStatus == "received" {
+		f.acceptedResume = true
+		if err := f.downloadResumeIfNeeded(ctx, current.Conversation, false); err != nil {
+			return "failed", err
+		}
+	}
 	current, err := platformcore.ValidateReplyContext(current, f.target)
 	if err != nil {
 		return "skipped", fmt.Errorf("上下文验证失败: %w", err)
@@ -149,18 +179,6 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 			return "skipped", fmt.Errorf("我方已回复，等待候选人新消息")
 		}
 		break
-	}
-
-	// ── 特殊分支：候选人已主动发简历 → 直接点"同意"接受，不生成文字回复 ──
-	hasPendingOffer, pendingErr := f.runtime.HasPendingResumeOffer(ctx, f.exec)
-	f.flowLog("info", fmt.Sprintf("待接受简历检测：候选人=%s，hasPending=%v，err=%v", current.Conversation.Name, hasPendingOffer, pendingErr))
-	if pendingErr == nil && hasPendingOffer {
-		if acceptErr := f.runtime.AcceptPendingResumeOffer(ctx, f.exec); acceptErr != nil {
-			return "failed", fmt.Errorf("接受简历失败：%w", acceptErr)
-		}
-		f.acceptedResume = true
-		f.flowLog("info", fmt.Sprintf("候选人已主动发简历，已点击同意接受：候选人=%s", current.Conversation.Name))
-		return "accepted_resume", nil
 	}
 
 	request := f.request
@@ -321,6 +339,67 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	f.flowLog("info", fmt.Sprintf("回复已发送，等待确认：候选人=%s", current.Conversation.Name))
 	// 发送动作已开始：停止信号不取消必要的结果确认，不再执行新的发送动作。
 	return f.confirm(context.WithoutCancel(ctx), current.Conversation, record, "sending")
+}
+
+// downloadResumeIfNeeded 以本地下载记录去重；关联键不含岗位运行 ID，避免重跑或换岗位重复下载。
+// freshOffer 表示刚接受了一次新的发送请求，允许保存新版附件；结果未知时仍禁止自动重复点击。
+func (f *replyFlow) downloadResumeIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation, freshOffer bool) error {
+	downloader, ok := f.runtime.(platformcore.ResumeAttachmentDownloader)
+	if !ok {
+		return nil
+	}
+	if f.scope == "" || f.platform == "" || conversation.ID == "" {
+		return platformcore.ErrReplyUnsafe
+	}
+	identity, _ := json.Marshal([]string{"resume-attachment-v1", f.scope, f.platform, conversation.ID})
+	source := platformcore.ReplyHash(string(identity))
+	previous, err := f.db.LatestSourceDownload(source)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w：读取附件下载记录失败", errReplyStorage)
+	}
+	if err == nil {
+		if previous.Status == "pending" || previous.Status == "unknown" {
+			f.flowLog("warning", fmt.Sprintf("附件下载跳过：候选人=%s，上次结果待确认，请先检查本地下载记录", conversation.Name))
+			return nil
+		}
+		if previous.Status == "saved" && !freshOffer {
+			if file, statErr := os.Stat(previous.FilePath); statErr == nil && file.Mode().IsRegular() && file.Size() > 0 {
+				f.flowLog("info", fmt.Sprintf("附件下载跳过：候选人=%s，已有成功下载记录", conversation.Name))
+				return nil
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	request := platformcore.DownloadRequest{ID: "resume_" + uuid.NewString(), SourceKey: source, PositionID: f.positionID, TimeoutMS: 20000}
+	if _, err := f.db.SaveDownload(map[string]any{"id": request.ID, "source_key": source, "position_id": f.positionID, "status": "pending"}); err != nil {
+		return fmt.Errorf("%w：无法登记附件下载", errReplyStorage)
+	}
+	downloadCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	defer cancel()
+	f.flowLog("info", fmt.Sprintf("开始下载附件简历：候选人=%s", conversation.Name))
+	record, downloadErr := downloader.DownloadResumeAttachment(downloadCtx, f.exec, conversation, request)
+	status := stringFromMap(record, "status")
+	if status == "saved" {
+		file, statErr := os.Stat(stringFromMap(record, "file_path"))
+		if stringFromMap(record, "id") != request.ID || statErr != nil || !file.Mode().IsRegular() || file.Size() <= 0 {
+			return fmt.Errorf("附件下载未确认：未找到对应的完整本地文件")
+		}
+	}
+	if status == "saved" || status == "failed" {
+		record["id"], record["source_key"], record["position_id"] = request.ID, source, f.positionID
+		if _, err := f.db.SaveDownload(record); err != nil {
+			return fmt.Errorf("%w：保存附件下载结果失败", errReplyStorage)
+		}
+		if status == "failed" && downloadErr == nil {
+			downloadErr = fmt.Errorf("附件下载失败，未保存文件")
+		}
+	} else if downloadErr == nil {
+		downloadErr = fmt.Errorf("附件下载结果未确认，请检查本地下载记录")
+	}
+	// 不用 unknown 响应覆盖异步通知刚写入的 saved 记录。
+	return downloadErr
 }
 
 // truncateForLog 截断字符串用于日志输出，避免刷屏。

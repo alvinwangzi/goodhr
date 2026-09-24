@@ -2,6 +2,11 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { readFileSync } from "node:fs";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import * as locatorActions from "../src/locator-actions.js";
+import { BrowserDownloadActions } from "../src/browser-actions.js";
 import { before, after, test } from "node:test";
 import { chromium } from "playwright-core";
 import { executeLocatorAction, locatorActionHandler, createActionGate } from "../src/locator-actions.js";
@@ -33,12 +38,34 @@ function resumeOfferFixture(mode) {
  ${activeNotice}</section></body></html>`;
 }
 
+// attachmentFixture 使用原生链接和 :target 复现全屏浮层；不向页面注入脚本。
+function attachmentFixture(mode) {
+ const icon = name => `<svg width="22" height="22"><use xlink:href="#icon-attacthment-${name}"></use></svg>`;
+ const toolbar = `<div class="attachment-resume-btns">
+ <a href="#wrong-fullscreen"><div class="popover icon-content">${icon("fullscreen")}</div></a>
+ <a href="#wrong-print"><div class="popover icon-content">${icon("print")}</div></a>
+ <a href="${mode === "no-download" ? "#attachment" : "/resume-file"}"><div class="popover icon-content">${icon("download")}</div></a></div>`;
+ return `<!doctype html><html><head><style>
+ #attachment{display:none;position:fixed;inset:0;background:white;z-index:10}
+ #attachment:target{display:block}.attachment-resume-btns{display:flex;gap:20px}
+ .popover,.close-btn{width:30px;height:30px}.close-btn{background:black}
+ </style></head><body><section class="chat-conversation"><a href="#attachment" class="resume-btn-file">附件简历</a><div class="close-btn">其他关闭</div></section>
+ <div hidden>${toolbar}</div><div id="attachment">${toolbar}
+ <a href="#closed"><div data-v-12b9a7dc="" class="close-btn"><svg width="14" height="14"><path fill="rgb(255, 255, 255)"></path></svg></div></a></div></body></html>`;
+}
+
 // 创建独立本地测试服务器和无账号的浏览器，不使用持久化 Profile。
 before(async () => {
  server = http.createServer((req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   const url = new URL(req.url, "http://fixture.invalid");
   if (url.pathname === "/resume-offer") { res.end(resumeOfferFixture(url.searchParams.get("mode"))); return; }
+  if (url.pathname === "/attachment") { res.end(attachmentFixture(url.searchParams.get("mode"))); return; }
+  if (url.pathname === "/resume-file") {
+   res.setHeader("Content-Type", "application/pdf");
+   res.setHeader("Content-Disposition", 'attachment; filename="resume.pdf"');
+   res.end("%PDF-test-resume"); return;
+  }
   res.end(req.url === "/frame" ? '<span class="inside">框架内容</span>' : req.url === "/reordered" ? fixture.replace(/(<section data-id="a">[\s\S]*?<\/section>)\s*(<section data-id="b">[\s\S]*?<\/section>)/, "$2$1") : fixture);
  });
  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -174,6 +201,85 @@ function pendingResumeSpec() {
  assert.ok(config.pending_resume_accept?.selectors?.length, "缺少待接受简历按钮配置");
  return { ...config.pending_resume_accept, parent: config.active };
 }
+
+// 下载后必须得到保存结果而非仅点击成功，重复监听不能生成两份文件。
+test("附件下载：全屏浮层定位、文件落地、关闭与单次保存", async t => {
+ const page = await fixturePage(t, "/attachment");
+ const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+ assert.ok(config.attachment_download, "缺少附件下载配置");
+ assert.ok(config.attachment_close, "缺少附件关闭配置");
+ assert.equal(typeof locatorActions.createDownloadTracker, "function", "缺少点击后同步等待下载能力");
+ const directory = await fs.mkdtemp(path.join(os.tmpdir(), "goodhr-download-test-"));
+ t.after(() => fs.rm(directory, { recursive: true, force: true }));
+ const saver = new BrowserDownloadActions({ log() {} }, { downloadsPath: directory });
+ let saves = 0;
+ const tracker = locatorActions.createDownloadTracker(async (download, targetPage, metadata) => {
+  saves++;
+  return { ...await saver.handleDownload(download, targetPage), ...metadata, status: "saved" };
+ });
+ page.on("download", d => { void tracker.capture(page, d).catch(() => {}); });
+ const click = locatorActionHandler(() => page, () => { throw Error("不能回退旧协议"); }, "click", tracker);
+ await click({ selector_spec: { ...config.resume_received, parent: config.active } });
+ const result = await click({ selector_spec: config.attachment_download, download: { id: "test-receipt", source_key: "source-1", position_id: "p1", timeout_ms: 3000 } });
+ assert.equal(result.download.status, "saved");
+ assert.equal(result.download.id, "test-receipt");
+ assert.equal(result.download.position_id, "p1");
+ assert.equal(result.download.source_key, "source-1");
+ assert.equal(await fs.readFile(result.download.file_path, "utf8"), "%PDF-test-resume");
+ assert.equal(saves, 1);
+ assert.equal((await fs.readdir(directory)).length, 1);
+ await click({ selector_spec: config.attachment_close });
+ assert.equal(new URL(page.url()).hash, "#closed");
+ assert.equal(await page.locator(".attachment-resume-btns:visible").count(), 0);
+});
+
+// 超时或取消不能返回已下载，也不能留下监听把下次操作误关联到旧请求。
+test("附件下载：未触发下载超时，不误报成功且清理监听", async t => {
+ const page = await fixturePage(t, "/attachment?mode=no-download");
+ assert.equal(typeof locatorActions.createDownloadTracker, "function");
+ const tracker = locatorActions.createDownloadTracker(async () => { throw Error("不应保存"); });
+ const click = locatorActionHandler(() => page, null, "click", tracker);
+ const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+ await click({ selector_spec: { ...config.resume_received, parent: config.active } });
+ await assert.rejects(click({ selector_spec: config.attachment_download, download: { id: "timeout", timeout_ms: 300 } }), /超时/);
+ assert.equal(page.listenerCount("download"), 0);
+ const controller = new AbortController(); controller.abort();
+ await assert.rejects(click({ selector_spec: config.attachment_download, download: { id: "cancel" } }, controller.signal), /abort/i);
+ assert.equal(page.listenerCount("download"), 0);
+});
+
+// 捕获事件不等于保存完成，保存期间的停止信号必须及时结束等待。
+test("附件下载：文件保存期间取消，仍退出等待并清理监听", async t => {
+ const page = await fixturePage(t, "/attachment");
+ const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+ let started, finish;
+ const saving = new Promise(resolve => { started = resolve; });
+ const tracker = locatorActions.createDownloadTracker(() => { started(); return new Promise(resolve => { finish = resolve; }); });
+ const click = locatorActionHandler(() => page, null, "click", tracker);
+ await click({ selector_spec: { ...config.resume_received, parent: config.active } });
+ const controller = new AbortController();
+ const action = click({ selector_spec: config.attachment_download, download: { id: "abort-saving", timeout_ms: 3000 } }, controller.signal);
+ const rejected = assert.rejects(action, /abort/i);
+ await saving;
+ controller.abort();
+ await rejected;
+ assert.equal(page.listenerCount("download"), 0);
+ const blocked = await click({ selector_spec: config.attachment_download, download: { id: "second-request", timeout_ms: 300 } });
+ assert.equal(blocked.clicked, false);
+ assert.equal(blocked.download.status, "failed");
+ finish({ status: "saved" });
+});
+
+// 等待额度在移动时耗尽也不能继续点击；否则调用方以为超时后仍可能产生文件。
+test("附件下载：移动期间超时不会继续点击", async t => {
+ const page = await fixturePage(t, "/attachment?mode=no-download");
+ const tracker = locatorActions.createDownloadTracker(async () => { throw Error("不应下载"); });
+ const click = locatorActionHandler(() => page, null, "click", tracker);
+ const move = page.mouse.move.bind(page.mouse);
+ page.mouse.move = async (...args) => { await move(...args); await new Promise(resolve => setTimeout(resolve, 200)); };
+ await assert.rejects(click({ selector_spec: { selectors: [".resume-btn-file"] }, download: { id: "timeout-before-click", timeout_ms: 100 } }), /超时/);
+ assert.equal(new URL(page.url()).hash, "");
+});
 
 // 原故障的请求把过滤文本放在外层，无法排除在线简历和聊天卡片中的按钮。
 test("待接受简历：旧的宽泛按钮请求触发唯一性保护", async t => {

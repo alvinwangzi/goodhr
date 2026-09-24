@@ -26,6 +26,7 @@ import {
 } from "@/components/admin/AdminUI";
 import { useAdmin } from "@/components/admin/AdminApp";
 import { cloudRequest, formatDate } from "@/lib/admin-api";
+import { platformLabel } from "@/components/admin/PlatformLogo";
 import {
   normalizeCandidate,
   periodText,
@@ -224,6 +225,19 @@ export default function ResumesPage() {
           {positions.map((item) => (
             <MenuItem key={item.id} value={item.id}>
               {item.name}
+              <Chip
+                label={platformLabel(item.platform_id)}
+                size='small'
+                sx={{ ml: 0.75, height: 20, fontSize: 11 }}
+              />
+              {item.label ? (
+                <Chip
+                  label={item.label}
+                  size='small'
+                  variant='outlined'
+                  sx={{ ml: 0.5, height: 20, fontSize: 11 }}
+                />
+              ) : null}
             </MenuItem>
           ))}
         </TextField>

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -147,6 +149,186 @@ func newReplyFlowFixture(t *testing.T) (*replyFlow, *replyFixture, platformcore.
 	c := platformcore.ReplyContext{ResumeStatus: "none", Conversation: platformcore.ReplyConversation{ID: "c1", PositionID: "job1"}, Messages: []platformcore.ReplyMessage{{ID: "m1", Direction: "inbound", Kind: "text", Text: "你好"}}}
 	flow := &replyFlow{db: openRunnerTestDB(t), runtime: f, generator: f, target: platformcore.ReplyTarget{PositionID: "job1"}, scope: "profile-hash", platform: "boss", positionID: "position1", runID: "run1"}
 	return flow, f, c
+}
+
+// resumeDownloadFixture 只替换平台动作，下载去重仍使用真实 SQLite 和临时文件。
+type resumeDownloadFixture struct {
+	*replyFixture
+	pending            bool
+	accepts, downloads int
+	filePath           string
+	downloadErr        error
+	lastID             string
+}
+
+// HasPendingResumeOffer 返回当前待接受状态。
+func (f *resumeDownloadFixture) HasPendingResumeOffer(context.Context, platformcore.Executor) (bool, error) {
+	return f.pending, nil
+}
+
+// AcceptPendingResumeOffer 模拟接受成功后待确认提示消失。
+func (f *resumeDownloadFixture) AcceptPendingResumeOffer(context.Context, platformcore.Executor) error {
+	f.accepts++
+	f.pending = false
+	return nil
+}
+
+// DownloadResumeAttachment 模拟外部文件保存结果，不替代生产代码的记账和去重。
+func (f *resumeDownloadFixture) DownloadResumeAttachment(_ context.Context, _ platformcore.Executor, _ platformcore.ReplyConversation, request platformcore.DownloadRequest) (map[string]any, error) {
+	f.downloads++
+	f.lastID = request.ID
+	if f.downloadErr != nil {
+		return map[string]any{"status": "unknown"}, f.downloadErr
+	}
+	return map[string]any{"id": request.ID, "source_key": request.SourceKey, "position_id": request.PositionID, "file_path": f.filePath, "file_name": "简历.pdf", "size": 8, "status": "saved"}, nil
+}
+
+// resumeDelayExecutor 记录等待次序，不让测试实际睡眠。
+type resumeDelayExecutor struct {
+	platformcore.Executor
+	delays []float64
+}
+
+// Delay 记录可取消的接受后等待。
+func (e *resumeDelayExecutor) Delay(ctx context.Context, _ string, seconds float64) error {
+	e.delays = append(e.delays, seconds)
+	return ctx.Err()
+}
+
+// Log 忽略测试日志。
+func (e *resumeDelayExecutor) Log(string, string) {}
+
+// newResumeDownloadFixture 创建具有真实文件的下载编排测试。
+func newResumeDownloadFixture(t *testing.T) (*replyFlow, *resumeDownloadFixture, platformcore.ReplyContext) {
+	t.Helper()
+	flow, f, c := newReplyFlowFixture(t)
+	p := filepath.Join(t.TempDir(), "简历.pdf")
+	if err := os.WriteFile(p, []byte("%PDFtest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &resumeDownloadFixture{replyFixture: f, filePath: p}
+	flow.runtime = runtime
+	flow.exec = &resumeDelayExecutor{}
+	return flow, runtime, c
+}
+
+// TestResumeDownloadPendingWithoutText 验证只有附件通知、没有文字消息时仍接受、等待并下载。
+func TestResumeDownloadPendingWithoutText(t *testing.T) {
+	flow, f, c := newResumeDownloadFixture(t)
+	f.pending = true
+	c.Messages = []platformcore.ReplyMessage{{Direction: "system", Kind: "system"}}
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "accepted_resume" || f.accepts != 1 || f.downloads != 1 || f.generations != 0 {
+		t.Fatalf("未完成接受后下载：outcome=%s err=%v accepts=%d downloads=%d", outcome, err, f.accepts, f.downloads)
+	}
+	delays := flow.exec.(*resumeDelayExecutor).delays
+	if len(delays) == 0 || delays[0] < 1 || delays[0] > 2 {
+		t.Fatalf("未等待1～2秒：%v", delays)
+	}
+	records, err := flow.db.ListDownloads("")
+	if err != nil || len(records) != 1 || records[0].Status != "saved" || records[0].FilePath != f.filePath {
+		t.Fatalf("下载未记账：%+v %v", records, err)
+	}
+}
+
+// TestResumeDownloadDedupAcrossRuns 验证已收到简历先补下载，跨岗位运行和新消息均不重复下载，仍可答疑。
+func TestResumeDownloadDedupAcrossRuns(t *testing.T) {
+	flow, f, c := newResumeDownloadFixture(t)
+	c.ResumeStatus = "received"
+	if outcome, err := flow.process(t.Context(), c); err != nil || outcome != "sent" {
+		t.Fatalf("首次处理：%s %v", outcome, err)
+	}
+	if f.downloads != 1 {
+		t.Fatalf("未补下载：%d", f.downloads)
+	}
+	flow.positionID, flow.runID = "另一岗位", "另一次运行"
+	c.Messages = append(c.Messages, platformcore.ReplyMessage{ID: "m2", Direction: "inbound", Kind: "text", Text: "周末双休吗？"})
+	if outcome, err := flow.process(t.Context(), c); err != nil || outcome != "sent" {
+		t.Fatalf("答疑被阻断：%s %v", outcome, err)
+	}
+	if f.downloads != 1 || f.generations != 2 {
+		t.Fatalf("重复下载或阻断答疑：downloads=%d generations=%d", f.downloads, f.generations)
+	}
+	flow.scope = "另一个账号"
+	_, _ = flow.process(t.Context(), c)
+	if f.downloads != 2 {
+		t.Fatal("不同账号被错误去重")
+	}
+}
+
+// TestResumeDownloadNewOfferKeepsHistory 验证明确收到新的附件请求时允许保存新版，历史下载记录仍保留。
+func TestResumeDownloadNewOfferKeepsHistory(t *testing.T) {
+	flow, f, c := newResumeDownloadFixture(t)
+	c.ResumeStatus = "received"
+	_, _ = flow.process(t.Context(), c)
+	firstID := f.lastID
+	f.pending = true
+	outcome, err := flow.process(t.Context(), c)
+	if err != nil || outcome != "accepted_resume" || f.downloads != 2 || firstID == f.lastID {
+		t.Fatalf("新版附件未保存：%s %v downloads=%d", outcome, err, f.downloads)
+	}
+	_, _ = flow.process(t.Context(), c)
+	if f.downloads != 2 {
+		t.Fatal("未出现新请求时重复下载")
+	}
+	records, err := flow.db.ListDownloads("")
+	if err != nil || len(records) != 2 {
+		t.Fatalf("历史记录丢失：%+v %v", records, err)
+	}
+}
+
+// TestResumeDownloadInvalidConversationDoesNotAccept 验证其他岗位或人工草稿存在时不接受、不下载。
+func TestResumeDownloadInvalidConversationDoesNotAccept(t *testing.T) {
+	for _, mode := range []string{"wrong-job", "draft", "cancelled"} {
+		t.Run(mode, func(t *testing.T) {
+			flow, f, c := newResumeDownloadFixture(t)
+			f.pending = true
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if mode == "wrong-job" {
+				c.Conversation.PositionID = "other"
+			}
+			if mode == "draft" {
+				c.Draft = "人工草稿"
+			}
+			if mode == "cancelled" {
+				cancel()
+			}
+			_, _ = flow.process(ctx, c)
+			if f.accepts != 0 || f.downloads != 0 {
+				t.Fatalf("不安全会话执行了操作：accepts=%d downloads=%d", f.accepts, f.downloads)
+			}
+		})
+	}
+}
+
+// TestResumeDownloadUnknownDoesNotClickAgain 验证结果未知不记成功，也不再次点击造成重复文件。
+func TestResumeDownloadUnknownDoesNotClickAgain(t *testing.T) {
+	flow, f, c := newResumeDownloadFixture(t)
+	c.ResumeStatus = "received"
+	f.downloadErr = errors.New("下载响应超时")
+	_, _ = flow.process(t.Context(), c)
+	f.downloadErr = nil
+	_, _ = flow.process(t.Context(), c)
+	if f.downloads != 1 {
+		t.Fatalf("结果未知重复发起下载：%d", f.downloads)
+	}
+	records, err := flow.db.ListDownloads("")
+	if err != nil || len(records) != 1 || records[0].Status == "saved" {
+		t.Fatalf("结果未知误记成功：%+v %v", records, err)
+	}
+}
+
+// TestResumeDownloadNeedsRealFile 验证仅收到成功响应但文件不存在时不能当成完成。
+func TestResumeDownloadNeedsRealFile(t *testing.T) {
+	flow, f, c := newResumeDownloadFixture(t)
+	c.ResumeStatus = "received"
+	f.filePath = filepath.Join(t.TempDir(), "missing.pdf")
+	_, _ = flow.process(t.Context(), c)
+	records, _ := flow.db.ListDownloads("")
+	if f.downloads != 1 || len(records) != 1 || records[0].Status == "saved" {
+		t.Fatalf("未核对文件：%+v downloads=%d", records, f.downloads)
+	}
 }
 
 // TestReplyFlowDedup 验证发送先落库，并且跨任务换措辞不会重复调用 AI 或发送。

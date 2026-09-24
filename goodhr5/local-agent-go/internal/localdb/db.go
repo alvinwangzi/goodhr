@@ -221,7 +221,27 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	if err := db.migratePositionScannedCounts(); err != nil {
 		return err
 	}
+	if err := db.migrateDownloadSources(); err != nil {
+		return err
+	}
 	return db.migrateAutoReply()
+}
+
+// migrateDownloadSources 为既有下载记录添加来源摘要，保留原有文件和记录，不根据文件名猜测候选人。
+func (db *DB) migrateDownloadSources() error {
+	var exists int
+	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('local_downloads') WHERE name='source_key'`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		if _, err := db.conn.Exec(`ALTER TABLE local_downloads ADD COLUMN
+-- 下载来源摘要：由账号、平台和候选人会话生成，旧记录为空。
+source_key TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("升级下载记录来源失败：%w", err)
+		}
+	}
+	_, err := db.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_local_downloads_source ON local_downloads(source_key)`)
+	return err
 }
 
 // migratePositionScannedCounts 一次性补回旧版累计扫描中漏记的跳过和失败人数。

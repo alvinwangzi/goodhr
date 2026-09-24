@@ -15,6 +15,7 @@ import (
 type Download struct {
 	ID         string `json:"id"`
 	PositionID string `json:"position_id"`
+	SourceKey  string `json:"source_key"` // 账号、平台、候选人会话组成的来源摘要，仅用于本地去重。
 	URL        string `json:"url"`
 	FilePath   string `json:"file_path"`
 	FileName   string `json:"file_name"`
@@ -84,7 +85,7 @@ ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated
 // ListDownloads 读取本地下载记录。
 // positionID 为空时返回全部记录。
 func (db *DB) ListDownloads(positionID string) ([]Download, error) {
-	query := `SELECT * FROM local_downloads`
+	query := `SELECT id, position_id, url, file_path, file_name, mime_type, size, status, created_at, updated_at, source_key FROM local_downloads`
 	args := []any{}
 	if positionID != "" {
 		query += ` WHERE position_id=?`
@@ -101,7 +102,7 @@ func (db *DB) ListDownloads(positionID string) ([]Download, error) {
 		var item Download
 		err := rows.Scan(
 			&item.ID, &item.PositionID, &item.URL, &item.FilePath, &item.FileName,
-			&item.MimeType, &item.Size, &item.Status, &item.CreatedAt, &item.UpdatedAt,
+			&item.MimeType, &item.Size, &item.Status, &item.CreatedAt, &item.UpdatedAt, &item.SourceKey,
 		)
 		if err != nil {
 			return nil, err
@@ -111,6 +112,18 @@ func (db *DB) ListDownloads(positionID string) ([]Download, error) {
 	return result, rows.Err()
 }
 
+// LatestSourceDownload 读取同一账号、平台和候选人会话最近一次下载尝试，来源摘要为空时拒绝查询。
+func (db *DB) LatestSourceDownload(sourceKey string) (Download, error) {
+	if strings.TrimSpace(sourceKey) == "" {
+		return Download{}, fmt.Errorf("下载来源标识不能为空")
+	}
+	var item Download
+	err := db.conn.QueryRow(`SELECT id, position_id, url, file_path, file_name, mime_type, size, status, created_at, updated_at, source_key
+FROM local_downloads WHERE source_key=? ORDER BY rowid DESC LIMIT 1`, sourceKey).Scan(
+		&item.ID, &item.PositionID, &item.URL, &item.FilePath, &item.FileName, &item.MimeType, &item.Size, &item.Status, &item.CreatedAt, &item.UpdatedAt, &item.SourceKey)
+	return item, err
+}
+
 // SaveDownload 保存本地下载记录。
 // payload 为下载记录参数。
 func (db *DB) SaveDownload(payload map[string]any) (Download, error) {
@@ -118,6 +131,7 @@ func (db *DB) SaveDownload(payload map[string]any) (Download, error) {
 	item := Download{
 		ID:         stringOr(payload["id"], stableDownloadID(payload)),
 		PositionID: stringOr(payload["position_id"], ""),
+		SourceKey:  stringOr(payload["source_key"], ""),
 		URL:        stringOr(payload["url"], ""),
 		FilePath:   stringOr(payload["file_path"], stringOr(payload["path"], "")),
 		FileName:   stringOr(payload["file_name"], stringOr(payload["filename"], "")),
@@ -132,19 +146,21 @@ func (db *DB) SaveDownload(payload map[string]any) (Download, error) {
 	}
 	_, err := db.conn.Exec(`
 INSERT INTO local_downloads (
-    id, position_id, url, file_path, file_name, mime_type, size, status, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    id, position_id, url, file_path, file_name, mime_type, size, status, created_at, updated_at, source_key
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
-    position_id=excluded.position_id,
+    position_id=CASE WHEN excluded.position_id='' THEN local_downloads.position_id ELSE excluded.position_id END,
+    source_key=CASE WHEN excluded.source_key='' THEN local_downloads.source_key ELSE excluded.source_key END,
     url=excluded.url,
     file_path=excluded.file_path,
     file_name=excluded.file_name,
     mime_type=excluded.mime_type,
     size=excluded.size,
     status=excluded.status,
-    updated_at=excluded.updated_at`,
+    updated_at=excluded.updated_at
+WHERE local_downloads.status!='saved' OR excluded.status='saved'`,
 		item.ID, item.PositionID, item.URL, item.FilePath, item.FileName,
-		item.MimeType, item.Size, item.Status, item.CreatedAt, item.UpdatedAt,
+		item.MimeType, item.Size, item.Status, item.CreatedAt, item.UpdatedAt, item.SourceKey,
 	)
 	if err != nil {
 		return Download{}, fmt.Errorf("保存下载记录失败：%w", err)

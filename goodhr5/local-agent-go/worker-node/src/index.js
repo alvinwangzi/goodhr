@@ -37,7 +37,7 @@ import {
 import { waitForDetailContainer } from "./detail-ready.js";
 import { shouldClickGreetFollowups } from "./greet-policy.js";
 import { humanTypeText } from "./human-type.js";
-import { locatorActionHandler, createActionGate } from "./locator-actions.js";
+import { locatorActionHandler, createActionGate, createDownloadTracker } from "./locator-actions.js";
 import {
   buildListClickScrollFailureDiagnostic,
   listClickViewDecision,
@@ -61,6 +61,7 @@ let page = null;
 let currentUserDataDir = "";
 let currentDownloadsPath = "";
 const downloads = [];
+const downloadTracker = createDownloadTracker(savePageDownload);
 const elementRefs = new Map();
 let elementRefSeq = 0;
 const pageTokens = new WeakMap();
@@ -5604,7 +5605,15 @@ function registerPage(targetPage) {
     pagesByToken.delete(token);
     clearElementRefs();
   });
-  targetPage.on("download", async (download) => {
+  targetPage.on("download", (download) => {
+    void downloadTracker.capture(targetPage, download).catch((error) => {
+      logWorker("下载事件处理失败", { message: error?.message || String(error) });
+    });
+  });
+}
+
+/** savePageDownload 复用原有文件保存和提示链路，透传本次点击的下载记录标识。 */
+async function savePageDownload(download, targetPage, metadata = {}) {
     const startedAt = Date.now();
     let downloadURL = "";
     let targetPath = "";
@@ -5628,9 +5637,12 @@ function registerPage(targetPage) {
       const failure = await download.failure?.();
       if (failure) throw new Error(`下载失败：${failure}`);
       savedPath = await ensureDownloadExtension(targetPath);
-      const stat = await fs.stat(savedPath).catch(() => null);
+      const stat = await fs.stat(savedPath);
+      if (!stat.isFile() || stat.size <= 0) throw new Error("下载文件为空或不存在");
       const record = {
-        id: downloadID(savedPath, downloadURL),
+        id: metadata.id || downloadID(savedPath, downloadURL),
+        position_id: metadata.position_id || "",
+        source_key: metadata.source_key || "",
         path: savedPath,
         file_path: savedPath,
         file_name: path.basename(savedPath),
@@ -5650,6 +5662,7 @@ function registerPage(targetPage) {
       });
       await notifyDownloadSaved(record);
       if (downloads.length > 100) downloads.length = 100;
+      return record;
     } catch (error) {
       logWorker("保存下载文件失败", {
         message: error?.message || String(error),
@@ -5659,8 +5672,9 @@ function registerPage(targetPage) {
         elapsed_ms: Date.now() - startedAt,
       });
       console.error("保存下载文件失败", error);
+      // 文件已经落地但后续处理报错时保留未知态，避免再次点击重复下载。
+      return { id: metadata.id || "", position_id: metadata.position_id || "", source_key: metadata.source_key || "", status: savedPath ? "unknown" : "failed", error: error?.message || String(error) };
     }
-  });
 }
 
 /**
@@ -6848,7 +6862,7 @@ const routes = {
   "/api/v1/page/list": listPages,
   "/api/v1/page/use": usePage,
   "/api/v1/page/open": openPage,
-  "/api/v1/page/click": locatorActionHandler(() => page, clickPage, "click"),
+  "/api/v1/page/click": locatorActionHandler(() => page, clickPage, "click", downloadTracker),
   "/api/v1/page/ensure-visible": ensureElementVisible,
   "/api/v1/page/type": locatorActionHandler(() => page, typePage, "type"),
   "/api/v1/page/press-key": pressKey,
