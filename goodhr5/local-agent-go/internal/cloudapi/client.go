@@ -398,6 +398,16 @@ func (c *Client) NotifyResumeRequested(ctx context.Context, token string, positi
 	return nil
 }
 
+// SyncResumeTracking 复用简历补报入口同步单个意向候选人的进度，不累加岗位统计。
+func (c *Client) SyncResumeTracking(ctx context.Context, token, positionID string, candidate map[string]any) error {
+	if strings.TrimSpace(positionID) == "" { return fmt.Errorf("岗位 ID 不能为空") }
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/resume-requests", map[string]any{"candidate":candidate})
+	if err != nil { return err }
+	if code >= 400 { return fmt.Errorf("%s", cloudMessage(payload,"简历进度同步失败")) }
+	if ok, _ := payload["ok"].(bool); !ok { return fmt.Errorf("云端尚未确认简历进度") }
+	return nil
+}
+
 // ScreeningRecord 表示上报给云端的候选人扫描记录。
 type ScreeningRecord struct {
 	Platform            string `json:"platform"`

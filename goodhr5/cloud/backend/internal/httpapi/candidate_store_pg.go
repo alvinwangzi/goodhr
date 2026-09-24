@@ -569,6 +569,9 @@ func candidateSelectSQL(whereClause string, engagementScope string) string {
 		latest_engagement.detail_fetched_at,
 		latest_engagement.greeted_at,
 		latest_engagement.resume_requested_at,
+		COALESCE(latest_engagement.resume_state, ''),
+		COALESCE(latest_engagement.resume_error, ''),
+		latest_engagement.resume_updated_at,
 		cp.created_at,
 		cp.updated_at,
 		COALESCE(latest_notes.notes, '[]'::jsonb)
@@ -667,6 +670,9 @@ func scanCandidateRow(scanner candidateScanner) (PositionCandidate, error) {
 		&item.DetailFetchedAt,
 		&item.GreetedAt,
 		&item.ResumeRequestedAt,
+		&item.ResumeState,
+		&item.ResumeError,
+		&item.ResumeUpdatedAt,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		jsonScanner(&item.Notes),
@@ -688,7 +694,14 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 		clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.position_id::text = $%d)", len(args)))
 	}
 	if query.Status != "" {
+		resumeScope := ""
+		if query.PositionID != "" { resumeScope = fmt.Sprintf(" AND ce_filter.position_id::text = $%d", len(args)) }
 		switch query.Status {
+		case "resume_pending", "resume_requested", "resume_received", "resume_downloaded":
+			args = append(args, strings.TrimPrefix(query.Status, "resume_"))
+			clauses = append(clauses, fmt.Sprintf("EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id%s AND ce_filter.resume_state = $%d)", resumeScope, len(args)))
+		case "resume_failed":
+			clauses = append(clauses, "EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id"+resumeScope+" AND ce_filter.resume_error <> '')")
 		case "detail":
 			clauses = append(clauses, "EXISTS (SELECT 1 FROM candidate_engagements ce_filter WHERE ce_filter.candidate_id = cp.id AND ce_filter.detail_fetched_at IS NOT NULL)")
 		case "greeted":

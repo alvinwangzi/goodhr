@@ -70,7 +70,9 @@ function SidePanel({ candidate }: { candidate: NormalizedCandidate }) {
   const overview = [...candidate.workExperiences, ...candidate.projectExperiences, ...candidate.educations].map(experienceLine).filter(Boolean).slice(0, 8);
   return <Box sx={{ p: 3, borderLeft: { lg: "1px solid" }, borderTop: { xs: "1px solid", lg: 0 }, borderColor: "divider", bgcolor: "action.hover" }}>
     <Typography sx={{ mb: 1.5, color: "text.secondary", fontWeight: 760 }}>候选人状态</Typography>
-    <Chip label={statusText(candidate.status)} color="primary" sx={{ mb: 3 }} />
+    <Chip label={candidate.resumeState ? candidate.resumeStateText : statusText(candidate.status)} color="primary" sx={{ mb: 1 }} />
+    {candidate.resumeError ? <Typography color="error" sx={{ mb: 1, overflowWrap: "anywhere" }}>{candidate.resumeError}</Typography> : null}
+    {candidate.resumeUpdatedAt ? <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 3 }}>进度更新：{formatDateTime(candidate.resumeUpdatedAt)}</Typography> : null}
     <Typography sx={{ mb: 1.5, fontWeight: 820 }}>记录来源</Typography>
     <Stack spacing={0.7} sx={{ mb: 3 }}>
       <Typography sx={{ color: "text.secondary", fontSize: 13 }}>创建人：{candidate.creatorEmail || "暂时没记上"}</Typography>

@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // notifyResumeRequestsRequest 表示本地程序补报"求简历"结果的请求体。
 type notifyResumeRequestsRequest struct {
+	Candidate *ResumeTrackingInput `json:"candidate,omitempty"`
 	RunID string   `json:"run_id"` // 执行任务记录 ID，事件归组到本次岗位运行
 	Names []string `json:"names"`  // 本轮完成求简历的候选人姓名
 }
@@ -50,6 +52,21 @@ func (s *PositionExecutionService) NotifyResumeRequests(w http.ResponseWriter, r
 	var req notifyResumeRequestsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if req.Candidate != nil {
+		item := *req.Candidate
+		item.ID, item.Name = strings.TrimSpace(item.ID), strings.TrimSpace(item.Name)
+		if item.ID == "" || len(item.ID) > 256 || item.Name == "" || utf8.RuneCountInString(item.Name) > 100 || resumeStateRank(item.State) == 0 || item.UpdatedAt.IsZero() || item.UpdatedAt.After(time.Now().Add(5*time.Minute)) || utf8.RuneCountInString(item.Error) > 500 || utf8.RuneCountInString(item.Reason) > 500 || (item.Score != nil && (*item.Score < 0 || *item.Score > 100)) {
+			writeError(w, http.StatusBadRequest, "候选人身份、简历进度或记录时间不完整")
+			return
+		}
+		if err := s.candidateStore.SaveResumeTracking(position, item); err != nil {
+			s.writeCandidateIngestLog(position.ID, position.UserEmail, "warning", "简历进度保存失败："+err.Error())
+			writeError(w, http.StatusInternalServerError, "简历进度暂未保存，请稍后重试")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
 	names := make([]string, 0, len(req.Names))

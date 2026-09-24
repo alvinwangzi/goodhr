@@ -63,6 +63,10 @@ export type NormalizedCandidate = {
   detailFetchedAt: string;
   greetedAt: string;
   resumeRequestedAt: string;
+  resumeState: string;
+  resumeStateText: string;
+  resumeError: string;
+  resumeUpdatedAt: string;
   creatorEmail: string;
   createdAt: string;
   updatedAt: string;
@@ -72,6 +76,7 @@ export type NormalizedCandidate = {
 /** normalizeCandidate 按新版扁平简历模型整理候选人。 */
 export function normalizeCandidate(input: any): NormalizedCandidate {
   const source = input || {};
+  const resumeState = stringValue(source.resume_state || (source.resume_requested_at ? "requested" : ""));
   return {
     id: stringValue(source.id),
     engagementId: stringValue(source.engagement_id),
@@ -125,6 +130,10 @@ export function normalizeCandidate(input: any): NormalizedCandidate {
     detailFetchedAt: stringValue(source.detail_fetched_at),
     greetedAt: stringValue(source.greeted_at),
     resumeRequestedAt: stringValue(source.resume_requested_at),
+    resumeState,
+    resumeStateText: ({ pending: "待索要", requested: "已索要", received: "已收到", downloaded: "已下载" } as Record<string, string>)[resumeState] || "未记录",
+    resumeError: stringValue(source.resume_error),
+    resumeUpdatedAt: stringValue(source.resume_updated_at),
     creatorEmail: stringValue(source.user_email),
     createdAt: stringValue(source.created_at),
     updatedAt: stringValue(source.updated_at),
@@ -157,7 +166,11 @@ export function candidateEventLabel(eventType: string) {
       greeted_sent: "已打招呼",
       phone_requested: "已索要手机号",
       wechat_requested: "已索要微信",
+      resume_pending: "待索要简历",
       resume_requested: "已索要简历",
+      resume_received: "已收到简历",
+      resume_downloaded: "已下载简历",
+      resume_tracking_failed: "简历操作未完成",
       manual_note: "人工备注",
     } as Record<string, string>)[eventType] || eventType || "事件"
   );

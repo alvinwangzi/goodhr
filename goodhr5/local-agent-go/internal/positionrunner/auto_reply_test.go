@@ -219,6 +219,58 @@ func newResumeDownloadFixture(t *testing.T) (*replyFlow, *resumeDownloadFixture,
 	return flow, runtime, c
 }
 
+// TestReplyResumeLibraryIntentBeforeGeneration 验证决定索要即入库，不依赖生成、发送、索要成功或结构化输出开关。
+func TestReplyResumeLibraryIntentBeforeGeneration(t *testing.T) {
+	flow, f, c := newReplyFlowFixture(t)
+	c.Conversation.Name = "测试候选人"
+	f.reviewScore = 85
+	flow.positionSnapshot = map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70, "output_structured_resume": false}}
+	var states []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/resume-requests") {
+			var body struct { Candidate map[string]any `json:"candidate"` }
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err) }
+			states = append(states, fmt.Sprint(body.Candidate["state"]))
+			if body.Candidate["candidate_name"] != "测试候选人" || body.Candidate["score"] != float64(85) { t.Errorf("身份或评分缺失：%+v", body) }
+			fmt.Fprint(w, `{"ok":true}`)
+			return
+		}
+		fmt.Fprint(w, `{"record":null}`)
+	}))
+	defer server.Close()
+	flow.cloudClient, flow.token = cloudapi.New(server.URL), "test-token"
+	f.generate = func(context.Context) (string, error) {
+		if len(states) != 1 || states[0] != "pending" { t.Errorf("生成前未入库为待索要：%v", states) }
+		return "", errors.New("模拟生成失败")
+	}
+	_, _ = flow.process(t.Context(), c)
+	if len(states) == 0 { t.Fatal("决定索要后没有同步简历库") }
+}
+
+// TestReplyResumeLibraryDownloadProgress 验证云端只在实际文件落地后收到已下载状态。
+func TestReplyResumeLibraryDownloadProgress(t *testing.T) {
+	flow, f, c := newResumeDownloadFixture(t)
+	c.Conversation.Name = "测试候选人"
+	c.ResumeStatus = "received"
+	var states []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/resume-requests") {
+			var body struct { Candidate map[string]any `json:"candidate"` }
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			states = append(states, fmt.Sprint(body.Candidate["state"]))
+			fmt.Fprint(w, `{"ok":true}`)
+			return
+		}
+		fmt.Fprint(w, `{"record":null}`)
+	}))
+	defer server.Close()
+	flow.cloudClient, flow.token = cloudapi.New(server.URL), "test-token"
+	_, _ = flow.process(t.Context(), c)
+	if len(states) < 2 || states[0] != "received" || states[1] != "downloaded" || f.downloads != 1 {
+		t.Fatalf("未同步真实下载进度：%v downloads=%d", states, f.downloads)
+	}
+}
+
 // TestResumeDownloadPendingWithoutText 验证只有附件通知、没有文字消息时仍接受、等待并下载。
 func TestResumeDownloadPendingWithoutText(t *testing.T) {
 	flow, f, c := newResumeDownloadFixture(t)

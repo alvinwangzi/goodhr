@@ -172,8 +172,8 @@ export default function ResumesPage() {
         title='简历库'
         description={
           selectedPosition
-            ? "当前显示指定岗位运行产生的简历。"
-            : "目前已经默认不生成简历、降低AI消耗，如果需要生成简历，请在岗位设置->高级设置 中开启。"
+            ? "跟踪这个岗位想要索要简历的候选人及获取进度。"
+            : "决定索要简历的候选人会进入这里，跟踪待索要、已索要、已收到和已下载。详细简历内容可在岗位高级设置中开启。"
         }
         actions={
           <Button
@@ -251,7 +251,11 @@ export default function ResumesPage() {
           <MenuItem value=''>全部进度</MenuItem>
           <MenuItem value='detail'>已看详情</MenuItem>
           <MenuItem value='greeted'>已打招呼</MenuItem>
-          <MenuItem value='resume'>已索要简历</MenuItem>
+          <MenuItem value='resume_pending'>待索要</MenuItem>
+          <MenuItem value='resume_requested'>已索要</MenuItem>
+          <MenuItem value='resume_received'>已收到</MenuItem>
+          <MenuItem value='resume_downloaded'>已下载</MenuItem>
+          <MenuItem value='resume_failed'>操作未完成</MenuItem>
         </TextField>
 
         <Button
@@ -444,6 +448,13 @@ function ResumeRow({
 
 /** ProgressMarks 展示候选人的触达进度标记：看详情、打招呼、要简历，完成亮起显示"已"，未完成为灰色显示"未"。 */
 function ProgressMarks({ item }: { item: NormalizedCandidate }) {
+  if (item.resumeState) {
+    return <Stack spacing={0.6} sx={{ alignItems: "flex-start", minWidth: 0 }}>
+      <Chip size="small" label={item.resumeStateText} color={item.resumeState === "pending" ? "default" : "primary"} variant={item.resumeState === "pending" ? "outlined" : "filled"} />
+      {item.resumeError ? <Typography variant="caption" color="error" sx={{ overflowWrap: "anywhere" }}>{item.resumeError}</Typography> : null}
+      {item.resumeUpdatedAt ? <Typography variant="caption" color="text.secondary">{formatDate(item.resumeUpdatedAt)}</Typography> : null}
+    </Stack>;
+  }
   const marks = [
     {
       done: "已看详情",

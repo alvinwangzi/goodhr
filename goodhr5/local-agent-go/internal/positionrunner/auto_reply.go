@@ -48,6 +48,7 @@ type replyFlow struct {
 	positionSnapshot                   map[string]any // 岗位快照，供回复后索要简历的 AI 评估使用
 	screenshotsDir                     string         // 截图目录，供在线简历截图使用
 	reviewScore                        int            // 回复前详细简历评分，供回复后索要简历使用
+	reviewReason                       string         // 已判定索要的评分摘要，随档案入库。
 	acceptedResume                     bool           // 已直接接受候选人主动发送的简历，跳过索要流程
 	rejectedReply                      bool           // 本次使用拒绝话术，回复后不再索要简历
 	allowResumeRequest                 bool           // 前置结论：评分过阈值且简历未索要/未收到，回复成功后直接点求简历。
@@ -107,11 +108,17 @@ func hasTaskType(types []string, target string) bool {
 }
 
 // process 对一个已读取会话执行新消息判断、生成、复核、落库、发送和页面确认。
-func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyContext) (string, error) {
+func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyContext) (outcome string, processErr error) {
 	f.rejectedReply = false
 	f.acceptedResume = false
 	f.allowResumeRequest = false
 	f.reviewScore = -1
+	f.reviewReason = ""
+	defer func() {
+		if f.allowResumeRequest && (processErr != nil || outcome == "unknown") {
+			f.trackResume(current.Conversation, "pending", "回复未完成或未确认，尚未执行索要；详情见本地任务日志")
+		}
+	}()
 	f.flowLog("info", fmt.Sprintf("自动回复处理开始：候选人=%s，会话ID=%s，消息数=%d", current.Conversation.Name, current.Conversation.ID, len(current.Messages)))
 	if err := ctx.Err(); err != nil {
 		return "skipped", err
@@ -123,7 +130,9 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	hasPendingOffer, pendingErr := f.runtime.HasPendingResumeOffer(ctx, f.exec)
 	f.flowLog("info", fmt.Sprintf("待接受简历检测：候选人=%s，hasPending=%v，err=%v", current.Conversation.Name, hasPendingOffer, pendingErr))
 	if pendingErr == nil && hasPendingOffer {
+		f.trackResume(current.Conversation, "pending", "")
 		if err := f.runtime.AcceptPendingResumeOffer(ctx, f.exec); err != nil {
+			f.trackResume(current.Conversation, "pending", "接受简历失败，尚未确认收到")
 			return "failed", fmt.Errorf("接受简历失败：%w", err)
 		}
 		f.acceptedResume = true
@@ -131,14 +140,18 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 			return "skipped", err
 		}
 		if pending, err := f.runtime.HasPendingResumeOffer(ctx, f.exec); err != nil || pending {
+			f.trackResume(current.Conversation, "pending", "简历仍待接受或接受结果未确认")
 			return "failed", fmt.Errorf("简历仍待接受，暂不下载")
 		}
+		f.trackResume(current.Conversation, "received", "")
 		if err := f.downloadResumeIfNeeded(ctx, current.Conversation, true); err != nil {
 			return "failed", err
 		}
 		return "accepted_resume", nil
 	}
+	if current.ResumeStatus == "requested" { f.trackResume(current.Conversation, "requested", "") }
 	if current.ResumeStatus == "received" {
+		f.trackResume(current.Conversation, "received", "")
 		f.acceptedResume = true
 		if err := f.downloadResumeIfNeeded(ctx, current.Conversation, false); err != nil {
 			return "failed", err
@@ -208,6 +221,8 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 			} else {
 				// 我们主动打过招呼的，跳过看简历，继续判断回复需求
 				skipReview = true
+				f.reviewScore = screening.Score
+				f.reviewReason = "沿用打招呼阶段已通过的评分"
 				f.flowLog("info", fmt.Sprintf("我们主动打过招呼的候选人：候选人=%s，跳过看简历，直接回复", current.Conversation.Name))
 			}
 		} else {
@@ -225,7 +240,7 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	// 第1步：面板初筛（硬性条件快筛）→ 第2步：详细简历评分。
 	if !skipReview {
 		score, reason, reviewErr := f.reviewProfileBeforeReply(ctx, current.Conversation)
-		f.reviewScore = score
+		f.reviewScore, f.reviewReason = score, reason
 		if reviewErr != nil {
 			f.flowLog("warning", fmt.Sprintf("回复前简历查看失败：候选人=%s，错误=%s，将按正常回复处理", current.Conversation.Name, reviewErr.Error()))
 		} else if reason == "简历已收到" {
@@ -247,10 +262,13 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	} else if !rejectedBefore {
 		// 跳过看简历时沿用已通过的评分；是否索要仍由简历状态和 AI 决策共同决定。
 		// 已拒绝过的会话不沿用高分，避免对已拒绝候选人再索要简历。
-		f.reviewScore = 100
+		if f.reviewScore < 0 { f.reviewScore = 100 }
 	}
 	request.AllowResumeRequest = float64(f.reviewScore) >= threshold && request.ResumeStatus == "none" && !f.acceptedResume
 	f.allowResumeRequest = request.AllowResumeRequest
+	if f.allowResumeRequest && strings.TrimSpace(request.RejectTemplate) == "" {
+		f.trackResume(current.Conversation, "pending", "")
+	}
 	decision := localai.ReplyDecision{Action: "reply"}
 	text := strings.TrimSpace(request.RejectTemplate)
 	if text != "" {
@@ -343,7 +361,10 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 
 // downloadResumeIfNeeded 以本地下载记录去重；关联键不含岗位运行 ID，避免重跑或换岗位重复下载。
 // freshOffer 表示刚接受了一次新的发送请求，允许保存新版附件；结果未知时仍禁止自动重复点击。
-func (f *replyFlow) downloadResumeIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation, freshOffer bool) error {
+func (f *replyFlow) downloadResumeIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation, freshOffer bool) (resultErr error) {
+	defer func() {
+		if resultErr != nil { f.trackResume(conversation, "received", "附件下载失败或结果未确认；详情见本地下载记录") }
+	}()
 	downloader, ok := f.runtime.(platformcore.ResumeAttachmentDownloader)
 	if !ok {
 		return nil
@@ -360,11 +381,13 @@ func (f *replyFlow) downloadResumeIfNeeded(ctx context.Context, conversation pla
 	if err == nil {
 		if previous.Status == "pending" || previous.Status == "unknown" {
 			f.flowLog("warning", fmt.Sprintf("附件下载跳过：候选人=%s，上次结果待确认，请先检查本地下载记录", conversation.Name))
+			f.trackResume(conversation, "received", "上次附件下载结果待确认，请检查本地下载记录")
 			return nil
 		}
 		if previous.Status == "saved" && !freshOffer {
 			if file, statErr := os.Stat(previous.FilePath); statErr == nil && file.Mode().IsRegular() && file.Size() > 0 {
 				f.flowLog("info", fmt.Sprintf("附件下载跳过：候选人=%s，已有成功下载记录", conversation.Name))
+				f.trackResume(conversation, "downloaded", "")
 				return nil
 			}
 		}
@@ -398,6 +421,7 @@ func (f *replyFlow) downloadResumeIfNeeded(ctx context.Context, conversation pla
 	} else if downloadErr == nil {
 		downloadErr = fmt.Errorf("附件下载结果未确认，请检查本地下载记录")
 	}
+	if status == "saved" { f.trackResume(conversation, "downloaded", "") }
 	// 不用 unknown 响应覆盖异步通知刚写入的 saved 记录。
 	return downloadErr
 }
@@ -496,7 +520,10 @@ func (f *replyFlow) resumeAfterReplyIfNeeded(ctx context.Context, conversation p
 	}
 	resumeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return f.runtime.ResumeAfterReply(resumeCtx, f.exec, conversation, f.positionSnapshot, f.reviewScore, f.greetThreshold())
+	action, err := f.runtime.ResumeAfterReply(resumeCtx, f.exec, conversation, f.positionSnapshot, f.reviewScore, f.greetThreshold())
+	if err != nil { f.trackResume(conversation, "pending", "索要失败或确认超时；详情见本地任务日志")
+	} else if action == "requested" { f.trackResume(conversation, "requested", "") }
+	return action, err
 }
 
 // reviewProfileBeforeReply 在生成回复前查看候选人在线简历并评分。
@@ -694,6 +721,9 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 		return stats
 	}
 	r.positionLog(positionID, "info", "自动回复岗位核对成功：positionID="+target.PositionID)
+	cloudBase := strings.TrimSpace(options.CloudAPIBase)
+	if cloudBase == "" { cloudBase = strings.TrimSpace(r.cloudAPIBase) }
+	if cloudBase == "" { cloudBase = "https://goodhr5.58it.cn" }
 	flow := &replyFlow{
 		db: r.db, runtime: runtime, exec: exec, generator: generator, aiClient: aiClient, target: target,
 		scope:            platformcore.ReplyHash("profile:" + safePathName(profileName)),
@@ -701,7 +731,7 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 		positionID:       positionID,
 		runID:            options.CloudRunID,
 		rejectTemplate:   positionRejectTemplate(position),
-		cloudClient:      cloudapi.New(strings.TrimSpace(options.CloudAPIBase)),
+		cloudClient:      cloudapi.New(cloudBase),
 		token:            options.Token,
 		positionSnapshot: position.PositionSnapshot,
 		screenshotsDir:   r.screenshotsDir,
@@ -713,6 +743,8 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 			FAQ:                 positionFAQ(position),
 		},
 	}
+	flow.flushResumeTracking()
+	defer flow.flushResumeTracking()
 	failures := 0
 	for round := 1; round <= totalRounds; round++ {
 		if err := ctx.Err(); err != nil {

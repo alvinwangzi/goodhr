@@ -55,6 +55,9 @@ type PositionCandidate struct {
 	DetailFetchedAt     *time.Time
 	GreetedAt           *time.Time
 	ResumeRequestedAt   *time.Time
+	ResumeState         string
+	ResumeError         string
+	ResumeUpdatedAt     *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	Notes               []CandidateNote
@@ -111,6 +114,9 @@ type CandidateEngagement struct {
 	DetailFetchedAt   *time.Time
 	GreetedAt         *time.Time
 	ResumeRequestedAt *time.Time
+	ResumeState       string
+	ResumeError       string
+	ResumeUpdatedAt   *time.Time
 	LastEventAt       *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
@@ -148,6 +154,7 @@ type CandidateNote struct {
 
 // CandidateStore 定义候选人主体、触达上下文和事件流水能力。
 type CandidateStore interface {
+	SaveResumeTracking(position Position, item ResumeTrackingInput) error
 	SaveCandidateProfile(item CandidateProfileInput) (PositionCandidate, error)
 	UpsertCandidateEngagement(item CandidateEngagement) (CandidateEngagement, error)
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
@@ -374,6 +381,14 @@ func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query Pos
 		if query.Keyword != "" && !candidateContainsKeyword(item, query.Keyword) {
 			continue
 		}
+		var selected CandidateEngagement
+		for _, engagement := range s.engagements {
+			if engagement.CandidateID != item.ID || (query.PositionID != "" && engagement.PositionID != query.PositionID) { continue }
+			if !matchesResumeFilter(engagement, query.Status) { continue }
+			if selected.ID == "" || engagement.CreatedAt.After(selected.CreatedAt) { selected = engagement }
+		}
+		if selected.ID == "" && (query.PositionID != "" || query.Status != "") { continue }
+		if selected.ID != "" { item = candidateWithEngagement(item, selected) }
 		items = append(items, item)
 	}
 	total := len(items)
@@ -403,6 +418,13 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 	if !isAdmin && userEmail != "" && item.UserEmail != userEmail {
 		return PositionCandidate{}, ErrNotFound
 	}
+	var selected CandidateEngagement
+	for _, engagement := range s.engagements {
+		if engagement.CandidateID != candidateID || (engagementID != "" && engagement.ID != engagementID) { continue }
+		if selected.ID == "" || engagement.CreatedAt.After(selected.CreatedAt) { selected = engagement }
+	}
+	if engagementID != "" && selected.ID == "" { return PositionCandidate{}, ErrNotFound }
+	if selected.ID != "" { item = candidateWithEngagement(item, selected); engagementID = selected.ID }
 	events := s.events[candidateID]
 	if strings.TrimSpace(engagementID) != "" {
 		events = make([]CandidateEvent, 0, len(s.events[candidateID]))

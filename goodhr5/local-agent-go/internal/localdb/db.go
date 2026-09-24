@@ -224,6 +224,7 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	if err := db.migrateDownloadSources(); err != nil {
 		return err
 	}
+	if err := db.migrateResumeTracking(); err != nil { return err }
 	return db.migrateAutoReply()
 }
 
