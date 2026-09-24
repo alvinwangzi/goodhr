@@ -195,14 +195,6 @@ func (c Config) EmailCampaignStore(db *sql.DB) EmailCampaignStore {
 	return NewMemoryEmailCampaignStore()
 }
 
-// PlatformAccountStore 创建平台账号映射存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
-func (c Config) PlatformAccountStore(db *sql.DB) PlatformAccountStore {
-	if db != nil {
-		return NewPostgresPlatformAccountStore(db)
-	}
-	return NewMemoryPlatformAccountStore()
-}
-
 // PositionStore 创建岗位配置存储；配置 PostgreSQL 时使用 PostgreSQL，否则使用内存实现。
 func (c Config) PositionStore(db *sql.DB) PositionStore {
 	if db != nil {
@@ -389,4 +381,17 @@ func envList(key string, fallback []string) []string {
 		return fallback
 	}
 	return result
+}
+
+// intString 将整数转换为字符串，避免在调用点重复实现。
+func intString(value int) string {
+	if value == 0 {
+		return "0"
+	}
+	digits := make([]byte, 0, 8)
+	for value > 0 {
+		digits = append([]byte{byte('0' + value%10)}, digits...)
+		value /= 10
+	}
+	return string(digits)
 }

@@ -22,7 +22,6 @@ type Server struct {
 	aiWallet            *AIWalletService
 	userPreferences     *UserPreferencesService
 	notificationProfile *NotificationProfileService
-	platformAccounts    *PlatformAccountService
 	positions           *PositionService
 	positionExecution   *PositionExecutionService
 	positionLogs        *PositionLogService
@@ -79,7 +78,6 @@ func NewServer() (*Server, error) {
 	}
 	userFlowStore := config.UserFlowStore(db)
 	cookieStore := config.CookieStore(db)
-	platformAccountStore := config.PlatformAccountStore(db)
 	positionStore := config.PositionStore(db)
 	aiConfigStore := config.AIConfigStore(db)
 	aiWalletStore := config.AIWalletStore(db)
@@ -106,9 +104,8 @@ func NewServer() (*Server, error) {
 		aiWallet:            aiWalletService,
 		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
-		platformAccounts:    NewPlatformAccountService(auth, platformAccountStore, tenantStore),
 		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, platformAccountStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore),
+		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore),
 		positionLogs:        positionLogs,
 		taskRuns:            NewTaskRunService(auth, taskRunStore, tenantStore),
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
@@ -186,10 +183,6 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("/api/help/guide", s.help.Guide)
 	mux.HandleFunc("/api/help/chat", s.help.Chat)
-	// 注册平台账号信息接口，只保存名称和本地 profile 标识。
-	mux.HandleFunc("/api/platform-accounts", s.platformAccounts.List)
-	mux.HandleFunc("/api/platform-accounts/create", s.platformAccounts.Create)
-	mux.HandleFunc("/api/platform-accounts/", s.platformAccounts.Delete)
 	// 注册岗位配置接口，用于复用岗位关键词和问候语模板。
 	mux.HandleFunc("/api/positions", s.positions.Collection)
 	mux.HandleFunc("/api/positions/optimize-requirement", s.positions.OptimizeRequirement)
