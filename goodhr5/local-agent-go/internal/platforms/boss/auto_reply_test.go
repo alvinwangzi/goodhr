@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go/internal/platformcore"
@@ -444,6 +445,140 @@ func TestReplyConfirmationUsesInboundBoundary(t *testing.T) {
 	confirmed, err = runtime.ConfirmReply(t.Context(), page, target, conversation, value.InboundFingerprint, platformcore.ReplyHash("是双休。"))
 	if err != nil || !confirmed {
 		t.Fatalf("本次回答未确认：%t %v", confirmed, err)
+	}
+}
+
+// resumeRequestExecutor 只模拟页面与 Worker 边界；真实平台流程负责等待、核对和请求结果判断。
+type resumeRequestExecutor struct {
+	*replyPage
+	mode                           string
+	opened, confirmed              bool
+	checks, resultChecks, requests int
+	actions                        []string
+	logs                           []string
+	cancel                         context.CancelFunc
+}
+
+// Post 模拟确认框延迟显示以及确认后请求状态延迟更新，不把点击当作发送成功。
+func (e *resumeRequestExecutor) Post(ctx context.Context, path string, payload any) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	req, ok := payload.(platformcore.LocatorRequest)
+	if !ok || len(req.Selector.Selectors) == 0 {
+		return nil, errors.New("缺少强类型定位请求")
+	}
+	key := req.Selector.Selectors[0]
+	if path == "/api/v1/page/find-elements" {
+		if key == "resume-confirm" {
+			e.checks++
+			if e.opened && e.mode != "missing-dialog" && e.mode != "cancel-wait" && (e.mode != "delayed" || e.checks >= 4) {
+				return pageItems(map[string]string{}), nil
+			}
+			return pageItems(), nil
+		}
+		if key == "active" {
+			if e.opened && e.mode == "switched" {
+				return pageItems(map[string]string{"name": "其他候选人"}), nil
+			}
+			if e.confirmed {
+				e.resultChecks++
+				if e.mode != "missing-result" && (e.mode != "delayed" || e.resultChecks >= 4) {
+					e.resumeRequested = true
+				}
+			}
+		}
+	}
+	if path == "/api/v1/page/click" {
+		switch key {
+		case "resume-button":
+			e.actions = append(e.actions, "open")
+			if req.Selector.Parent == nil || req.Selector.Text != "求简历" {
+				return nil, errors.New("求简历定位范围或文本不正确")
+			}
+			if e.mode == "entry-not-clicked" {
+				return map[string]any{"clicked": false}, nil
+			}
+			e.opened = true
+			return map[string]any{"clicked": true}, nil
+		case "resume-confirm":
+			e.actions = append(e.actions, "confirm")
+			if !e.opened || e.mode == "missing-dialog" {
+				return nil, errors.New("确认框未出现")
+			}
+			if e.mode == "confirm-error" {
+				return nil, errors.New("确定点击失败")
+			}
+			if e.mode == "confirm-not-clicked" {
+				return map[string]any{"clicked": false}, nil
+			}
+			e.confirmed, e.opened = true, false
+			e.requests++
+			return map[string]any{"ok": true, "data": map[string]any{"clicked": true}}, nil
+		case ".boss-btn-primary":
+			return nil, errors.New("确定按钮未限定索取简历弹窗")
+		}
+	}
+	return e.replyPage.Post(ctx, path, payload)
+}
+
+// Delay 推进测试中的等待边界，必要时模拟用户停止，不进行真实睡眠。
+func (e *resumeRequestExecutor) Delay(ctx context.Context, _ string, _ float64) error {
+	if e.mode == "cancel-wait" && e.cancel != nil {
+		e.cancel()
+	}
+	return ctx.Err()
+}
+
+// Log 保留用户可见结果，验证失败不能记录为请求成功。
+func (e *resumeRequestExecutor) Log(_ string, message string) { e.logs = append(e.logs, message) }
+
+// TestResumeRequestConfirmation 验证完整的求简历、确认和结果核实，异常时不伪报成功。
+func TestResumeRequestConfirmation(t *testing.T) {
+	for _, mode := range []string{"success", "delayed", "missing-dialog", "confirm-error", "missing-result", "read-error", "switched", "cancel-wait", "entry-not-clicked", "confirm-not-clicked", "already-requested", "already-received"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := replyTestConfig()
+			if err := json.Unmarshal([]byte(`{"resume_received":{"selectors":["resume-received"]},"resume_requested_text":"简历请求已发送","resume_button":{"selectors":["resume-button"],"text":"求简历"},"resume_confirm":{"selectors":["resume-confirm"],"text":"确定"}}`), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			runtime := &Runtime{replyConfig: &cfg}
+			page := newReplyPage()
+			page.active = "a"
+			page.resumeError = mode == "read-error"
+			page.resumeRequested = mode == "already-requested"
+			page.resumeReceived = mode == "already-received"
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			exec := &resumeRequestExecutor{replyPage: page, mode: mode, cancel: cancel}
+			action, err := runtime.ResumeAfterReply(ctx, exec, platformcore.ReplyConversation{ID: "a", Name: "同名", PositionID: "job1"}, nil, 95, 70)
+			success := mode == "success" || mode == "delayed"
+			if success {
+				if err != nil || action != "requested" || !page.resumeRequested || exec.requests != 1 || !reflect.DeepEqual(exec.actions, []string{"open", "confirm"}) {
+					t.Fatalf("未完成两步索要和结果确认：action=%s err=%v requested=%t requests=%d actions=%v", action, err, page.resumeRequested, exec.requests, exec.actions)
+				}
+				return
+			}
+			if mode == "already-requested" || mode == "already-received" {
+				if action != "skipped" || err != nil || len(exec.actions) != 0 {
+					t.Fatalf("重复索要：%s %v %v", action, err, exec.actions)
+				}
+				return
+			}
+			if err == nil || action == "requested" {
+				t.Fatalf("异常被记作成功：%s %v actions=%v", action, err, exec.actions)
+			}
+			if mode != "missing-result" && exec.requests != 0 {
+				t.Fatalf("异常后仍发送了请求：%d", exec.requests)
+			}
+			if mode == "read-error" && len(exec.actions) != 0 {
+				t.Fatalf("状态未知仍点击：%v", exec.actions)
+			}
+			for _, message := range exec.logs {
+				if strings.Contains(message, "索要请求已发出") {
+					t.Fatalf("失败误报成功：%s", message)
+				}
+			}
+		})
 	}
 }
 

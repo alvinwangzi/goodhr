@@ -45,6 +45,7 @@ type replyPageConfig struct {
 	ResumeRequestedText string                                `json:"resume_requested_text"`
 	PendingResumeAccept platformcore.SelectorSpec             `json:"pending_resume_accept"`
 	ResumeButton        platformcore.SelectorSpec             `json:"resume_button"`
+	ResumeConfirm       platformcore.SelectorSpec             `json:"resume_confirm"`
 	OnlineResumeButton  platformcore.SelectorSpec             `json:"online_resume_button"`
 	OnlineResumeOverlay platformcore.SelectorSpec             `json:"online_resume_overlay"`
 	OnlineResumeClose   platformcore.SelectorSpec             `json:"online_resume_close"`
@@ -497,29 +498,32 @@ func mapClassToValue(mapping map[string]string, raw string) string {
 func (r *Runtime) ResumeAfterReply(ctx context.Context, exec platformcore.Executor, conversation platformcore.ReplyConversation, positionSnapshot map[string]any, reviewScore int, threshold float64) (string, error) {
 	cfg := r.replyPageSettings()
 
+	// 先核对当前候选人与简历状态，读取失败不能当作尚未索要。
+	current, err := r.readCurrentReply(ctx, exec, platformcore.ReplyTarget{PositionID: conversation.PositionID, PositionName: conversation.PositionName}, conversation)
+	if err != nil {
+		return "failed", fmt.Errorf("索要前核对会话失败：%w", err)
+	}
+	if current.ResumeStatus == "unknown" {
+		return "failed", fmt.Errorf("简历状态未确认，暂不索要")
+	}
 	// 1. 检查简历是否已收到（右上角"附件简历"按钮存在）
-	received, _ := r.hasElement(ctx, exec, replyChildSelector(cfg.ResumeReceived, cfg.Active))
-	if received {
+	if current.ResumeStatus == "received" {
 		exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，已收到简历，跳过", conversation.Name))
 		return "skipped", nil
 	}
 
 	// 2. 检查是否已发送过索要请求
-	requested, _ := r.hasTextOnPage(ctx, exec, cfg.ResumeRequestedText)
-	if requested {
+	if current.ResumeStatus == "requested" {
 		exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，已发送过索要请求，跳过", conversation.Name))
 		return "skipped", nil
 	}
 
 	// 3. 检查候选人是否已回复（未回复时"求简历"按钮处于 disabled 状态）
 	hasInbound := false
-	current, err := r.readCurrentReply(ctx, exec, platformcore.ReplyTarget{PositionName: conversation.PositionName}, conversation)
-	if err == nil {
-		for _, msg := range current.Messages {
-			if msg.Direction == "inbound" {
-				hasInbound = true
-				break
-			}
+	for _, msg := range current.Messages {
+		if msg.Direction == "inbound" {
+			hasInbound = true
+			break
 		}
 	}
 	if !hasInbound {
@@ -529,10 +533,11 @@ func (r *Runtime) ResumeAfterReply(ctx context.Context, exec platformcore.Execut
 
 	// 4. 根据详细简历评分决定是否索要
 	if float64(reviewScore) >= threshold {
-		if err := r.clickResumeButton(ctx, exec, cfg, conversation.Name); err != nil {
+		exec.Log("info", fmt.Sprintf("开始索要简历：候选人=%s，评分=%d，阈值=%.0f", conversation.Name, reviewScore, threshold))
+		if err := r.clickResumeButton(ctx, exec, cfg, conversation); err != nil {
 			return "failed", err
 		}
-		exec.Log("info", fmt.Sprintf("索要简历：候选人=%s，评分=%d，阈值=%.0f，已点击求简历", conversation.Name, reviewScore, threshold))
+		exec.Log("info", fmt.Sprintf("索要请求已发出：候选人=%s，已确认页面请求状态", conversation.Name))
 		return "requested", nil
 	}
 
@@ -593,21 +598,72 @@ func (r *Runtime) hasTextOnPage(ctx context.Context, exec platformcore.Executor,
 }
 
 // clickResumeButton 点击"求简历"按钮并处理确认弹窗。
-func (r *Runtime) clickResumeButton(ctx context.Context, exec platformcore.Executor, cfg replyPageConfig, name string) error {
-	_, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+func (r *Runtime) clickResumeButton(ctx context.Context, exec platformcore.Executor, cfg replyPageConfig, conversation platformcore.ReplyConversation) error {
+	if len(cfg.ResumeButton.Selectors) == 0 || len(cfg.ResumeConfirm.Selectors) == 0 || cfg.ResumeRequestedText == "" {
+		return fmt.Errorf("缺少求简历入口、确认按钮或结果配置")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if opened, err := r.hasElement(ctx, exec, cfg.ResumeConfirm); err != nil || opened {
+		return fmt.Errorf("求简历确认框状态无法核实或已有确认框打开，请先处理：%v", err)
+	}
+	result, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
 		Selector: replyChildSelector(cfg.ResumeButton, cfg.Active),
-		Text:     "求简历",
 	})
 	if err != nil {
 		return fmt.Errorf("点击求简历按钮失败：%w", err)
 	}
+	if clicked, _ := workerDataMap(result)["clicked"].(bool); !clicked {
+		return fmt.Errorf("求简历按钮未确认点击，未发送索要请求")
+	}
+	exec.Log("info", fmt.Sprintf("已点击求简历，等待确认弹窗：候选人=%s", conversation.Name))
 	// 等待并点击确认弹窗
-	_ = exec.Delay(ctx, "等待求简历确认弹窗", 0.5)
-	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
-		Selector: platformcore.SelectorSpec{Selectors: []string{".boss-btn-primary"}},
-	})
-	exec.Log("info", fmt.Sprintf("自动回复索要简历：候选人=%s，求简历点击完成", name))
-	return nil
+	if err := r.waitReplyElementState(ctx, exec, cfg.ResumeConfirm, true, "求简历确认弹窗"); err != nil {
+		return fmt.Errorf("等待求简历确认弹窗失败：%w", err)
+	}
+	// 弹窗出现期间可能人工切换会话，点击确定前必须重新核对。
+	target := platformcore.ReplyTarget{PositionID: conversation.PositionID, PositionName: conversation.PositionName}
+	current, err := r.readCurrentReply(ctx, exec, target, conversation)
+	if err != nil {
+		return fmt.Errorf("索要确认前核对会话失败：%w", err)
+	}
+	if current.ResumeStatus != "none" {
+		return fmt.Errorf("索要确认前简历状态已变化，停止点击")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result, err = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: cfg.ResumeConfirm})
+	if err != nil {
+		return fmt.Errorf("点击求简历弹窗确定失败，未确认请求发出：%w", err)
+	}
+	if clicked, _ := workerDataMap(result)["clicked"].(bool); !clicked {
+		return fmt.Errorf("求简历弹窗确定未确认点击，未确认请求发出")
+	}
+	exec.Log("info", fmt.Sprintf("已点击求简历弹窗确定，等待请求结果：候选人=%s", conversation.Name))
+	for attempt := 0; attempt < 20; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current, err := r.readCurrentReply(ctx, exec, target, conversation)
+		if err != nil {
+			return fmt.Errorf("索要结果核对失败：%w", err)
+		}
+		if current.ResumeStatus == "requested" || current.ResumeStatus == "received" {
+			opened, err := r.hasElement(ctx, exec, cfg.ResumeConfirm)
+			if err != nil {
+				return fmt.Errorf("索要确认弹窗关闭状态读取失败：%w", err)
+			}
+			if !opened {
+				return nil
+			}
+		}
+		if err := exec.Delay(ctx, "等待索要简历请求结果", 0.25); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("索要请求结果未确认：页面未显示请求已发出，不重复点击，请检查当前会话")
 }
 
 // evaluateResumeWithAI 打开在线简历弹层，截图后交给 AI 评分，返回是否超过阈值。
@@ -824,8 +880,8 @@ func (r *Runtime) AcceptPendingResumeOffer(ctx context.Context, exec platformcor
 	return nil
 }
 
-// waitAttachmentState 通过标准元素查询等待附件控件出现或消失，不用页面脚本。
-func (r *Runtime) waitAttachmentState(ctx context.Context, exec platformcore.Executor, selector platformcore.SelectorSpec, visible bool) error {
+// waitReplyElementState 通过标准元素查询等待会话浮层控件出现或消失；stage 用于说明等待环节，不用页面脚本。
+func (r *Runtime) waitReplyElementState(ctx context.Context, exec platformcore.Executor, selector platformcore.SelectorSpec, visible bool, stage string) error {
 	for attempt := 0; attempt < 20; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -837,11 +893,11 @@ func (r *Runtime) waitAttachmentState(ctx context.Context, exec platformcore.Exe
 		if found == visible {
 			return nil
 		}
-		if err := exec.Delay(ctx, "等待附件简历页面更新", 0.25); err != nil {
+		if err := exec.Delay(ctx, "等待"+stage+"更新", 0.25); err != nil {
 			return err
 		}
 	}
-	return fmt.Errorf("附件简历控件未按预期更新")
+	return fmt.Errorf("%s控件未按预期更新", stage)
 }
 
 // DownloadResumeAttachment 先打开附件全屏浮层，再点击下载并等待文件保存；无论结果如何都尝试关闭本次打开的浮层。
@@ -861,7 +917,7 @@ func (r *Runtime) DownloadResumeAttachment(ctx context.Context, exec platformcor
 		return record, fmt.Errorf("附件浮层状态无法确认或已有浮层打开：%v", err)
 	}
 	entry := replyChildSelector(cfg.ResumeReceived, cfg.Active)
-	if err := r.waitAttachmentState(ctx, exec, entry, true); err != nil {
+	if err := r.waitReplyElementState(ctx, exec, entry, true, "附件简历页面"); err != nil {
 		return record, err
 	}
 	if _, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: entry}); err != nil {
@@ -871,7 +927,7 @@ func (r *Runtime) DownloadResumeAttachment(ctx context.Context, exec platformcor
 		// 停止只禁止新业务动作；已打开的浮层仍须用独立短超时关闭。
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 6*time.Second)
 		defer cancel()
-		if err := r.waitAttachmentState(cleanup, exec, cfg.AttachmentClose, true); err != nil {
+		if err := r.waitReplyElementState(cleanup, exec, cfg.AttachmentClose, true, "附件简历页面"); err != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("附件浮层关闭按钮未就绪：%w", err))
 			return
 		}
@@ -879,11 +935,11 @@ func (r *Runtime) DownloadResumeAttachment(ctx context.Context, exec platformcor
 			resultErr = errors.Join(resultErr, fmt.Errorf("关闭附件简历浮层失败：%w", err))
 			return
 		}
-		if err := r.waitAttachmentState(cleanup, exec, cfg.AttachmentToolbar, false); err != nil {
+		if err := r.waitReplyElementState(cleanup, exec, cfg.AttachmentToolbar, false, "附件简历页面"); err != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("附件简历浮层仍未关闭：%w", err))
 		}
 	}()
-	if err := r.waitAttachmentState(ctx, exec, cfg.AttachmentToolbar, true); err != nil {
+	if err := r.waitReplyElementState(ctx, exec, cfg.AttachmentToolbar, true, "附件简历页面"); err != nil {
 		return record, err
 	}
 	if err := ctx.Err(); err != nil {

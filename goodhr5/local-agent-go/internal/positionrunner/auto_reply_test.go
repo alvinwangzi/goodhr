@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
@@ -30,6 +31,8 @@ type replyFixture struct {
 	send                     func() (bool, error)
 	stage                    func() error
 	confirm                  bool
+	confirmFn                func(context.Context) (bool, error)
+	confirmCalls             int
 	stale                    bool
 	sends, generations       int
 	stagedText, sentText     string
@@ -113,7 +116,11 @@ func (f *replyFixture) SendReply(_ context.Context, _ platformcore.Executor, _ p
 }
 
 // ConfirmReply 模拟页面是否已有对应的我方消息。
-func (f *replyFixture) ConfirmReply(context.Context, platformcore.Executor, platformcore.ReplyTarget, platformcore.ReplyConversation, string, string) (bool, error) {
+func (f *replyFixture) ConfirmReply(ctx context.Context, _ platformcore.Executor, _ platformcore.ReplyTarget, _ platformcore.ReplyConversation, _, _ string) (bool, error) {
+	f.confirmCalls++
+	if f.confirmFn != nil {
+		return f.confirmFn(ctx)
+	}
 	return f.confirm, nil
 }
 
@@ -1047,6 +1054,98 @@ func TestRunAutoReplyRound(t *testing.T) {
 	}
 	if len(worker.calls) == 0 || worker.calls[0] != "/api/v1/browser/start" {
 		t.Fatalf("浏览器启动顺序错误：%v", worker.calls)
+	}
+}
+
+// TestRunAutoReplyDelayedConfirmation 验证回复延迟出现时只发送一次，确认后才继续索要；停止后不再索要。
+func TestRunAutoReplyDelayedConfirmation(t *testing.T) {
+	for _, stopped := range []bool{false, true} {
+		t.Run(fmt.Sprint(stopped), func(t *testing.T) {
+			r := newTestRunner(t, openRunnerTestDB(t), &onceWorker{})
+			fixture := &replyFixture{reviewScore: 95}
+			c := newReplyConversation()
+			c.ResumeStatus = "none"
+			fixture.scan = []platformcore.ReplyConversation{c.Conversation}
+			fixture.reads = []platformcore.ReplyContext{c}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			fixture.confirmFn = func(checkCtx context.Context) (bool, error) {
+				if stopped && fixture.confirmCalls == 1 {
+					cancel()
+				}
+				return fixture.confirmCalls >= 3, checkCtx.Err()
+			}
+			position := localdb.Position{ID: "p1", Name: "Go", PlatformID: "boss", PositionSnapshot: map[string]any{"ai_config": map[string]any{"greet_score_threshold": 70.0}}}
+			stats := r.runAutoReply(ctx, position, StartOptions{TaskType: "auto_reply", ScanRounds: 1, CloudRunID: "run-delay"}, fixture, fixture, nil)
+			if stats.Replied != 1 || stats.Unknown != 0 || fixture.sends != 1 || fixture.generations != 1 {
+				t.Fatalf("延迟确认被跳过或重复发送：%+v sends=%d AI=%d checks=%d", stats, fixture.sends, fixture.generations, fixture.confirmCalls)
+			}
+			wantRequests := 1
+			if stopped {
+				wantRequests = 0
+			}
+			if fixture.resumeCalls != wantRequests {
+				t.Fatalf("索要次数=%d want=%d", fixture.resumeCalls, wantRequests)
+			}
+		})
+	}
+}
+
+// TestReplyConfirmUnconfirmedReason 验证超时或页面错误时保留未知状态、输出原因，绝不重发或索要。
+func TestReplyConfirmUnconfirmedReason(t *testing.T) {
+	for _, pageError := range []bool{false, true} {
+		t.Run(fmt.Sprint(pageError), func(t *testing.T) {
+			flow, fixture, c := newReplyFlowFixture(t)
+			position, err := flow.db.CreatePosition(map[string]any{"name": "确认测试", "platform_id": "boss"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			flow.positionID = position.ID
+			worker := &onceWorker{}
+			r := newTestRunner(t, flow.db, worker)
+			flow.exec = platformExecutor{runner: r, positionID: flow.positionID, once: true}
+			record, err := flow.db.PrepareAutoReply(t.Context(), localdb.AutoReplyRecord{
+				ProfileScope: flow.scope, Platform: flow.platform, ConversationID: c.Conversation.ID,
+				PositionID: flow.positionID, RunID: flow.runID, ContextFingerprint: "context",
+				InboundFingerprint: "inbound", ReplyFingerprint: platformcore.ReplyHash("你好"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := flow.transition(record.ID, "prepared", "sending", ""); err != nil {
+				t.Fatal(err)
+			}
+			fixture.confirm = false
+			if pageError {
+				fixture.confirmFn = func(context.Context) (bool, error) { return false, errors.New("面板姓名不匹配") }
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 650*time.Millisecond)
+			defer cancel()
+			outcome, err := flow.confirm(ctx, c.Conversation, record, "sending")
+			if err != nil || outcome != "unknown" {
+				t.Fatalf("未保留未知结果：%s %v", outcome, err)
+			}
+			saved, err := flow.db.FindAutoReply(t.Context(), record)
+			if err != nil || saved.Status != "unknown" || saved.ErrorCode != "unconfirmed" {
+				t.Fatalf("未知结果未落库：%+v %v", saved, err)
+			}
+			if (!pageError && fixture.confirmCalls < 2) || (pageError && fixture.confirmCalls != 1) {
+				t.Fatalf("确认重试边界错误：checks=%d pageError=%t", fixture.confirmCalls, pageError)
+			}
+			logs, err := flow.db.ListPositionLogs(flow.positionID, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			logged := false
+			for _, entry := range logs {
+				if strings.Contains(entry.Message, "回复发送未确认") && strings.Contains(entry.Message, "原因=") && strings.Contains(entry.Message, "不重复发送") {
+					logged = true
+				}
+			}
+			if !logged || fixture.sends != 0 || fixture.resumeCalls != 0 {
+				t.Fatalf("未说明确认失败或执行了新动作：logged=%t sends=%d requests=%d", logged, fixture.sends, fixture.resumeCalls)
+			}
+		})
 	}
 }
 

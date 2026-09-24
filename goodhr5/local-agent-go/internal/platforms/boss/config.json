@@ -79,7 +79,12 @@
     "text": "同意"
   },
   "resume_button": {
-    "selectors": [".operate-icon-item"]
+    "selectors": [".operate-icon-item:visible:not(.disabled):not([disabled])"],
+    "text": "求简历"
+  },
+  "resume_confirm": {
+    "selectors": [".exchange-tooltip:visible:has(> .text:has-text(\"确定向牛人索取简历吗？\")) > .btn-box > .boss-btn-primary.boss-btn:visible"],
+    "text": "确定"
   },
   "online_resume_button": {
     "selectors": [".resume-btn-online"]

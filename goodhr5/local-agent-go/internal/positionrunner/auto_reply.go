@@ -448,18 +448,33 @@ func (f *replyFlow) obsolete(record localdb.AutoReplyRecord, from string, cause 
 func (f *replyFlow) confirm(ctx context.Context, c platformcore.ReplyConversation, record localdb.AutoReplyRecord, from string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	confirmed, err := f.runtime.ConfirmReply(ctx, f.exec, f.target, c, record.InboundFingerprint, record.ReplyFingerprint)
-	if err == nil && confirmed {
-		if err = f.transition(record.ID, from, "sent", ""); err != nil {
-			return "failed", err
+	attempts := 0
+	reason := "等待超时，页面未出现与本次回复匹配的消息"
+	for ctx.Err() == nil {
+		attempts++
+		confirmed, err := f.runtime.ConfirmReply(ctx, f.exec, f.target, c, record.InboundFingerprint, record.ReplyFingerprint)
+		if err != nil {
+			reason = "页面核对失败：" + err.Error()
+			break
 		}
-		return "sent", nil
+		if confirmed {
+			if err := f.transition(record.ID, from, "sent", ""); err != nil {
+				return "failed", err
+			}
+			f.flowLog("info", fmt.Sprintf("回复发送已确认：候选人=%s，检查=%d次", c.Name, attempts))
+			return "sent", nil
+		}
+		// 页面可能尚未显示新消息；只轮询读取，绝不重试发送动作。
+		if err := sleepWithContext(ctx, 250*time.Millisecond); err != nil {
+			break
+		}
 	}
 	if from == "sending" {
-		if err = f.transition(record.ID, "sending", "unknown", "unconfirmed"); err != nil {
+		if err := f.transition(record.ID, "sending", "unknown", "unconfirmed"); err != nil {
 			return "failed", err
 		}
 	}
+	f.flowLog("warning", fmt.Sprintf("回复发送未确认：候选人=%s，检查=%d次，原因=%s；不重复发送，本轮不索要简历", c.Name, attempts, reason))
 	return "unknown", nil
 }
 
@@ -467,6 +482,10 @@ func (f *replyFlow) confirm(ctx context.Context, c platformcore.ReplyConversatio
 // 只用前置结论 allowResumeRequest（评分过阈值且简历未索要/未收到），不再看正文措辞或 AI 标志。
 // 已直接接受候选人主动发送的简历或使用拒绝话术时跳过。
 func (f *replyFlow) resumeAfterReplyIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation) (string, error) {
+	if err := ctx.Err(); err != nil {
+		f.flowLog("info", fmt.Sprintf("索要简历跳过：候选人=%s，任务已停止或等待超时", conversation.Name))
+		return "skipped", err
+	}
 	if f.runtime == nil || f.positionSnapshot == nil || f.acceptedResume || f.rejectedReply {
 		f.flowLog("info", fmt.Sprintf("索要简历跳过：候选人=%s，已接受简历=%t，本次拒绝=%t", conversation.Name, f.acceptedResume, f.rejectedReply))
 		return "", nil
@@ -735,7 +754,7 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 					failures = 0
 					// 回复成功后判断是否需要索要简历
 					if resumeAction, resumeErr := flow.resumeAfterReplyIfNeeded(ctx, current.Conversation); resumeErr != nil {
-						r.positionLog(positionID, "warning", fmt.Sprintf("自动回复索要简历：动作=%s，错误=%s", resumeAction, resumeErr.Error()))
+						r.positionLog(positionID, "warning", fmt.Sprintf("自动回复索要简历：候选人=%s，动作=%s，错误=%s", current.Conversation.Name, resumeAction, resumeErr.Error()))
 					} else if resumeAction != "" {
 						r.positionLog(positionID, "info", fmt.Sprintf("自动回复索要简历：动作=%s，候选人=%s", resumeAction, current.Conversation.Name))
 					}

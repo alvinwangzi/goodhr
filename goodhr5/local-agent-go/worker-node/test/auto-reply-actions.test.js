@@ -54,6 +54,25 @@ function attachmentFixture(mode) {
  <a href="#closed"><div data-v-12b9a7dc="" class="close-btn"><svg width="14" height="14"><path fill="rgb(255, 255, 255)"></path></svg></div></a></div></body></html>`;
 }
 
+// resumeRequestFixture 用原生链接与 :target 模拟索要确认弹窗，只在点击“确定”后展示请求状态。
+function resumeRequestFixture(mode) {
+ const dialog = `<div class="exchange-tooltip"><span class="text"> 确定向牛人索取简历吗？</span><div class="btn-box"><span class="boss-btn-outline boss-btn"><a href="#cancelled">取消</a></span><span class="boss-btn-primary boss-btn"><a href="#requested">确定</a></span></div></div>`;
+ return `<!doctype html><html><head><style>
+ #resume-popup,#requested{display:none}#resume-popup:target,#requested:target{display:block}
+ .exchange-tooltip{padding:12px}.btn-box a{display:inline-block;padding:12px}
+ </style></head><body>
+ <a class="operate-icon-item" href="#wrong-panel">求简历</a>
+ <a class="boss-btn-primary" href="#wrong-generic">确定</a>
+ ${dialog.replace("索取简历", "交换微信").replace("#requested", "#wrong-contact")}
+ <section class="chat-conversation">
+ <a class="operate-icon-item" href="#wrong-phone">换电话</a><a class="operate-icon-item" href="#wrong-wechat">换微信</a>
+ <a class="operate-icon-item${mode === "disabled" ? " disabled" : ""}" href="#resume-popup">求简历</a>
+ <div hidden><a class="operate-icon-item" href="#wrong-hidden">求简历</a>${dialog}</div>
+ <div id="resume-popup">${dialog}${mode === "duplicate" ? dialog : ""}</div>
+ <div id="requested">简历请求已发送</div>
+ </section></body></html>`;
+}
+
 // 创建独立本地测试服务器和无账号的浏览器，不使用持久化 Profile。
 before(async () => {
  server = http.createServer((req, res) => {
@@ -61,6 +80,7 @@ before(async () => {
   const url = new URL(req.url, "http://fixture.invalid");
   if (url.pathname === "/resume-offer") { res.end(resumeOfferFixture(url.searchParams.get("mode"))); return; }
   if (url.pathname === "/attachment") { res.end(attachmentFixture(url.searchParams.get("mode"))); return; }
+  if (url.pathname === "/resume-request") { res.end(resumeRequestFixture(url.searchParams.get("mode"))); return; }
   if (url.pathname === "/resume-file") {
    res.setHeader("Content-Type", "application/pdf");
    res.setHeader("Content-Disposition", 'attachment; filename="resume.pdf"');
@@ -201,6 +221,40 @@ function pendingResumeSpec() {
  assert.ok(config.pending_resume_accept?.selectors?.length, "缺少待接受简历按钮配置");
  return { ...config.pending_resume_accept, parent: config.active };
 }
+
+// 使用实际内嵌选择器验证主按钮、确认弹窗和结果，不以模拟执行器代替 DOM 定位。
+test("索要简历：只点击当前面板求简历与对应弹窗确定", async t => {
+ const page = await fixturePage(t, "/resume-request");
+ const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+ await executeLocatorAction(page, "click", { selector_spec: { ...config.resume_button, parent: config.active } });
+ assert.equal(new URL(page.url()).hash, "#resume-popup");
+ assert.equal(await page.locator("#requested").isVisible(), false, "打开弹窗不能算请求已发送");
+ await executeLocatorAction(page, "click", { selector_spec: config.resume_confirm });
+ assert.equal(new URL(page.url()).hash, "#requested");
+ assert.equal(await page.locator("#requested").innerText(), "简历请求已发送");
+ assert.equal(await page.locator("#requested").isVisible(), true);
+});
+
+test("索要简历：disabled入口不得点击", async t => {
+ const page = await fixturePage(t, "/resume-request?mode=disabled");
+ const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+ const spec = { ...config.resume_button, parent: config.active };
+ const found = await executeLocatorAction(page, "find-elements", { selector_spec: spec });
+ assert.equal(found.count, 0);
+ await assert.rejects(executeLocatorAction(page, "click", { selector_spec: spec }), /唯一|可见/);
+ assert.equal(new URL(page.url()).hash, "");
+});
+
+test("索要简历：未出现或重复确认框不得误点其他确定按钮", async t => {
+ const page = await fixturePage(t, "/resume-request?mode=duplicate");
+ const config = JSON.parse(readFileSync(new URL("../../internal/platforms/boss/config.json", import.meta.url), "utf8"));
+ assert.ok(config.resume_confirm, "缺少专用索要确认按钮配置");
+ const click = () => executeLocatorAction(page, "click", { selector_spec: config.resume_confirm });
+ await assert.rejects(click(), /唯一|可见/);
+ await executeLocatorAction(page, "click", { selector_spec: { ...config.resume_button, parent: config.active } });
+ await assert.rejects(click(), /唯一|可见/);
+ assert.equal(new URL(page.url()).hash, "#resume-popup");
+});
 
 // 下载后必须得到保存结果而非仅点击成功，重复监听不能生成两份文件。
 test("附件下载：全屏浮层定位、文件落地、关闭与单次保存", async t => {
