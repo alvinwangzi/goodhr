@@ -28,6 +28,7 @@ type AuthService struct {
 	systemConfigs               SystemConfigStore
 	userActivity                UserActivityStore
 	aiWallet                    *AIWalletService
+	profileStore                UserProfileStore
 	superAdmins                 map[string]struct{}
 	universalLoginCodeOffsetMin int
 }
@@ -44,7 +45,8 @@ type loginRequest struct {
 }
 
 // NewAuthService 创建用户认证服务，并注入邮件、租户、会员和系统配置依赖。
-func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, superAdmins []string, universalLoginCodeOffsetMin int) *AuthService {
+// NewAuthService 创建用户认证服务，并注入邮件、租户、会员、系统配置和用户资料依赖。
+func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenantStore TenantStore, invitations InvitationStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, userActivity UserActivityStore, aiWallet *AIWalletService, profileStore UserProfileStore, superAdmins []string, universalLoginCodeOffsetMin int) *AuthService {
 	superAdminMap := make(map[string]struct{}, len(superAdmins))
 	for _, email := range superAdmins {
 		normalized, ok := normalizeEmail(email)
@@ -63,6 +65,7 @@ func NewAuthService(store AuthStore, mailer Mailer, exposeDebugCode bool, tenant
 		systemConfigs:               systemConfigs,
 		userActivity:                userActivity,
 		aiWallet:                    aiWallet,
+		profileStore:                profileStore,
 		superAdmins:                 superAdminMap,
 		universalLoginCodeOffsetMin: universalLoginCodeOffsetMin,
 	}
@@ -368,10 +371,17 @@ func (s *AuthService) publicUser(email string) map[string]any {
 			inviteID = id
 		}
 	}
+	displayName := ""
+	if s.profileStore != nil {
+		if name, err := s.profileStore.GetDisplayName(email); err == nil {
+			displayName = name
+		}
+	}
 	return map[string]any{
 		"id":             inviteID,
 		"invite_id":      inviteID,
 		"email":          email,
+		"display_name":   displayName,
 		"role":           s.userRole(email),
 		"role_label":     s.userRoleLabel(email),
 		"is_super_admin": s.IsSuperAdmin(email),
@@ -560,4 +570,121 @@ func (s *AuthService) userRoleLabel(email string) string {
 	default:
 		return "成员"
 	}
+}
+
+// UpdateProfile 处理修改用户昵称请求。
+func (s *AuthService) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.SessionFromRequest(r)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if s.profileStore == nil {
+		writeError(w, http.StatusInternalServerError, "用户资料存储未配置")
+		return
+	}
+
+	var req updateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	displayName := strings.TrimSpace(req.DisplayName)
+	if len(displayName) > 50 {
+		writeError(w, http.StatusBadRequest, "昵称不能超过 50 个字符")
+		return
+	}
+	if err := s.profileStore.UpdateDisplayName(session.Email, displayName); err != nil {
+		log.Printf("[个人信息] 修改昵称失败 email=%s err=%v", session.Email, err)
+		writeError(w, http.StatusInternalServerError, "昵称修改失败，请稍后重试")
+		return
+	}
+	log.Printf("[个人信息] 昵称已更新 email=%s display_name=%s", session.Email, displayName)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"display_name": displayName,
+	})
+}
+
+// ChangePassword 处理修改密码请求，需要验证旧密码。
+func (s *AuthService) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, err := s.SessionFromRequest(r)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusUnauthorized, "session is invalid or expired")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if s.profileStore == nil {
+		writeError(w, http.StatusInternalServerError, "用户资料存储未配置")
+		return
+	}
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	oldPassword := strings.TrimSpace(req.OldPassword)
+	newPassword := strings.TrimSpace(req.NewPassword)
+	if oldPassword == "" {
+		writeError(w, http.StatusBadRequest, "请输入当前密码")
+		return
+	}
+	if len(newPassword) < 6 {
+		writeError(w, http.StatusBadRequest, "密码长度不能少于6位")
+		return
+	}
+
+	currentHash, err := s.profileStore.GetPasswordHash(session.Email)
+	if err != nil {
+		log.Printf("[个人信息] 读取密码哈希失败 email=%s err=%v", session.Email, err)
+		writeError(w, http.StatusInternalServerError, "密码修改失败，请稍后重试")
+		return
+	}
+	if currentHash == "" {
+		writeError(w, http.StatusBadRequest, "当前账号还没有密码，请先在登录页设置密码")
+		return
+	}
+	if !checkPassword(oldPassword, currentHash) {
+		writeError(w, http.StatusForbidden, "当前密码不正确")
+		return
+	}
+
+	newHash, err := hashPassword(newPassword)
+	if err != nil {
+		log.Printf("[个人信息] 密码哈希失败 email=%s err=%v", session.Email, err)
+		writeError(w, http.StatusInternalServerError, "密码修改失败，请稍后重试")
+		return
+	}
+	if err := s.profileStore.UpdatePasswordHash(session.Email, newHash); err != nil {
+		log.Printf("[个人信息] 保存密码失败 email=%s err=%v", session.Email, err)
+		writeError(w, http.StatusInternalServerError, "密码修改失败，请稍后重试")
+		return
+	}
+	log.Printf("[个人信息] 密码已更新 email=%s", session.Email)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+type updateProfileRequest struct {
+	DisplayName string `json:"display_name"`
+}
+
+type changePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
 }

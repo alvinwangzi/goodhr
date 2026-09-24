@@ -92,7 +92,7 @@ func TestAuthCodeLogin(t *testing.T) {
 func TestAuthMeRefreshesLastLogin(t *testing.T) {
 	store := NewMemoryAuthStore()
 	activity := &recordingUserActivityStore{}
-	auth := NewAuthService(store, DevMailer{}, true, nil, nil, nil, nil, activity, nil, nil, 0)
+	auth := NewAuthService(store, DevMailer{}, true, nil, nil, nil, nil, activity, nil, nil, nil, 0)
 	if err := store.SaveSession("active-token", Session{Email: "active@example.com", CreatedAt: time.Now()}, time.Hour); err != nil {
 		t.Fatal(err)
 	}

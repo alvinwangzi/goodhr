@@ -126,6 +126,7 @@ const menuGroups: MenuGroup[] = [
   {
     label: "团队与账户",
     items: [
+      ["/admin/profile", "个人信息", PersonRoundedIcon],
       ["/admin/team", "团队管理", GroupRoundedIcon],
       // ["/admin/invitations", "邀请奖励", KeyRoundedIcon],
       // AI 配置只有团队管理员可以查看和填写，普通成员不显示入口。
@@ -716,7 +717,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
             </IconButton>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography noWrap sx={{ fontWeight: 780 }}>
-                {user?.email || "HR Plus 控制台"}
+                {user?.display_name || user?.email || "HR Plus 控制台"}
               </Typography>
               <Typography noWrap sx={{ color: "text.secondary", fontSize: 12 }}>
                 {user?.role_label ||

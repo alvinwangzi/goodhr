@@ -84,7 +84,8 @@ func NewServer() (*Server, error) {
 	aiConfigStore := config.AIConfigStore(db)
 	aiWalletStore := config.AIWalletStore(db)
 	aiWalletService := NewAIWalletService(nil, aiWalletStore, aiConfigStore, systemConfigStore)
-	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
+	profileStore := config.UserProfileStore(db)
+	auth := NewAuthService(authStore, mailer, exposeDebugCode, tenantStore, invitationStore, subscriptionStore, systemConfigStore, config.UserActivityStore(db), aiWalletService, profileStore, config.SuperAdmins, config.UniversalLoginCodeOffsetMin)
 	aiWalletService.auth = auth
 	agentWS := NewAgentWSHub(auth)
 	userPreferencesStore := config.UserPreferencesStore(db)
@@ -139,6 +140,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/me", s.auth.Me)
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
+	mux.HandleFunc("/api/auth/update-profile", s.auth.UpdateProfile)
+	mux.HandleFunc("/api/auth/change-password", s.auth.ChangePassword)
 	mux.HandleFunc("/api/public/stats/today", s.publicStats.Today)
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
