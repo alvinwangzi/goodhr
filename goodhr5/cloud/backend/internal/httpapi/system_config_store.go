@@ -54,18 +54,18 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 				"announcements_enabled": true,
 				"announcements": [
 					{
-						"id": "2026-05-26-v1",
+						"id": "2026-09-26-v1",
 						"title": "HRPlus 更新公告",
 						"content": "HRPlus 本地执行器版本从 0.1.1 起步，低版本请及时更新。",
 						"url": "",
 						"once": true,
 						"enabled": true,
-						"created_at": "2026-05-26"
+						"created_at": "2026-09-26"
 					}
 				],
 				"admin_banner": {
 					"enabled": false,
-					"text": "HRPlus 猎头管理系统已上线（完全免费），点击前往体验。",
+					"text": "HRPlus 系统已上线，点击前往体验。",
 					"background_color": "#fff7df",
 					"text_color": "#6b4a00",
 					"url": "http://localhost:3000"
@@ -73,7 +73,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 				"admin_banners": [
 					{
 						"enabled": false,
-						"text": "HRPlus 猎头管理系统已上线（完全免费），点击前往体验。",
+						"text": "HRPlus 系统已上线，点击前往体验。",
 						"background_color": "#fff7df",
 						"text_color": "#6b4a00",
 						"url": "http://localhost:3000"
