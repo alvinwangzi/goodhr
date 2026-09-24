@@ -62,27 +62,27 @@ VALUES (
         "wechat": "a1224299352",
         "templates": {
             "local_agent": {
-                "subject": "GoodHR 本地程序还差一步",
+                "subject": "HRPlus 本地程序还差一步",
                 "html": "<p>本地程序未绑定，任务无法运行。</p><p>请先启动并绑定本地程序。</p>"
             },
             "ai_config": {
-                "subject": "GoodHR AI 配置还没填完",
+                "subject": "HRPlus AI 配置还没填完",
                 "html": "<p>本地程序已安装，但 AI 配置尚未完成。</p><p>完成配置后即可开始使用 AI 功能。</p>"
             },
             "platform_account": {
-                "subject": "GoodHR 平台账号还没创建",
+                "subject": "HRPlus 平台账号还没创建",
                 "html": "<p>尚未创建招聘平台账号，任务无法执行。</p><p>请先创建平台账号。</p>"
             },
             "position": {
-                "subject": "GoodHR 岗位模板还没创建",
+                "subject": "HRPlus 岗位模板还没创建",
                 "html": "<p>岗位模板尚未创建，无法开始筛选。</p><p>填写岗位模板仅需约 10 秒，完成后即可自动运行。</p>"
             },
             "greet_success": {
-                "subject": "GoodHR 还没打招呼成功",
+                "subject": "HRPlus 还没打招呼成功",
                 "html": "<p>尚未完成首次打招呼。</p><p>可能是平台账号、岗位或本地程序配置未完成，请检查后重试。</p>"
             },
             "paid": {
-                "subject": "GoodHR 会员功能可以继续试试",
+                "subject": "HRPlus 会员功能可以继续试试",
                 "html": "<p>你的基础流程已经走通了，会员功能可以帮你更省时间。</p><p>如果你愿意，可以回来看看订阅方案。</p>"
             }
         }

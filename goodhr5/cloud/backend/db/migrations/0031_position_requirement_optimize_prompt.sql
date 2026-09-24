@@ -3,7 +3,7 @@ INSERT INTO system_configs (config_key, config_value, description, enabled)
 VALUES (
   'system.app_config',
   jsonb_build_object(
-    'local_agent_version', '5.0.0',
+    'local_agent_version', '0.1.1',
     'position_requirement_optimize_prompt',
     '你是一个招聘筛选规则整理助手。请把用户输入的岗位要求整理成适合 AI 筛选候选人简历的规则。
 

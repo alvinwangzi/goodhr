@@ -9,7 +9,7 @@ SET config_value = config_value::jsonb || jsonb_build_object(
       ELSE jsonb_build_array(
         jsonb_build_object(
           'enabled', true,
-          'text', 'GoodHR 猎头管理系统已上线（完全免费），点击前往体验。',
+          'text', 'HRPlus 系统已上线，点击前往体验。',
           'background_color', '#fff7df',
           'text_color', '#6b4a00',
           'url', 'https://goodhr5.58it.cn'

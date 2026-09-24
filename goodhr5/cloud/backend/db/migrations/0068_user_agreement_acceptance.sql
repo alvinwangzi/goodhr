@@ -2,4 +2,4 @@
 ALTER TABLE users
 ADD COLUMN IF NOT EXISTS agreement_accepted_at TIMESTAMPTZ;
 
-COMMENT ON COLUMN users.agreement_accepted_at IS '用户首次同意 GoodHR 使用协议与隐私说明的时间';
+COMMENT ON COLUMN users.agreement_accepted_at IS '用户首次同意 HRPlus 使用协议与隐私说明的时间';

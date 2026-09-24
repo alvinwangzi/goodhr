@@ -77,8 +77,8 @@ goodhr5/
 ### 前置依赖
 
 - **Docker**：用于启动 PostgreSQL 数据库
-- **Go 1.24+**：云端后端和本地程序
-- **Node.js 18+**：云端前端（Next.js）
+- **Go 1.25+**：云端后端和本地程序（`local-agent-go/go.mod` 要求 1.25.0；本机装 1.24 时构建会自动下载 1.25 工具链）
+- **Node.js 18+**：云端前端（Next.js）和本地 Worker
 
 ### 一键启动
 
@@ -106,11 +106,63 @@ cd goodhr5
 
 按 `Ctrl+C` 停止所有服务并清理 Docker 容器。
 
+### 国内代理配置（推荐）
+
+国内网络拉取依赖可能很慢或失败，建议在首次启动前配置以下代理：
+
+```powershell
+# Go 模块代理
+go env -w GOPROXY=https://goproxy.cn,direct
+
+# npm 镜像源
+npm config set registry https://registry.npmmirror.com
+
+# Docker 镜像加速（编辑 Docker Desktop 设置里的 daemon.json，或手动写入）
+# 在 %USERPROFILE%\.docker\daemon.json 的顶层 JSON 对象里加入：
+# "registry-mirrors": ["https://docker.1ms.run", "https://docker.xuanyuan.me"]
+# 保存后重启 Docker Desktop
+```
+
 ### 环境变量说明
 
 后端环境变量保存在 `cloud/backend/.env`（已被 gitignore 忽略），脚本首次启动时会自动生成。如需自定义配置，可参考 `cloud/backend/.env.example` 模板。
 
 前端开发时脚本已硬编码注入 `NEXT_PUBLIC_CLOUD_API_BASE` 和 `NEXT_PUBLIC_SITE_URL`，通常不需要手动配置 `.env`。
+
+### 本地程序打包
+
+本地程序位于 `goodhr5/local-agent-go/`，开发环境可以直接运行，也可以打包成 Windows 安装程序。
+
+**直接运行（开发调试）：**
+
+```powershell
+cd goodhr5/local-agent-go
+go run ./cmd/goodhr-local-agent --open-console=false
+```
+
+启动后监听 `http://127.0.0.1:55271`。
+
+**打包 Windows 安装程序：**
+
+前置条件：
+
+1. 安装 [Inno Setup 6](https://jrsoftware.org/isdl.php)（`choco install innosetup --yes`）
+2. 安装 Worker 依赖：`cd goodhr5/local-agent-go/worker-node && npm install`
+
+一键打包：
+
+```powershell
+cd goodhr5/local-agent-go
+.\packaging\build_windows_installer.ps1 -Version "0.1.1" -Environment dev
+```
+
+参数说明：
+
+- `-Environment dev`：开发环境，连接 `localhost:8084` 后端和 `localhost:3000` 前端
+- `-Environment prod`：生产环境，连接线上地址
+- `-Version`：安装包版本号，需要和当前本地程序版本一致
+
+产物位于 `goodhr5/local-agent-go/dist/installers/dev/HRPlusSetup-dev-{version}.exe`。
 
 ## 部署与使用
 

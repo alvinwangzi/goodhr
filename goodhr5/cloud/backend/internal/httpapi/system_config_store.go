@@ -55,8 +55,8 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 				"announcements": [
 					{
 						"id": "2026-05-26-v1",
-						"title": "GoodHR 5 更新公告",
-						"content": "GoodHR 5 本地执行器版本从 5.0.0 起步，低版本请及时更新。",
+						"title": "HRPlus 更新公告",
+						"content": "HRPlus 本地执行器版本从 0.1.1 起步，低版本请及时更新。",
 						"url": "",
 						"once": true,
 						"enabled": true,
@@ -65,7 +65,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 				],
 				"admin_banner": {
 					"enabled": true,
-					"text": "GoodHR 猎头管理系统已上线（完全免费），点击前往体验。",
+					"text": "HRPlus 猎头管理系统已上线（完全免费），点击前往体验。",
 					"background_color": "#fff7df",
 					"text_color": "#6b4a00",
 					"url": "https://goodhr5.58it.cn"
@@ -73,7 +73,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 				"admin_banners": [
 					{
 						"enabled": true,
-						"text": "GoodHR 猎头管理系统已上线（完全免费），点击前往体验。",
+						"text": "HRPlus 猎头管理系统已上线（完全免费），点击前往体验。",
 						"background_color": "#fff7df",
 						"text_color": "#6b4a00",
 						"url": "https://goodhr5.58it.cn"
@@ -130,13 +130,13 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 			ConfigKey: "system.onboarding_config",
 			ConfigValue: `{
 	"local_agent": [
-		{"version": "5.0.0", "url_win": "", "url_mac": "", "sha256": "", "note": "GoodHR 本地程序安装包"}
+		{"version": "0.1.1", "url_win": "", "url_mac": "", "sha256": "", "note": "HRPlus 本地程序安装包"}
 	],
 	"local_agent_console_url": "https://goodhr5.58it.cn/admin",
 	"runtime_components": {
 					"node_runtime": {
-						"win": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "GoodHR Node 运行环境 Windows x64"},
-						"mac": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "GoodHR Node 运行环境 macOS Apple Silicon"}
+						"win": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "HRPlus Node 运行环境 Windows x64"},
+						"mac": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-darwin-arm64.tar.gz", "sha256": "c59006db713c770d6ec63ae16cb3edc11f49ee093b5c415d667bb4f436c6526d", "note": "HRPlus Node 运行环境 macOS Apple Silicon"}
 					},
 					"cloakbrowser": {
 						"win": {"version": "146.0.7680.177.5", "url": "https://oss.58it.cn/cloakbrowser-windows-x64.zip", "sha256": "b213795cb32c3169f766c74ce1d0275fc89d3df256de39c04da7fb4c23b7fdbe", "note": "CloakBrowser Windows x64，安装包约 562MB 默认从 OSS 下载，开发环境由 runtime_config.go 自动覆盖为本地 /uploads/ 路径"},
@@ -191,8 +191,8 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 func defaultSystemGuideConfig() string {
 	return `{
 		"version": "2026-05-27",
-		"title": "GoodHR 5 系统指南",
-		"summary": "GoodHR 5 是面向招聘场景的自动打招呼工具。云端负责账号、配置、岗位运行、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
+		"title": "HRPlus 系统指南",
+		"summary": "HRPlus 是面向招聘场景的自动打招呼工具。云端负责账号、配置、岗位运行、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
 		"videos": [],
 		"cards": [
 			{
@@ -205,7 +205,7 @@ func defaultSystemGuideConfig() string {
 				"id": "local-agent",
 				"title": "本地程序",
 				"summary": "本地 Agent 是浏览器执行器，必须保持启动。",
-				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会记录连接信息，用于岗位运行执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
+				"content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会记录连接信息，用于岗位运行执行和 cookie 解密。若显示未连接，请先双击启动 HRPlusLocalAgent。"
 			},
 			{
 				"id": "platform-account",
@@ -229,7 +229,7 @@ func defaultSystemGuideConfig() string {
 				"id": "errors",
 				"title": "常见异常",
 				"summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
-				"content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查 AI 配置或超管配置。岗位运行失败：展开岗位运行日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
+				"content": "本地未连接：检查 HRPlusLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查 AI 配置或超管配置。岗位运行失败：展开岗位运行日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
 			}
 		],
 		"sections": [
@@ -237,7 +237,7 @@ func defaultSystemGuideConfig() string {
 				"id": "intro",
 				"title": "系统介绍",
 				"items": [
-					"GoodHR 5 用于帮助 HR 在招聘平台上自动筛选候选人并打招呼。",
+					"HRPlus 用于帮助 HR 在招聘平台上自动筛选候选人并打招呼。",
 					"系统分为云端前端、云端 Go 后端和本地 Python Agent。",
 					"云端保存用户、团队、系统配置、岗位运行、日志摘要、订阅和支付记录。",
 					"本地 Agent 负责浏览器启动、页面点击、文本提取、截图、OCR、声音提醒和 cookie 解密。"
@@ -320,7 +320,7 @@ func defaultSystemGuideConfig() string {
 				"title": "异常处理",
 				"items": [
 					"本地 Agent 未连接：确认本地程序已启动，端口 55271 到 55279 没被占用。",
-					"版本过低：下载并替换新版 GoodHRLocalAgent。",
+					"版本过低：下载并替换新版 HRPlusLocalAgent。",
 					"cookie 解密失败：确认本机已连接；旧 cookie 需要重新登录或更新。",
 					"平台账号过期：重新扫码登录并保存 cookie。",
 					"AI API 错误：检查 API 地址、模型名、API Key 和余额。",

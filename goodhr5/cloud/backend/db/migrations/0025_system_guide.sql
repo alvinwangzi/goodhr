@@ -4,8 +4,8 @@ VALUES (
   'system.guide',
   '{
     "version": "2026-05-27",
-    "title": "GoodHR 5 系统指南",
-    "summary": "GoodHR 5 是面向招聘场景的自动打招呼工具。云端负责账号、配置、任务、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
+    "title": "HRPlus 系统指南",
+    "summary": "HRPlus 是面向招聘场景的自动打招呼工具。云端负责账号、配置、任务、订阅和 AI 决策，本地 Agent 负责浏览器控制、截图、OCR、cookie 解密和页面执行。",
     "cards": [
       {
         "id": "quick-start",
@@ -17,7 +17,7 @@ VALUES (
         "id": "local-agent",
         "title": "本地程序",
         "summary": "本地 Agent 是浏览器执行器，必须保持启动。",
-        "content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会记录连接信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 GoodHRLocalAgent。"
+        "content": "前端会检测 http://127.0.0.1:55271/health。本地程序返回版本、端口、机器码和公钥。云端会记录连接信息，用于任务执行和 cookie 解密。若显示未连接，请先双击启动 HRPlusLocalAgent。"
       },
       {
         "id": "platform-account",
@@ -41,7 +41,7 @@ VALUES (
         "id": "errors",
         "title": "常见异常",
         "summary": "本地未连接、cookie 失效、AI 配置缺失是最常见问题。",
-        "content": "本地未连接：检查 GoodHRLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查 AI 配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
+        "content": "本地未连接：检查 HRPlusLocalAgent 是否启动。cookie 解密失败：确认本机已连接，旧账号可能需要重新登录。AI 配置缺失：检查 AI 配置或超管配置。任务失败：展开任务日志，先看启动浏览器、准备 cookie、AI 请求和平台页面操作的错误。"
       }
     ],
     "sections": [
@@ -49,7 +49,7 @@ VALUES (
         "id": "intro",
         "title": "系统介绍",
         "items": [
-          "GoodHR 5 用于帮助 HR 在招聘平台上自动筛选候选人并打招呼。",
+          "HRPlus 用于帮助 HR 在招聘平台上自动筛选候选人并打招呼。",
           "系统分为云端前端、云端 Go 后端和本地 Python Agent。",
           "云端保存用户、团队、系统配置、任务、日志摘要、订阅和支付记录。",
           "本地 Agent 负责浏览器启动、页面点击、文本提取、截图、OCR、声音提醒和 cookie 解密。"
@@ -131,7 +131,7 @@ VALUES (
         "title": "异常处理",
         "items": [
           "本地 Agent 未连接：确认本地程序已启动，端口 55271 到 55279 没被占用。",
-          "版本过低：下载并替换新版 GoodHRLocalAgent。",
+          "版本过低：下载并替换新版 HRPlusLocalAgent。",
           "cookie 解密失败：确认本机已连接；旧 cookie 需要重新登录或更新。",
           "平台账号过期：重新扫码登录并保存 cookie。",
           "AI API 错误：检查 API 地址、模型名、API Key 和余额。",
