@@ -15,7 +15,7 @@ SELECT
     'buyer',
     payment.user_id,
     payment.user_email,
-    COALESCE(NULLIF(LOWER(payment.member_type), ''), NULLIF(LOWER(account.subscription->>'member_type'), ''), 'max'),
+    COALESCE(NULLIF(LOWER(payment.member_type), ''), NULLIF(LOWER(account.subscription->>'member_type'), ''), 'pro'),
     payment.duration_days,
     false,
     COALESCE(NULLIF(account.subscription->>'expires_at', '')::timestamptz, payment.paid_at, payment.updated_at),
@@ -43,7 +43,7 @@ SELECT
     'inviter',
     inviter.id,
     inviter.email,
-    COALESCE(NULLIF(LOWER(inviter.subscription->>'member_type'), ''), 'max'),
+    COALESCE(NULLIF(LOWER(inviter.subscription->>'member_type'), ''), 'pro'),
     CASE
         WHEN invite_config.config_value->>'paid_month_reward_days' ~ '^[0-9]+$'
             THEN (invite_config.config_value->>'paid_month_reward_days')::integer

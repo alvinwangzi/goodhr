@@ -18,8 +18,8 @@ func TestMailTemplatesRender(t *testing.T) {
 	rewardHTML := mailer.renderHTML("subscription_reward.html", map[string]any{
 		"Reason":         "新用户注册赠送会员",
 		"DaysText":       "+3 天",
-		"MemberType":     "max",
-		"MemberName":     "Max 全能版",
+		"MemberType":     "pro",
+		"MemberName":     "Pro会员",
 		"ExpiresAt":      time.Date(2026, 6, 2, 12, 0, 0, 0, time.Local).Format("2006-01-02 15:04:05"),
 		"RemainingDays":  3,
 		"AllowAutoReply": true,
@@ -27,7 +27,7 @@ func TestMailTemplatesRender(t *testing.T) {
 		"RelatedEmail":   "",
 	})
 	if !strings.Contains(rewardHTML, "新用户注册赠送会员") ||
-		!strings.Contains(rewardHTML, "Max 全能版") ||
+		!strings.Contains(rewardHTML, "Pro会员") ||
 		!strings.Contains(rewardHTML, "AI自动回复") {
 		t.Fatalf("reward template did not render expected content: %s", rewardHTML)
 	}

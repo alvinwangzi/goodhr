@@ -420,10 +420,10 @@ func (s *PaymentService) applyPaidSubscriptionOrder(order PaymentOrder) error {
 		return err
 	}
 	reason := "充值会员成功"
-	if fromType == memberTypePlus && targetType == memberTypeMax {
-		reason = "Plus 升级 Max 成功"
-	} else if fromType == memberTypeMax && targetType == memberTypePlus {
-		reason = "Max 转为 Plus 成功"
+	if fromType == memberTypePlus && targetType == memberTypePro {
+		reason = "Plus 升级 Pro 成功"
+	} else if fromType == memberTypePro && targetType == memberTypePlus {
+		reason = "Pro 转为 Plus 成功"
 	}
 	if changed {
 		if noticeErr := sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, order.UserEmail, SubscriptionRewardNotice{
@@ -530,22 +530,22 @@ func buildSubscriptionPaymentQuote(plans []subscriptionPlan, current Subscriptio
 	currentAccess := subscriptionAccessFromPlans(plans, current, now)
 	quote := subscriptionPaymentQuote{AmountCents: targetAmount}
 	targetType := normalizeMemberType(target.MemberType)
-	if currentAccess.Active && currentAccess.MemberType == memberTypeMax && targetType == memberTypePlus {
-		quote.UpgradeFromType = memberTypeMax
+	if currentAccess.Active && currentAccess.MemberType == memberTypePro && targetType == memberTypePlus {
+		quote.UpgradeFromType = memberTypePro
 		return quote, nil
 	}
 	if !currentAccess.Active ||
 		currentAccess.MemberType != memberTypePlus ||
-		targetType != memberTypeMax {
+		targetType != memberTypePro {
 		return quote, nil
 	}
 	plusPlan, ok := subscriptionPlanByMemberType(plans, memberTypePlus)
 	if !ok {
-		return subscriptionPaymentQuote{}, fmt.Errorf("Plus 基础版套餐配置缺失")
+		return subscriptionPaymentQuote{}, fmt.Errorf("Plus会员套餐配置缺失")
 	}
 	plusAmount := priceToCents(plusPlan.OriginalPrice) - priceToCents(plusPlan.DiscountAmount)
 	if plusAmount <= 0 || plusPlan.DurationDays <= 0 {
-		return subscriptionPaymentQuote{}, fmt.Errorf("Plus 基础版价格配置不正确")
+		return subscriptionPaymentQuote{}, fmt.Errorf("Plus会员价格配置不正确")
 	}
 	remainingSeconds := math.Max(0, current.ExpiresAt.Sub(now).Seconds())
 	periodSeconds := time.Duration(plusPlan.DurationDays) * 24 * time.Hour

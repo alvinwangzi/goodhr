@@ -62,6 +62,7 @@ import {
 import { requiredRuntimeComponents } from "@/lib/admin-runtime";
 import {
   EMPTY_SUBSCRIPTION,
+  membershipName,
   normalizeSubscription,
   type SubscriptionStatus,
 } from "@/lib/subscription";
@@ -722,6 +723,11 @@ export default function AdminApp({ children }: { children: ReactNode }) {
               <Typography noWrap sx={{ color: "text.secondary", fontSize: 12 }}>
                 {user?.role_label ||
                   (user?.role === "super_admin" ? "超级管理员" : "用户")}
+                {subscription.active && subscription.member_type !== "free"
+                  ? ` · ${subscription.member_name || membershipName(subscription.member_type)} · 剩${subscription.remaining_days}天`
+                  : !subscription.active && subscription.member_type !== "free"
+                  ? ` · ${subscription.member_name || membershipName(subscription.member_type)} · 已过期`
+                  : ""}
               </Typography>
             </Box>
             <Button
@@ -856,7 +862,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
         </Snackbar>
         <AdminDialog
           open={trialWelcomeOpen && teamInvitations.length === 0}
-          title={`${subscription.member_name || "Max 全能体验版"}已到账`}
+          title={`${subscription.member_name || "Pro体验版"}已到账`}
           confirmText="我知道了"
           showCancel={false}
           onClose={() => void ackTrialWelcome()}
@@ -865,7 +871,7 @@ export default function AdminApp({ children }: { children: ReactNode }) {
           <Stack spacing={1.25}>
             <Typography color="text.secondary">
               赠送的 {subscription.remaining_days || 3} 天{" "}
-              {subscription.member_name || "Max 全能版"}
+              {subscription.member_name || "Pro会员"}
               已到账。支持：
               {subscription.features.length
                 ? subscription.features.join("、")

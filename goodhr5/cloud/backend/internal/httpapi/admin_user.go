@@ -205,8 +205,8 @@ func (s *AdminUserService) adjustSubscription(w http.ResponseWriter, r *http.Req
 		return
 	}
 	memberType := normalizeMemberType(req.MemberType)
-	if memberType != "" && memberType != memberTypePlus && memberType != memberTypeMax {
-		writeError(w, http.StatusBadRequest, "会员类型只能选择 Plus 或 Max")
+	if memberType != "" && memberType != memberTypePlus && memberType != memberTypePro {
+		writeError(w, http.StatusBadRequest, "会员类型只能选择 Plus 或 Pro")
 		return
 	}
 	reason := strings.TrimSpace(req.Reason)

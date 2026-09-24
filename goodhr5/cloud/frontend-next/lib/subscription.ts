@@ -101,10 +101,10 @@ export function canUseAutoReply(subscription: SubscriptionStatus) {
 /** membershipName 返回会员类型对应的中文名称。 */
 export function membershipName(memberType: unknown) {
   switch (String(memberType || "").trim().toLowerCase()) {
-    case "max":
-      return "Max 全能版";
+    case "pro":
+      return "Pro会员";
     case "plus":
-      return "Plus 基础版";
+      return "Plus会员";
     default:
       return "免费版";
   }
@@ -119,7 +119,7 @@ export function estimateSubscriptionQuote(
   const targetCents = planPriceCents(target);
   if (
     subscription.active &&
-    subscription.member_type === "max" &&
+    subscription.member_type === "pro" &&
     target.member_type === "plus"
   ) {
     return {
@@ -127,13 +127,13 @@ export function estimateSubscriptionQuote(
       creditCents: 0,
       upgrade: false,
       replacement: true,
-      sourceMemberType: "max",
+      sourceMemberType: "pro",
     };
   }
   if (
     !subscription.active ||
     subscription.member_type !== "plus" ||
-    target.member_type !== "max"
+    target.member_type !== "pro"
   ) {
     return {
       amountCents: targetCents,

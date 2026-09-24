@@ -38,7 +38,7 @@ const comparisons = [
   ["自动回复", false, false, true],
 ] as const;
 
-/** PricingPage 展示免费版、Plus 基础版和 Max 全能版。 */
+/** PricingPage 展示免费版、Plus会员和 Pro会员。 */
 export default async function PricingPage() {
   const remotePlans = await getPublicPlans();
   const plans = [...remotePlans];
@@ -62,9 +62,9 @@ export default async function PricingPage() {
         }}
       />
       <MarketingShell
-        eyebrow='永久免费 + Plus + Max'
-        title='基础招聘免费用，自动回复放进 Max'
-        description='Plus 基础包月版包含 AI 筛选和自动打招呼；Max 全能包年版再开放自动回复。'
+        eyebrow='永久免费 + Plus + Pro'
+        title='基础招聘免费用，自动回复放进 Pro'
+        description='Plus包月版包含 AI 筛选和自动打招呼；Pro包年版再开放自动回复。'
       >
         <Box component='section' sx={{ pb: { xs: 8, md: 12 } }}>
           <Container maxWidth='lg'>
@@ -86,9 +86,9 @@ export default async function PricingPage() {
                   sx={{
                     p: 3,
                     borderRadius: "8px",
-                    borderColor: plan.memberType === "max" ? "primary.main" : "divider",
+                    borderColor: plan.memberType === "pro" ? "primary.main" : "divider",
                     boxShadow:
-                      plan.memberType === "max" ? "0 18px 48px rgba(21,154,98,.12)" : "none",
+                      plan.memberType === "pro" ? "0 18px 48px rgba(21,154,98,.12)" : "none",
                     display: "flex",
                     flexDirection: "column",
                   }}
@@ -148,7 +148,7 @@ export default async function PricingPage() {
                   <Button
                     component='a'
                     href='/login'
-                    variant={plan.memberType === "max" ? "contained" : "outlined"}
+                    variant={plan.memberType === "pro" ? "contained" : "outlined"}
                     fullWidth
                     sx={{ mt: 3, alignSelf: "stretch" }}
                   >
@@ -180,7 +180,7 @@ export default async function PricingPage() {
                   <Typography>功能</Typography>
                   <Typography sx={{ textAlign: "center" }}>免费</Typography>
                   <Typography sx={{ textAlign: "center" }}>Plus</Typography>
-                  <Typography sx={{ textAlign: "center" }}>Max</Typography>
+                  <Typography sx={{ textAlign: "center" }}>Pro</Typography>
                 </Box>
                 {comparisons.map(([name, free, plus, max]) => (
                   <Box

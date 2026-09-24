@@ -12,7 +12,7 @@ import {
 const plans = normalizeSubscriptionPlans([
   {
     id: "monthly",
-    name: "基础包月版",
+    name: "Plus包月版",
     member_type: "plus",
     duration_days: 30,
     original_price: 70,
@@ -21,8 +21,8 @@ const plans = normalizeSubscriptionPlans([
   },
   {
     id: "yearly",
-    name: "全能包年版",
-    member_type: "max",
+    name: "Pro包年版",
+    member_type: "pro",
     duration_days: 365,
     original_price: 840,
     discount_amount: 500,
@@ -30,7 +30,7 @@ const plans = normalizeSubscriptionPlans([
   },
 ]);
 
-test("Plus 剩余十五天升级 Max 时抵扣二十元", () => {
+test("Plus 剩余十五天升级 Pro 时抵扣二十元", () => {
   const subscription = normalizeSubscription({
     active: true,
     member_type: "plus",
@@ -58,7 +58,7 @@ test("自动回复只接受后端返回的明确权限", () => {
     canUseAutoReply(
       normalizeSubscription({
         active: true,
-        member_type: "max",
+        member_type: "pro",
         allow_auto_reply: true,
       }),
     ),
@@ -66,10 +66,10 @@ test("自动回复只接受后端返回的明确权限", () => {
   );
 });
 
-test("有效 Max 可以原价切换 Plus", () => {
+test("有效 Pro 可以原价切换 Plus", () => {
   const subscription = normalizeSubscription({
     active: true,
-    member_type: "max",
+    member_type: "pro",
     allow_ai: true,
     allow_auto_reply: true,
   });
@@ -77,5 +77,5 @@ test("有效 Max 可以原价切换 Plus", () => {
   assert.equal(quote.amountCents, 4000);
   assert.equal(quote.creditCents, 0);
   assert.equal(quote.replacement, true);
-  assert.equal(quote.sourceMemberType, "max");
+  assert.equal(quote.sourceMemberType, "pro");
 });

@@ -12,7 +12,7 @@ import (
 const (
 	memberTypeFree = "free"
 	memberTypePlus = "plus"
-	memberTypeMax  = "max"
+	memberTypePro  = "pro"
 )
 
 // subscriptionPlan 表示后台系统配置中的一个会员套餐。
@@ -79,7 +79,7 @@ func parseSubscriptionPlans(raw string) ([]subscriptionPlan, error) {
 		}
 		seenIDs[plan.ID] = struct{}{}
 		if !supportedMemberType(plan.MemberType) {
-			return nil, fmt.Errorf("套餐 %s 的 member_type 只能是 free、plus 或 max", plan.Name)
+			return nil, fmt.Errorf("套餐 %s 的 member_type 只能是 free、plus 或 pro", plan.Name)
 		}
 		if _, exists := seenMemberTypes[plan.MemberType]; exists {
 			return nil, fmt.Errorf("会员类型 %s 只能配置一个套餐", plan.MemberType)
@@ -100,7 +100,7 @@ func parseSubscriptionPlans(raw string) ([]subscriptionPlan, error) {
 			}
 		}
 	}
-	for _, required := range []string{memberTypeFree, memberTypePlus, memberTypeMax} {
+	for _, required := range []string{memberTypeFree, memberTypePlus, memberTypePro} {
 		if _, exists := seenMemberTypes[required]; !exists {
 			return nil, fmt.Errorf("会员套餐缺少 %s 类型", required)
 		}
@@ -121,7 +121,7 @@ func subscriptionAccess(store SystemConfigStore, subscription Subscription, now 
 func subscriptionAccessFromPlans(plans []subscriptionPlan, subscription Subscription, now time.Time) SubscriptionAccess {
 	memberType := normalizeMemberType(subscription.MemberType)
 	remaining := subscription.ExpiresAt.Sub(now)
-	active := (memberType == memberTypePlus || memberType == memberTypeMax) && remaining > 0
+	active := (memberType == memberTypePlus || memberType == memberTypePro) && remaining > 0
 	access := SubscriptionAccess{
 		Active:        active,
 		MemberType:    memberType,
@@ -175,10 +175,10 @@ func planAllowsAutoReply(plan subscriptionPlan) bool {
 // memberTypeName 返回会员类型对应的中文名称。
 func memberTypeName(memberType string) string {
 	switch normalizeMemberType(memberType) {
-	case memberTypeMax:
-		return "Max 全能版"
+	case memberTypePro:
+		return "Pro会员"
 	case memberTypePlus:
-		return "Plus 基础版"
+		return "Plus会员"
 	default:
 		return "免费版"
 	}
@@ -192,7 +192,7 @@ func normalizeMemberType(memberType string) string {
 // supportedMemberType 判断会员类型是否受当前系统支持。
 func supportedMemberType(memberType string) bool {
 	switch normalizeMemberType(memberType) {
-	case memberTypeFree, memberTypePlus, memberTypeMax:
+	case memberTypeFree, memberTypePlus, memberTypePro:
 		return true
 	default:
 		return false

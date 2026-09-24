@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const defaultMemberType = memberTypeMax
+const defaultMemberType = memberTypePro
 const defaultTrialDuration = 72 * time.Hour
 
 // Subscription 表示用户当前会员订阅状态。
@@ -131,7 +131,7 @@ func publicSubscription(subscription Subscription) map[string]any {
 // subscriptionActive 判断订阅是否仍有效。
 func subscriptionActive(subscription Subscription) bool {
 	memberType := normalizeMemberType(subscription.MemberType)
-	return (memberType == memberTypePlus || memberType == memberTypeMax) && time.Now().Before(subscription.ExpiresAt)
+	return (memberType == memberTypePlus || memberType == memberTypePro) && time.Now().Before(subscription.ExpiresAt)
 }
 
 // ---------- 内存实现 ----------

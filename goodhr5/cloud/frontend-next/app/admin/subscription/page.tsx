@@ -195,7 +195,7 @@ export default function SubscriptionPage() {
         body: { plan_id: planID },
       });
       if (data.payment_completed) {
-        notify("Plus 剩余时间已经抵完差价，Max 全能版已到账。", "success");
+        notify("Plus 剩余时间已经抵完差价，Pro会员已到账。", "success");
       } else {
         setWechatPayment(wechatPaymentFromResponse(data, "会员订阅"));
         notify("微信支付二维码准备好了，扫一下就行。", "success");
@@ -503,7 +503,7 @@ export default function SubscriptionPage() {
           <PlanCard
             key={plan.id || index}
             plan={plan}
-            featured={plan.member_type === "max" || Boolean(plan.recommended)}
+            featured={plan.member_type === "pro" || Boolean(plan.recommended)}
             paying={payingPlanID === plan.id}
             quote={estimateSubscriptionQuote(subscription, plans, plan)}
             onPay={() => requestPlanPayment(plan.id)}
@@ -688,8 +688,8 @@ function PaymentUnderstandingDialog({
             >
               <Typography sx={{ fontWeight: 800 }}>{plan.name}</Typography>
               <Typography sx={{ mt: 0.5, color: "text.secondary" }}>
-                {quote.sourceMemberType === "max"
-                  ? `支付成功后会立即切换为 Plus，原 Max 剩余时间不折算，Plus 从付款时间重新计算 ${plan.duration_days} 天。`
+                {quote.sourceMemberType === "pro"
+                  ? `支付成功后会立即切换为 Plus，原 Pro 剩余时间不折算，Plus 从付款时间重新计算 ${plan.duration_days} 天。`
                   : quote.upgrade
                   ? `Plus 剩余时间抵扣 ￥${(quote.creditCents / 100).toFixed(2)}，预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。最终金额以后端下单时的剩余时间为准。`
                   : `本次预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。`}
@@ -1168,9 +1168,9 @@ function PlanCard({
           已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}
         </Typography>
       ) : null}
-      {quote.sourceMemberType === "max" ? (
+      {quote.sourceMemberType === "pro" ? (
         <Typography sx={{ mt: 1, color: "#80621f", fontSize: 13, fontWeight: 700 }}>
-          立即切换 Plus，原 Max 剩余时间不折算
+          立即切换 Plus，原 Pro 剩余时间不折算
         </Typography>
       ) : null}
       <Stack spacing={1.1} sx={{ mt: 2.25, flex: 1 }}>
@@ -1211,10 +1211,10 @@ function PlanCard({
         >
           {paying
             ? "正在创建订单"
-            : quote.sourceMemberType === "max"
+            : quote.sourceMemberType === "pro"
               ? "切换为 Plus"
               : quote.upgrade
-                ? "补差价升级 Max"
+                ? "补差价升级 Pro"
                 : "立即订阅"}
         </Button>
       ) : (

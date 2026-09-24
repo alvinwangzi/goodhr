@@ -312,7 +312,7 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 			return &positionStartError{status: http.StatusForbidden, code: "SUBSCRIPTION_REQUIRED", message: "这个岗位用了 AI 功能，会员到期后暂时不能启动，请先续费"}
 		}
 		if autoReply && !access.AllowAutoReply {
-			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "自动回复属于 Max 全能版，当前套餐暂时不能使用"}
+			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "自动回复属于 Pro会员，当前套餐暂时不能使用"}
 		}
 		if s.aiWallet == nil {
 			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}

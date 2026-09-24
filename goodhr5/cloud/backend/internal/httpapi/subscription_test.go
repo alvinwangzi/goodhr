@@ -34,8 +34,8 @@ func TestSubscriptionStatusAndPlans(t *testing.T) {
 	if err := json.NewDecoder(statusResp.Body).Decode(&statusPayload); err != nil {
 		t.Fatal(err)
 	}
-	if statusPayload.Subscription.MemberType != memberTypeMax ||
-		statusPayload.Subscription.MemberName != "Max 全能版" ||
+	if statusPayload.Subscription.MemberType != memberTypePro ||
+		statusPayload.Subscription.MemberName != "Pro会员" ||
 		!statusPayload.Subscription.Active ||
 		!statusPayload.Subscription.AllowAutoReply ||
 		statusPayload.Subscription.ExpiresAt == "" {

@@ -20,7 +20,7 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 	routes := server.Routes()
 	email := "payment@example.com"
 	token := loginForTest(t, routes, email)
-	if _, err := server.payments.subscriptions.AdjustSubscriptionDays(email, memberTypeMax, -10); err != nil {
+	if _, err := server.payments.subscriptions.AdjustSubscriptionDays(email, memberTypePro, -10); err != nil {
 		t.Fatal(err)
 	}
 
@@ -125,7 +125,7 @@ func TestApplyPaidSubscriptionOrderIgnoresMailFailure(t *testing.T) {
 	order := PaymentOrder{
 		OrderNo:      "subscription-mail-failure",
 		UserEmail:    "subscription-mail-failure@example.com",
-		MemberType:   memberTypeMax,
+		MemberType:   memberTypePro,
 		DurationDays: 365,
 	}
 	if err := server.payments.applyPaidSubscriptionOrder(order); err != nil {
@@ -172,9 +172,9 @@ func TestBuildSubscriptionPaymentQuoteProratesPlusUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, ok := subscriptionPlanByMemberType(plans, memberTypeMax)
+	target, ok := subscriptionPlanByMemberType(plans, memberTypePro)
 	if !ok {
-		t.Fatal("Max 套餐不存在")
+		t.Fatal("Pro 套餐不存在")
 	}
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	quote, err := buildSubscriptionPaymentQuote(plans, Subscription{
@@ -189,7 +189,7 @@ func TestBuildSubscriptionPaymentQuoteProratesPlusUpgrade(t *testing.T) {
 	}
 }
 
-// TestApplyPlusUpgradeReplacesExpiryFromNow 验证 Plus 升 Max 后从付款时间重新计算 365 天。
+// TestApplyPlusUpgradeReplacesExpiryFromNow 验证 Plus 升 Pro 后从付款时间重新计算 365 天。
 func TestApplyPlusUpgradeReplacesExpiryFromNow(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	store := NewMemorySubscriptionStore()
@@ -206,7 +206,7 @@ func TestApplyPlusUpgradeReplacesExpiryFromNow(t *testing.T) {
 	if err := service.applyPaidSubscriptionOrder(PaymentOrder{
 		OrderNo:         "plus-upgrade",
 		UserEmail:       email,
-		MemberType:      memberTypeMax,
+		MemberType:      memberTypePro,
 		DurationDays:    365,
 		UpgradeFromType: memberTypePlus,
 	}); err != nil {
@@ -217,12 +217,12 @@ func TestApplyPlusUpgradeReplacesExpiryFromNow(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := now.Add(365 * 24 * time.Hour)
-	if !subscription.ExpiresAt.Equal(want) || subscription.MemberType != memberTypeMax {
-		t.Fatalf("Plus 升 Max 到期时间不正确: got=%+v want=%s", subscription, want)
+	if !subscription.ExpiresAt.Equal(want) || subscription.MemberType != memberTypePro {
+		t.Fatalf("Plus 升 Pro 到期时间不正确: got=%+v want=%s", subscription, want)
 	}
 }
 
-// TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus 验证有效 Max 可以原价切换 Plus。
+// TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus 验证有效 Pro 可以原价切换 Plus。
 func TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus(t *testing.T) {
 	plans, err := loadSubscriptionPlans(NewMemorySystemConfigStore())
 	if err != nil {
@@ -234,28 +234,28 @@ func TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus(t *testing.T) {
 	}
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	quote, err := buildSubscriptionPaymentQuote(plans, Subscription{
-		MemberType: memberTypeMax,
+		MemberType: memberTypePro,
 		ExpiresAt:  now.Add(24 * time.Hour),
 	}, target, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.UpgradeFromType != memberTypeMax || quote.UpgradeCreditCents != 0 || quote.AmountCents != 4000 {
-		t.Fatalf("Max 切换 Plus 报价不正确: %+v", quote)
+	if quote.UpgradeFromType != memberTypePro || quote.UpgradeCreditCents != 0 || quote.AmountCents != 4000 {
+		t.Fatalf("Pro 切换 Plus 报价不正确: %+v", quote)
 	}
 }
 
-// TestApplyMaxToPlusReplacesExpiryFromNow 验证 Max 切换 Plus 后从付款时间重新计算 30 天。
+// TestApplyMaxToPlusReplacesExpiryFromNow 验证 Pro 切换 Plus 后从付款时间重新计算 30 天。
 func TestApplyMaxToPlusReplacesExpiryFromNow(t *testing.T) {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	store := NewMemorySubscriptionStore()
 	store.now = func() time.Time { return now }
 	email := "max-to-plus@example.com"
-	store.items[email] = Subscription{MemberType: memberTypeMax, ExpiresAt: now.Add(72 * time.Hour)}
+	store.items[email] = Subscription{MemberType: memberTypePro, ExpiresAt: now.Add(72 * time.Hour)}
 	service := &PaymentService{subscriptions: store, systemConfigs: NewMemorySystemConfigStore()}
 	if err := service.applyPaidSubscriptionOrder(PaymentOrder{
 		OrderNo: "max-to-plus", UserEmail: email, MemberType: memberTypePlus,
-		DurationDays: 30, UpgradeFromType: memberTypeMax,
+		DurationDays: 30, UpgradeFromType: memberTypePro,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -265,6 +265,6 @@ func TestApplyMaxToPlusReplacesExpiryFromNow(t *testing.T) {
 	}
 	want := now.Add(30 * 24 * time.Hour)
 	if subscription.MemberType != memberTypePlus || !subscription.ExpiresAt.Equal(want) {
-		t.Fatalf("Max 切换 Plus 到期时间不正确: got=%+v want=%s", subscription, want)
+		t.Fatalf("Pro 切换 Plus 到期时间不正确: got=%+v want=%s", subscription, want)
 	}
 }

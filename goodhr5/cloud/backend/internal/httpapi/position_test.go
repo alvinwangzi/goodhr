@@ -98,7 +98,7 @@ func TestPositionSaveRejectsAIForExpiredMember(t *testing.T) {
 	routes := server.Routes()
 	email := "position-save-member@example.com"
 	token := loginForTest(t, routes, email)
-	if _, err := server.positions.subscriptions.AdjustSubscriptionDays(email, memberTypeMax, -10); err != nil {
+	if _, err := server.positions.subscriptions.AdjustSubscriptionDays(email, memberTypePro, -10); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(
@@ -165,7 +165,7 @@ func TestOptimizeRequirementCompletesURL(t *testing.T) {
 	routes := server.Routes()
 	email := "optimize-url@example.com"
 	token := loginForTest(t, routes, email)
-	if _, err := server.positions.subscriptions.AdjustSubscriptionDays(email, memberTypeMax, 30); err != nil {
+	if _, err := server.positions.subscriptions.AdjustSubscriptionDays(email, memberTypePro, 30); err != nil {
 		t.Fatal(err)
 	}
 

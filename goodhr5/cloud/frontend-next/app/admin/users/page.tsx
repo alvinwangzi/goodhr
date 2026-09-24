@@ -76,7 +76,7 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
-  const [form, setForm] = useState({ email: "", days: "7", member_type: "max", reason: "" });
+  const [form, setForm] = useState({ email: "", days: "7", member_type: "pro", reason: "" });
   const [balanceForm, setBalanceForm] = useState({ email: "", amount_yuan: "10", reason: "补充AI余额" });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [balanceDialogOpen, setBalanceDialogOpen] = useState(false);
@@ -119,7 +119,7 @@ export default function UsersPage() {
     setForm({
       email: item.email,
       days: String(days),
-      member_type: item.subscription?.member_type === "plus" ? "plus" : "max",
+      member_type: item.subscription?.member_type === "plus" ? "plus" : "pro",
       reason: days > 0 ? "补偿会员天数" : "扣减会员天数",
     });
     setDialogOpen(true);
@@ -380,10 +380,10 @@ export default function UsersPage() {
               setForm({ ...form, member_type: event.target.value })
             }
             fullWidth
-            helperText="Plus 不含自动回复，Max 支持自动回复。"
+            helperText="Plus 不含自动回复，Pro 支持自动回复。"
           >
-            <MenuItem value="plus">Plus 基础版</MenuItem>
-            <MenuItem value="max">Max 全能版</MenuItem>
+            <MenuItem value="plus">Plus会员</MenuItem>
+            <MenuItem value="pro">Pro会员</MenuItem>
           </TextField>
           <TextField
             label="调整原因"
