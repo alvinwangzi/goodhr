@@ -39,5 +39,5 @@ func main() {
 		fmt.Fprintln(os.Stderr, "编译失败：", err)
 		os.Exit(1)
 	}
-	fmt.Println("[GoodHR] 构建完成（带终端）：", output)
+	fmt.Println("[HRPlus] 构建完成（带终端）：", output)
 }

@@ -487,7 +487,7 @@ func (r *Runner) ensureCloudSessionActive(ctx context.Context, position localdb.
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
 	}
 	if baseURL == "" {
-		baseURL = "https://goodhr5.58it.cn"
+		baseURL = "https://www.xx.com"
 	}
 	err := cloudapi.New(baseURL).ValidateSession(ctx, token)
 	if err == nil {

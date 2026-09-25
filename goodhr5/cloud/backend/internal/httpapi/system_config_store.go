@@ -132,7 +132,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 	"local_agent": [
 		{"version": "0.1.1", "url_win": "", "url_mac": "", "sha256": "", "note": "HRPlus 本地程序安装包"}
 	],
-	"local_agent_console_url": "https://goodhr5.58it.cn/admin",
+	"local_agent_console_url": "https://www.xx.com/admin",
 	"runtime_components": {
 					"node_runtime": {
 						"win": {"version": "22.19.0", "url": "https://oss.58it.cn/goodhr-node-runtime-win-x64.zip", "sha256": "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86", "note": "HRPlus Node 运行环境 Windows x64"},

@@ -1,4 +1,4 @@
-// 本文件负责提供 GoodHR 5 Node Browser Worker HTTP 服务。
+// 本文件负责提供 HRPlus 5 Node Browser Worker HTTP 服务。
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import http from "node:http";
@@ -7057,7 +7057,7 @@ function listenWithFallback(startPort) {
   });
   server.listen(targetPort, host, () => {
     console.log(
-      `GoodHR Browser Worker started on http://${host}:${targetPort}`,
+      `HRPlus Browser Worker started on http://${host}:${targetPort}`,
     );
   });
 }

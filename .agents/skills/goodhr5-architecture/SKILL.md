@@ -1,5 +1,5 @@
 ﻿---
-name: goodhr5-architecture
+name: hrplus-architecture
 description: HRPlus 项目架构规范。在 goodhr5 子目录开发云端 Go、Next.js 前端、本地 Go Agent 或 TypeScript Browser Worker 时使用，约束云端/本地职责、平台配置归属和浏览器自动化边界。
 ---
 

@@ -1,4 +1,4 @@
-// 文件作用说明：整理 GoodHR Browser Worker 的浏览器基础操作、高级组合操作、浮层操作和下载操作。
+// 文件作用说明：整理 HRPlus Browser Worker 的浏览器基础操作、高级组合操作、浮层操作和下载操作。
 //
 // 功能清单：
 // 1. BrowserBaseActions：浏览器和页面的最原始能力，包括启动/关闭浏览器、打开 URL、管理标签页、鼠标、键盘、截图、Cookie、元素引用。
@@ -967,7 +967,7 @@ export class BrowserOverlayActions {
   async showCard(payload = {}) {
     const currentPage = await this.base.ensurePage();
     const id = stringValue(payload.id) || "__goodhr_overlay_card";
-    const title = stringValue(payload.title) || "GoodHR";
+    const title = stringValue(payload.title) || "HRPlus";
     const subtitle = stringValue(payload.subtitle);
     const message = stringValue(payload.message || payload.text);
     const maxAgeMS = Math.max(3000, Math.min(60000, Number(payload.max_age_ms || 15000)));

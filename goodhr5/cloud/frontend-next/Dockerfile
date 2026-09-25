@@ -1,4 +1,4 @@
-# 本文件负责构建并运行 GoodHR 新版 Next.js 前端。
+# 本文件负责构建并运行 HRPlus 新版 Next.js 前端。
 FROM node:22-alpine AS dependencies
 RUN npm config set registry https://registry.npmmirror.com
 WORKDIR /app

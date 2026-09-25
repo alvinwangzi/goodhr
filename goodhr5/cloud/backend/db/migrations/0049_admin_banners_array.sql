@@ -12,7 +12,7 @@ SET config_value = config_value::jsonb || jsonb_build_object(
           'text', 'HRPlus 系统已上线，点击前往体验。',
           'background_color', '#fff7df',
           'text_color', '#6b4a00',
-          'url', 'https://goodhr5.58it.cn'
+          'url', 'https://www.xx.com'
         )
       )
     END

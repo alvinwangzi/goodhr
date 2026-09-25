@@ -13,12 +13,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/platformcore"
 	"goodhr5/local-agent-go/internal/platforms"
+
+	"github.com/google/uuid"
 )
 
 // autoReplyRoundInterval 是相邻自动回复轮次之间的等待时间。
@@ -149,7 +150,9 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 		}
 		return "accepted_resume", nil
 	}
-	if current.ResumeStatus == "requested" { f.trackResume(current.Conversation, "requested", "") }
+	if current.ResumeStatus == "requested" {
+		f.trackResume(current.Conversation, "requested", "")
+	}
 	if current.ResumeStatus == "received" {
 		f.trackResume(current.Conversation, "received", "")
 		f.acceptedResume = true
@@ -262,7 +265,9 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	} else if !rejectedBefore {
 		// 跳过看简历时沿用已通过的评分；是否索要仍由简历状态和 AI 决策共同决定。
 		// 已拒绝过的会话不沿用高分，避免对已拒绝候选人再索要简历。
-		if f.reviewScore < 0 { f.reviewScore = 100 }
+		if f.reviewScore < 0 {
+			f.reviewScore = 100
+		}
 	}
 	request.AllowResumeRequest = float64(f.reviewScore) >= threshold && request.ResumeStatus == "none" && !f.acceptedResume
 	f.allowResumeRequest = request.AllowResumeRequest
@@ -363,7 +368,9 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 // freshOffer 表示刚接受了一次新的发送请求，允许保存新版附件；结果未知时仍禁止自动重复点击。
 func (f *replyFlow) downloadResumeIfNeeded(ctx context.Context, conversation platformcore.ReplyConversation, freshOffer bool) (resultErr error) {
 	defer func() {
-		if resultErr != nil { f.trackResume(conversation, "received", "附件下载失败或结果未确认；详情见本地下载记录") }
+		if resultErr != nil {
+			f.trackResume(conversation, "received", "附件下载失败或结果未确认；详情见本地下载记录")
+		}
 	}()
 	downloader, ok := f.runtime.(platformcore.ResumeAttachmentDownloader)
 	if !ok {
@@ -421,7 +428,9 @@ func (f *replyFlow) downloadResumeIfNeeded(ctx context.Context, conversation pla
 	} else if downloadErr == nil {
 		downloadErr = fmt.Errorf("附件下载结果未确认，请检查本地下载记录")
 	}
-	if status == "saved" { f.trackResume(conversation, "downloaded", "") }
+	if status == "saved" {
+		f.trackResume(conversation, "downloaded", "")
+	}
 	// 不用 unknown 响应覆盖异步通知刚写入的 saved 记录。
 	return downloadErr
 }
@@ -521,8 +530,11 @@ func (f *replyFlow) resumeAfterReplyIfNeeded(ctx context.Context, conversation p
 	resumeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	action, err := f.runtime.ResumeAfterReply(resumeCtx, f.exec, conversation, f.positionSnapshot, f.reviewScore, f.greetThreshold())
-	if err != nil { f.trackResume(conversation, "pending", "索要失败或确认超时；详情见本地任务日志")
-	} else if action == "requested" { f.trackResume(conversation, "requested", "") }
+	if err != nil {
+		f.trackResume(conversation, "pending", "索要失败或确认超时；详情见本地任务日志")
+	} else if action == "requested" {
+		f.trackResume(conversation, "requested", "")
+	}
 	return action, err
 }
 
@@ -722,8 +734,12 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 	}
 	r.positionLog(positionID, "info", "自动回复岗位核对成功：positionID="+target.PositionID)
 	cloudBase := strings.TrimSpace(options.CloudAPIBase)
-	if cloudBase == "" { cloudBase = strings.TrimSpace(r.cloudAPIBase) }
-	if cloudBase == "" { cloudBase = "https://goodhr5.58it.cn" }
+	if cloudBase == "" {
+		cloudBase = strings.TrimSpace(r.cloudAPIBase)
+	}
+	if cloudBase == "" {
+		cloudBase = "https://www.xx.com"
+	}
 	flow := &replyFlow{
 		db: r.db, runtime: runtime, exec: exec, generator: generator, aiClient: aiClient, target: target,
 		scope:            platformcore.ReplyHash("profile:" + safePathName(profileName)),
@@ -870,7 +886,7 @@ func (r *Runner) notifyCloudAutoReplyStatus(positionID string, options StartOpti
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
 	}
 	if baseURL == "" {
-		baseURL = "https://goodhr5.58it.cn"
+		baseURL = "https://www.xx.com"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cloudStatsSyncTimeout)
 	defer cancel()

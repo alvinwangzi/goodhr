@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 文件作用：开发环境一键安装本地 Node Browser Worker 到 GoodHR Go 本地程序运行目录。
+# 文件作用：开发环境一键安装本地 Node Browser Worker 到 HRPlus Go 本地程序运行目录。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,12 +9,12 @@ BASE_URL="${GOODHR_LOCAL_AGENT_URL:-http://127.0.0.1:$AGENT_PORT}"
 NPM_REGISTRY="${GOODHR_NPM_REGISTRY:-https://registry.npmmirror.com}"
 LOG_DIR="$ROOT_DIR/logs"
 AGENT_BIN="$LOG_DIR/goodhr-local-agent-dev"
-RUNTIME_WORKER_DIR="${GOODHR_RUNTIME_WORKER_DIR:-$HOME/Library/Application Support/GoodHR/runtime/browser-worker}"
+RUNTIME_WORKER_DIR="${GOODHR_RUNTIME_WORKER_DIR:-$HOME/Library/Application Support/HRPlus/runtime/browser-worker}"
 
 # log 输出脚本状态。
 # 参数为要显示的中文消息。
 log() {
-  printf '[GoodHR] %s\n' "$*"
+  printf '[HRPlus] %s\n' "$*"
 }
 
 # port_pid 返回占用本地端口的进程 ID。
@@ -36,7 +36,7 @@ wait_port_free() {
   exit 1
 }
 
-# is_goodhr_agent_pid 判断 pid 是否是 GoodHR 本地程序。
+# is_goodhr_agent_pid 判断 pid 是否是 HRPlus 本地程序。
 # 参数为进程 ID。
 is_goodhr_agent_pid() {
   local pid="${1:-}"

@@ -1,5 +1,5 @@
 #!/bin/sh
-# 本文件用于备份 GoodHR 5 生产环境的 PostgreSQL 数据库到压缩 SQL 文件，可放进 crontab 定时执行。
+# 本文件用于备份 HRPlus 5 生产环境的 PostgreSQL 数据库到压缩 SQL 文件，可放进 crontab 定时执行。
 # 备份通过 docker exec 进入 postgres 容器执行 pg_dump，无需在宿主机安装 psql。
 #
 # 用法（在 goodhr5/ 目录下）：

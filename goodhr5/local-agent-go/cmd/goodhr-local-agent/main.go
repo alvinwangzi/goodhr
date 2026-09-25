@@ -1,4 +1,4 @@
-// Package main 是 GoodHR 5 Go 版本本地程序入口。
+// Package main 是 HRPlus 5 Go 版本本地程序入口。
 package main
 
 import (

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 文件作用：从本机 Node 安装目录打包 GoodHR Node runtime，并输出 sha256，供上传 OSS manifest 使用。
+# 文件作用：从本机 Node 安装目录打包 HRPlus Node runtime，并输出 sha256，供上传 OSS manifest 使用。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,7 +9,7 @@ NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
 # log 输出脚本状态。
 # 参数为要显示的中文消息。
 log() {
-  printf '[GoodHR] %s\n' "$*"
+  printf '[HRPlus] %s\n' "$*"
 }
 
 if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then

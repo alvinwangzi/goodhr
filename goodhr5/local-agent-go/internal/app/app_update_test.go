@@ -12,13 +12,13 @@ import (
 // TestExtractAppUpdateZipFindsInstaller 验证 zip 更新包会解压并找到 exe 安装器。
 func TestExtractAppUpdateZipFindsInstaller(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "update.zip")
-	writeTestZip(t, archivePath, map[string]string{"GoodHR-LocalAgent-Setup.exe": "exe"})
+	writeTestZip(t, archivePath, map[string]string{"HRPlus-LocalAgent-Setup.exe": "exe"})
 	targetDir := filepath.Join(t.TempDir(), "extract")
 	installerPath, err := extractAppUpdateZip(archivePath, targetDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Base(installerPath) != "GoodHR-LocalAgent-Setup.exe" {
+	if filepath.Base(installerPath) != "HRPlus-LocalAgent-Setup.exe" {
 		t.Fatalf("installerPath = %s", installerPath)
 	}
 	if _, err := os.Stat(installerPath); err != nil {

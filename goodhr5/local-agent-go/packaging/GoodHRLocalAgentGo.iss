@@ -1,4 +1,4 @@
-; Purpose: build the GoodHR Go Local Agent Windows installer with Inno Setup.
+; Purpose: build the HRPlus Go Local Agent Windows installer with Inno Setup.
 #ifndef BuildEnvironment
   #error "BuildEnvironment must be dev or prod"
 #endif

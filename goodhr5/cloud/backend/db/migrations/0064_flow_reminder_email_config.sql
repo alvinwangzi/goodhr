@@ -8,7 +8,7 @@ SET config_value = jsonb_set(
         true
     ),
     '{website}',
-    to_jsonb('https://goodhr5.58it.cn'::text),
+    to_jsonb('https://www.xx.com'::text),
     true
 )
     #- '{templates,agent_detected}'

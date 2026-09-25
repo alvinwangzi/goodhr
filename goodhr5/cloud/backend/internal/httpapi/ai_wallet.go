@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultBuiltinAIBaseURL      = "https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions"
+	defaultBuiltinAIBaseURL      = "https://www.xx.com/api/ai-compatible/v1/chat/completions"
 	defaultBuiltinAIModel        = "qwen3.7-plus"
 	defaultSignupBonusCents      = 70
 	defaultAIRechargeAmountCents = 1000

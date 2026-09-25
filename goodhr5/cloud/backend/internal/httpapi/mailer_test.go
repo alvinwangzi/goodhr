@@ -56,7 +56,7 @@ func TestMailTemplatesRender(t *testing.T) {
 
 	invitationHTML := mailer.renderHTML("team_invitation.html", map[string]any{
 		"InviterEmail": "owner@example.com", "TeamName": "招聘一组", "TeamOwner": "owner@example.com",
-		"RoleLabel": "普通成员", "LoginURL": "https://goodhr5.58it.cn/admin",
+		"RoleLabel": "普通成员", "LoginURL": "https://www.xx.com/admin",
 	})
 	if !strings.Contains(invitationHTML, "<!doctype html>") || !strings.Contains(invitationHTML, "招聘一组") || !strings.Contains(invitationHTML, "登录后查看邀请") {
 		t.Fatalf("team invitation template did not render expected content: %s", invitationHTML)

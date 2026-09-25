@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 文件作用：编译 GoodHR Go 本地程序可执行文件，供发布包或安装器使用。
+# 文件作用：编译 HRPlus Go 本地程序可执行文件，供发布包或安装器使用。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,7 +15,7 @@ fi
 # log 输出脚本状态。
 # 参数为要显示的中文消息。
 log() {
-  printf '[GoodHR] %s\n' "$*"
+  printf '[HRPlus] %s\n' "$*"
 }
 
 if [[ "$BUILD_ENV" != "dev" && "$BUILD_ENV" != "prod" ]]; then

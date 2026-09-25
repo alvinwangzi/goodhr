@@ -2,7 +2,7 @@
 
 HRPlus 是面向企业 HR、猎头顾问和招聘团队的招聘自动化工具。它由云端管理后台和 Windows 本地程序组成：你在云端配置岗位、平台账号和任务，本地程序负责操作招聘网站、读取候选人并执行筛选与沟通。
 
-官网：[https://goodhr5.58it.cn/](https://goodhr5.58it.cn/)
+官网：[https://www.xx.com/](https://www.xx.com/)
 
 > 当前主要代码位于 `goodhr5/`。仓库根目录下的早期浏览器扩展代码属于历史版本，不再代表 HRPlus 的产品形态。
 

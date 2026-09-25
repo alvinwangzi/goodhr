@@ -109,7 +109,7 @@ S-->>C : {ok : true, data : ...}
   - 成功：{ ok: true, data: ... }
   - 失败：{ ok: false, error: { code, message }, trace_id? }
 - 安全头：X-Content-Type-Options=nosniff；Cache-Control=no-store。
-- 跨域：仅允许空 Origin、http://127.0.0.1、http://localhost 及特定 https goodhr5.58it.cn。
+- 跨域：仅允许空 Origin、http://127.0.0.1、http://localhost 及特定 https www.xx.com。
 
 章节来源
 - [config.go:15-28](file://goodhr5/local-agent-go-new/internal/config/config.go#L15-L28)

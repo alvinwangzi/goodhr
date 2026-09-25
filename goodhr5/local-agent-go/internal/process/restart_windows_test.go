@@ -65,7 +65,7 @@ func TestParseListeningPIDIgnoresOtherStates(t *testing.T) {
 	}
 }
 
-// TestVerifyGoodHRHealth 验证只有包含完整 GoodHR 身份字段的健康接口才会通过。
+// TestVerifyGoodHRHealth 验证只有包含完整 HRPlus 身份字段的健康接口才会通过。
 func TestVerifyGoodHRHealth(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -73,7 +73,7 @@ func TestVerifyGoodHRHealth(t *testing.T) {
 		wantErr    bool
 		portMarker string
 	}{
-		{name: "GoodHR 健康接口", body: `{"ok":true,"data":{"status":"ok","version":"5.3.2","port":PORT,"dataDir":"D:/GoodHR/data"}}`, portMarker: "PORT"},
+		{name: "HRPlus 健康接口", body: `{"ok":true,"data":{"status":"ok","version":"5.3.2","port":PORT,"dataDir":"D:/HRPlus/data"}}`, portMarker: "PORT"},
 		{name: "其他软件接口", body: `{"ok":true,"data":{"status":"ok"}}`, wantErr: true},
 	}
 	for _, item := range tests {

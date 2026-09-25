@@ -154,7 +154,7 @@ func (r *Runner) notifyCloudResumeRequested(ctx context.Context, position locald
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
 	}
 	if baseURL == "" {
-		baseURL = "https://goodhr5.58it.cn"
+		baseURL = "https://www.xx.com"
 	}
 	cloudCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

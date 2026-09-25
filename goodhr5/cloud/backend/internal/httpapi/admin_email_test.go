@@ -71,7 +71,7 @@ func TestFlowHelpEmailTemplates(t *testing.T) {
 		if !strings.HasPrefix(item.Subject, "需要帮助吗？") {
 			t.Fatalf("%s 的标题不清晰：%s", key, item.Subject)
 		}
-		if !strings.Contains(item.HTML, "你可以这样处理") || !strings.Contains(item.HTML, "https://goodhr5.58it.cn/videos") || !strings.Contains(item.HTML, "{{footer}}") {
+		if !strings.Contains(item.HTML, "你可以这样处理") || !strings.Contains(item.HTML, "https://www.xx.com/videos") || !strings.Contains(item.HTML, "{{footer}}") {
 			t.Fatalf("%s 缺少解决步骤、视频教程或统一页脚：%s", key, item.HTML)
 		}
 	}
@@ -79,8 +79,8 @@ func TestFlowHelpEmailTemplates(t *testing.T) {
 
 // TestAppendEmailFooter 验证统一反馈文案会插入模板占位符。
 func TestAppendEmailFooter(t *testing.T) {
-	html := appendEmailFooter("<html><body>{{footer}}</body></html>", "15365142034", "https://goodhr5.58it.cn")
-	if !strings.Contains(html, "联系电话") || !strings.Contains(html, "微信号") || strings.Count(html, "15365142034") != 2 || !strings.Contains(html, "goodhr5.58it.cn") || strings.Contains(html, "{{footer}}") || strings.Contains(html, "</html><p") {
+	html := appendEmailFooter("<html><body>{{footer}}</body></html>", "15365142034", "https://www.xx.com")
+	if !strings.Contains(html, "联系电话") || !strings.Contains(html, "微信号") || strings.Count(html, "15365142034") != 2 || !strings.Contains(html, "www.xx.com") || strings.Contains(html, "{{footer}}") || strings.Contains(html, "</html><p") {
 		t.Fatalf("footer html = %s", html)
 	}
 }
@@ -123,7 +123,7 @@ func TestSendIncompleteMilestone(t *testing.T) {
 		},
 	}
 	service := &AdminEmailService{store: store, mailer: &recordingMailer{}, systemConfigs: NewMemorySystemConfigStore()}
-	result := service.sendIncompleteMilestone(3, "https://goodhr5.58it.cn")
+	result := service.sendIncompleteMilestone(3, "https://www.xx.com")
 	if len(result.Batches) != 1 || result.Batches[0].TotalCount != 1 {
 		t.Fatalf("三日提醒批次错误：%+v", result)
 	}
@@ -141,7 +141,7 @@ func TestAutomaticEmailTrackingURL(t *testing.T) {
 	service := &AdminEmailService{store: store, mailer: mailer, systemConfigs: NewMemorySystemConfigStore()}
 	baseURL := service.automaticEmailBaseURL("")
 	pixel := trackingPixel(baseURL, "recipient-id")
-	if baseURL != "https://goodhr5.58it.cn" || !strings.Contains(pixel, "https://goodhr5.58it.cn/api/public/mail/open?id=recipient-id") {
+	if baseURL != "https://www.xx.com" || !strings.Contains(pixel, "https://www.xx.com/api/public/mail/open?id=recipient-id") {
 		t.Fatalf("自动邮件查看地址错误：baseURL=%s pixel=%s", baseURL, pixel)
 	}
 	batch, recipients, err := store.CreateBatch("测试自动邮件", "自动流程提醒", "tracking-test", "system", []string{"user@qq.com"})
@@ -149,7 +149,7 @@ func TestAutomaticEmailTrackingURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.sendBatch(batch, recipients, "<p>正文</p>", "")
-	if !strings.Contains(mailer.html, "https://goodhr5.58it.cn/api/public/mail/open?id="+recipients[0].ID) {
+	if !strings.Contains(mailer.html, "https://www.xx.com/api/public/mail/open?id="+recipients[0].ID) {
 		t.Fatalf("自动邮件没有追加完整查看地址：%s", mailer.html)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/public/mail/open?id="+recipients[0].ID, nil)
@@ -184,7 +184,7 @@ func TestSendFlowReminderPreview(t *testing.T) {
 		},
 	}
 	service := &AdminEmailService{store: store, systemConfigs: NewMemorySystemConfigStore()}
-	result, err := service.sendFlowReminder(flowReminderRequest{StalledHours: 72, Limit: 100, DryRun: true}, "https://goodhr5.58it.cn")
+	result, err := service.sendFlowReminder(flowReminderRequest{StalledHours: 72, Limit: 100, DryRun: true}, "https://www.xx.com")
 	if err != nil {
 		t.Fatal(err)
 	}

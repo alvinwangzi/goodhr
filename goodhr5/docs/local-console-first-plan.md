@@ -134,7 +134,7 @@ GET /
 云端提供 manifest：
 
 ```text
-GET https://goodhr5.58it.cn/agent-console/manifest.json
+GET https://www.xx.com/agent-console/manifest.json
 ```
 
 示例：
@@ -142,7 +142,7 @@ GET https://goodhr5.58it.cn/agent-console/manifest.json
 ```json
 {
   "version": "2026.06.05",
-  "url": "https://goodhr5.58it.cn/agent-console/console-20260605.zip",
+  "url": "https://www.xx.com/agent-console/console-20260605.zip",
   "sha256": "..."
 }
 ```

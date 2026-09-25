@@ -1,4 +1,4 @@
-# 本文件用于在 Ubuntu 服务器上一键部署 GoodHR 5 生产环境。
+# 本文件用于在 Ubuntu 服务器上一键部署 HRPlus 5 生产环境。
 # 包含四个服务：PostgreSQL 数据库、Redis 缓存、Go 后端、Next.js 前端，数据通过命名卷持久化。
 # Nginx 与 HTTPS 证书在宿主机单独安装，反向代理到本文件发布到 127.0.0.1 的端口。
 #

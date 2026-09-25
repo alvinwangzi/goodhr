@@ -876,7 +876,7 @@ func TestRunnerStartRequiresToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := newTestRunner(t, db, &fakeWorker{})
-	if _, err := runner.Start(t.Context(), position.ID, StartOptions{CloudAPIBase: "https://goodhr5.58it.cn"}); err == nil || err.Error() != "请先登录后再校验会员" {
+	if _, err := runner.Start(t.Context(), position.ID, StartOptions{CloudAPIBase: "https://www.xx.com"}); err == nil || err.Error() != "请先登录后再校验会员" {
 		t.Fatalf("err = %v", err)
 	}
 	updated, err := db.GetPosition(position.ID)

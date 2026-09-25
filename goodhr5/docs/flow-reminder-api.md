@@ -5,7 +5,7 @@
 接口会读取 `users.flow_state`，按当前流程节点分组。不同节点使用不同邮件标题、教程内容和操作入口，所有邮件底部统一显示：
 
 - 作者微信：`15365142034`
-- HRPlus 官网：[https://goodhr5.58it.cn](https://goodhr5.58it.cn)
+- HRPlus 官网：[https://www.xx.com](https://www.xx.com)
 
 ## 一、接口地址
 
@@ -17,7 +17,7 @@ POST /api/public/email-jobs/flow-reminder
 线上完整地址：
 
 ```text
-https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder
+https://www.xx.com/api/public/email-jobs/flow-reminder
 ```
 
 GET 适合直接配置到宝塔计划岗位运行、Linux Cron、Windows 计划岗位运行或其他定时岗位运行平台。
@@ -30,7 +30,7 @@ POST 适合参数比较多，或者由自己的程序调用。
 
 ```env
 GOODHR_EMAIL_JOB_TOKEN=换成一段足够长的随机字符串
-GOODHR_PUBLIC_BASE_URL=https://goodhr5.58it.cn
+GOODHR_PUBLIC_BASE_URL=https://www.xx.com
 ```
 
 调用时建议通过请求头传递令牌：
@@ -117,7 +117,7 @@ flows=agent_detected&stalled_hours=48&created_day=2026-07-15
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000&dry_run=true"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000&dry_run=true"
 ```
 
 预览不会创建邮件批次，也不会发送邮件。
@@ -126,7 +126,7 @@ curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000"
 ```
 
 系统会按照用户当前节点拆成多个邮件批次。例如有三类用户，就会创建三个批次，每个批次使用自己的标题和教程。
@@ -137,35 +137,35 @@ curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000"
 ```
 
 ### 2. 提醒还没安装本地程序的用户
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?flows=agent_detected&stalled_hours=12&limit=500"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder?flows=agent_detected&stalled_hours=12&limit=500"
 ```
 
 ### 3. 提醒本地程序或运行组件未准备好的用户
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?flows=agent_detected,runtime_ready&stalled_hours=12&limit=500"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder?flows=agent_detected,runtime_ready&stalled_hours=12&limit=500"
 ```
 
 ### 4. 只处理指定日期注册的用户
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?created_day=2026-07-15&stalled_hours=24&limit=500"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder?created_day=2026-07-15&stalled_hours=24&limit=500"
 ```
 
 ### 5. 只预览启动岗位运行前卡住的人数
 
 ```bash
 curl -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?flows=platform_login_verified,position_started&stalled_hours=6&limit=1000&dry_run=true"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder?flows=platform_login_verified,position_started&stalled_hours=6&limit=1000&dry_run=true"
 ```
 
 ## 七、POST 调用示例
@@ -181,7 +181,7 @@ curl -X POST \
     "limit": 500,
     "dry_run": true
   }' \
-  "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder"
+  "https://www.xx.com/api/public/email-jobs/flow-reminder"
 ```
 
 POST JSON 和 URL 查询参数可以同时使用。相同参数同时出现时，URL 查询参数优先。
@@ -192,7 +192,7 @@ POST JSON 和 URL 查询参数可以同时使用。相同参数同时出现时�
 
 ```powershell
 $headers = @{ Authorization = "Bearer YOUR_EMAIL_JOB_TOKEN" }
-$url = "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000&dry_run=true"
+$url = "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000&dry_run=true"
 Invoke-RestMethod -Method Get -Uri $url -Headers $headers
 ```
 
@@ -200,7 +200,7 @@ Invoke-RestMethod -Method Get -Uri $url -Headers $headers
 
 ```powershell
 $headers = @{ Authorization = "Bearer YOUR_EMAIL_JOB_TOKEN" }
-$url = "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000"
+$url = "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000"
 Invoke-RestMethod -Method Get -Uri $url -Headers $headers
 ```
 
@@ -282,14 +282,14 @@ flow-reminder:2026-07-15:agent_detected
 ### Linux Cron：每天上午 9 点发送
 
 ```cron
-0 9 * * * curl -sS -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000" >> /var/log/goodhr-flow-reminder.log 2>&1
+0 9 * * * curl -sS -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000" >> /var/log/goodhr-flow-reminder.log 2>&1
 ```
 
 ### Linux Cron：每天上午 8:50 预览，9:00 正式发送
 
 ```cron
-50 8 * * * curl -sS -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000&dry_run=true" >> /var/log/goodhr-flow-reminder-preview.log 2>&1
-0 9 * * * curl -sS -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" "https://goodhr5.58it.cn/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000" >> /var/log/goodhr-flow-reminder.log 2>&1
+50 8 * * * curl -sS -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000&dry_run=true" >> /var/log/goodhr-flow-reminder-preview.log 2>&1
+0 9 * * * curl -sS -H "Authorization: Bearer YOUR_EMAIL_JOB_TOKEN" "https://www.xx.com/api/public/email-jobs/flow-reminder?stalled_hours=24&limit=1000" >> /var/log/goodhr-flow-reminder.log 2>&1
 ```
 
 Windows 可以将前面的 PowerShell 正式发送脚本保存为 `.ps1`，再通过“岗位运行计划程序”每天执行一次。

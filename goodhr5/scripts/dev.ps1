@@ -1,4 +1,4 @@
-# GoodHR 5 本地开发环境启动脚本
+# HRPlus 5 本地开发环境启动脚本
 # 用法：.\scripts\dev.ps1
 #
 # 本脚本会：
@@ -11,7 +11,7 @@ $RootDir = Split-Path -Parent $PSScriptRoot
 $BackendDir = Join-Path $RootDir "cloud\backend"
 $FrontendDir = Join-Path $RootDir "cloud\frontend-next"
 
-Write-Host "=== GoodHR 5 本地开发环境 ===" -ForegroundColor Cyan
+Write-Host "=== HRPlus 5 本地开发环境 ===" -ForegroundColor Cyan
 
 # 1. 启动 PostgreSQL
 Write-Host "`n[1/3] 启动 PostgreSQL 数据库..." -ForegroundColor Yellow
@@ -50,7 +50,7 @@ $EnvFile = Join-Path $BackendDir ".env"
 if (-not (Test-Path $EnvFile)) {
     Write-Host ".env 不存在，自动生成默认开发配置..." -ForegroundColor Yellow
     $DefaultEnv = @"
-# GoodHR 5 云端后端开发环境配置（自动生成）
+# HRPlus 5 云端后端开发环境配置（自动生成）
 GOODHR_APP_ENV=dev
 GOODHR_PG_DSN=postgres://goodhr5_dev:goodhr5_dev@localhost:25432/goodhr5_dev?sslmode=disable
 GOODHR_AGENT_BINDING_ENABLED=false

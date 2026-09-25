@@ -168,7 +168,7 @@ func (r *Runner) sendPositionFailNotification(ctx context.Context, positionID st
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
 	}
 	if baseURL == "" {
-		baseURL = "https://goodhr5.58it.cn"
+		baseURL = "https://www.xx.com"
 	}
 	client := cloudapi.New(baseURL)
 	if err := client.SendPositionFailNotice(ctx, options.Token, positionID, errorMsg, r.currentRunGreeted(positionID)); err != nil {
@@ -205,7 +205,7 @@ func (r *Runner) syncCloudPositionStatus(positionID string, status string, label
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
 	}
 	if baseURL == "" {
-		baseURL = "https://goodhr5.58it.cn"
+		baseURL = "https://www.xx.com"
 	}
 	client := cloudapi.New(baseURL)
 	attempts := 1

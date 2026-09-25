@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 文件作用：打包 GoodHR Node Browser Worker，并输出 sha256，供上传 OSS manifest 使用。
+# 文件作用：打包 HRPlus Node Browser Worker，并输出 sha256，供上传 OSS manifest 使用。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,7 +13,7 @@ PACKAGE_PATH="$DIST_DIR/$PACKAGE_NAME"
 # log 输出脚本状态。
 # 参数为要显示的中文消息。
 log() {
-  printf '[GoodHR] %s\n' "$*"
+  printf '[HRPlus] %s\n' "$*"
 }
 
 if [ ! -d "$WORKER_DIR/node_modules" ]; then

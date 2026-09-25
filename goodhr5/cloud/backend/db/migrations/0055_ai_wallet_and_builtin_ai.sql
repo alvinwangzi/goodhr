@@ -47,7 +47,7 @@ SET config_value = jsonb_set(
     config_value,
     '{builtin_ai}',
     COALESCE(config_value->'builtin_ai', '{
-        "public_base_url": "https://goodhr5.58it.cn/api/ai-compatible/v1/chat/completions",
+        "public_base_url": "https://www.xx.com/api/ai-compatible/v1/chat/completions",
         "upstream_base_url": "",
         "upstream_api_key": "",
         "default_model": "qwen3.7-plus",

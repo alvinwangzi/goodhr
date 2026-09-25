@@ -1,4 +1,4 @@
-// 本文件负责启动 GoodHR 5 云端 HTTP 服务。
+// 本文件负责启动 HRPlus 5 云端 HTTP 服务。
 package main
 
 import (

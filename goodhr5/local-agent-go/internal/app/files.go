@@ -198,7 +198,7 @@ func showDownloadToastLinux(filePath string) (string, error) {
 			"zenity",
 			"--question",
 			"--timeout="+fmt.Sprint(downloadToastTimeoutSeconds),
-			"--title=GoodHR",
+			"--title=HRPlus",
 			"--text=我下载好了，公主请验收：\n"+filepath.Base(filePath),
 			"--ok-label=打开文件",
 			"--cancel-label=先放着",

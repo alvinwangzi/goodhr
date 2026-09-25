@@ -3,7 +3,7 @@ UPDATE system_configs
 SET config_value = jsonb_set(
 	config_value,
 	'{local_agent_console_url}',
-	to_jsonb(COALESCE(NULLIF(config_value ->> 'local_agent_console_url', ''), 'https://goodhr5.58it.cn/admin')),
+	to_jsonb(COALESCE(NULLIF(config_value ->> 'local_agent_console_url', ''), 'https://www.xx.com/admin')),
 	true
 ),
 updated_at = now()

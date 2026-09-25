@@ -967,7 +967,7 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>GoodHR Local Agent Go</title></head><body><h1>GoodHR Local Agent Go</h1><p>Go 版本本地程序已启动，但未找到控制台前端文件。</p></body></html>"))
+		_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>HRPlus Local Agent Go</title></head><body><h1>HRPlus Local Agent Go</h1><p>Go 版本本地程序已启动，但未找到控制台前端文件。</p></body></html>"))
 		return
 	}
 	requested := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
