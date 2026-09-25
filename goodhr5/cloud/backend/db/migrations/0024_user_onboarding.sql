@@ -11,10 +11,11 @@ INSERT INTO system_configs (config_key, config_value, description, enabled)
 VALUES (
   'system.onboarding_config',
   '{
+    "local_agent": [{"version": "0.1.1", "url_win": "", "url_mac": "", "sha256": "", "note": "HRPlus 本地程序安装包"}],
     "local_agent_download_url": "",
     "trial_days": 3
   }'::jsonb,
-  '新手教学配置，包含本地程序下载链接和注册赠送会员天数',
+  '新手教学配置，包含本地程序版本要求、下载链接和注册赠送会员天数',
   true
 )
 ON CONFLICT (config_key) DO NOTHING;
