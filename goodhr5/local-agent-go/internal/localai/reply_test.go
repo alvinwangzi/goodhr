@@ -95,7 +95,7 @@ func TestGenerateReplySafetyBoundary(t *testing.T) {
 		name, content string
 		valid         bool
 	}{
-		{"空白", " \n\t", false}, {"一千字", strings.Repeat("好", 1000), true}, {"超长", strings.Repeat("好", 1001), false},
+		{"空白", " \n\t", false}, {"二百字", strings.Repeat("好", 200), true}, {"超长", strings.Repeat("好", 201), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

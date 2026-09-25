@@ -2227,7 +2227,7 @@ function createEmptyForm() {
     greet_message: "",
     description: "",
     match_limit: 50,
-    enable_sound: false,
+    enable_sound: true,
     enable_thinking: false,
   };
 }

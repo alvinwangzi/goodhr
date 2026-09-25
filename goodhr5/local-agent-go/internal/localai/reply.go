@@ -47,7 +47,7 @@ func (c *Client) GenerateReply(ctx context.Context, request ReplyRequest) (Reply
 		system = strings.TrimSpace(request.ReplySystemPrompt)
 	}
 	if system == "" {
-		system = "你是招聘助理。根据最近对话判断是否需要回答，必要时生成简短、礼貌、不过度承诺的回复。"
+		system = "你是招聘助理。回复必须精简直接，控制在50字以内，只回答核心问题，不要扩展或重复旧内容。"
 	}
 	system += `
 以下规则始终适用，优先于其他输出格式要求：
@@ -58,7 +58,7 @@ func (c *Client) GenerateReply(ctx context.Context, request ReplyRequest) (Reply
 收到或已经索要简历不影响回答新问题，但禁止重复索要。仅 allow_resume_request=true 且本轮确有必要时，request_resume 才能为 true。
 先回答候选人的问题。不要为了发送一条消息而重复问候、重复旧答案或重复索要；平台通知不能当候选人提问。
 只输出一个 JSON 对象，不输出 Markdown 或解释：{"action":"reply|skip|uncertain","text":"回复正文或空字符串","reason":"简短决策原因","request_resume":false}。
-reply 的 text 必须非空且不超过1000字；skip 和 uncertain 的 text 必须为空、request_resume 必须为 false。reason 不超过200字。`
+reply 的 text 必须非空且不超过200字；skip 和 uncertain 的 text 必须为空、request_resume 必须为 false。reason 不超过100字。`
 	user := buildReplyUserMessage(request)
 	payload := map[string]any{
 		"messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}},
@@ -94,13 +94,13 @@ reply 的 text 必须非空且不超过1000字；skip 和 uncertain 的 text 必
 		return ReplyDecision{}, fmt.Errorf("AI 回复决策格式不完整，已跳过发送")
 	}
 	decision := ReplyDecision{Action: payloadDecision.Action, Text: strings.TrimSpace(*payloadDecision.Text), Reason: strings.TrimSpace(payloadDecision.Reason), RequestResume: *payloadDecision.RequestResume}
-	if decision.Reason == "" || utf8.RuneCountInString(decision.Reason) > 200 {
+	if decision.Reason == "" || utf8.RuneCountInString(decision.Reason) > 100 {
 		return ReplyDecision{}, fmt.Errorf("AI 回复决策缺少有效原因，已跳过发送")
 	}
 	switch decision.Action {
 	case "reply":
-		if decision.Text == "" || utf8.RuneCountInString(decision.Text) > 1000 {
-			return ReplyDecision{}, fmt.Errorf("AI 回复内容为空或超过1000字，已跳过发送")
+		if decision.Text == "" || utf8.RuneCountInString(decision.Text) > 200 {
+			return ReplyDecision{}, fmt.Errorf("AI 回复内容为空或超过200字，已跳过发送")
 		}
 		if decision.RequestResume && !request.AllowResumeRequest {
 			return ReplyDecision{}, fmt.Errorf("AI 索要简历决策与当前状态冲突，已跳过发送")
