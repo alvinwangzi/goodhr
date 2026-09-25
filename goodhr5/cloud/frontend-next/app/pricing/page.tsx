@@ -31,12 +31,11 @@ export const metadata: Metadata = createPageMetadata({
 
 const comparisons = [
   ["关键词筛选", true, true, true],
-  ["平台账号与本地程序", true, true, true],
   ["基础岗位运行和打招呼", true, true, true],
   ["AI 候选人筛选", false, true, true],
   ["AI 详情分析", false, true, true],
-  ["索要简历", false, false, true],
   ["自动回复", false, false, true],
+  ["自动索要简历", false, false, true],
 ] as const;
 
 /** PricingPage 展示免费版、Plus会员和 Pro会员。 */
