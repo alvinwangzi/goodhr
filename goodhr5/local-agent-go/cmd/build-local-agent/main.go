@@ -80,7 +80,7 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("创建构建目录失败：%w", err)
 	}
 	output := filepath.Join(*outputDir, fmt.Sprintf("hrplus-agent-%s-%s-%s%s", *environment, *targetOS, *targetArch, ext))
-	fmt.Fprintf(stdout, "[GoodHR] 环境=%s 前端=%s 后端=%s\n", cfg.Environment, cfg.ConsoleURL, cfg.CloudAPIBase)
+	fmt.Fprintf(stdout, "[HRPlus] 环境=%s 前端=%s 后端=%s\n", cfg.Environment, cfg.ConsoleURL, cfg.CloudAPIBase)
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags="+ldflags, "-o", output, "./cmd/goodhr-local-agent")
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
@@ -93,6 +93,6 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Go 编译失败：%w", err)
 	}
-	fmt.Fprintf(stdout, "[GoodHR] 构建完成：%s\n", output)
+	fmt.Fprintf(stdout, "[HRPlus] 构建完成：%s\n", output)
 	return nil
 }
