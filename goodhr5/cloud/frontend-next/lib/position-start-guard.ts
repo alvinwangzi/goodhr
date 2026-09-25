@@ -20,9 +20,11 @@ export function latestLocalAgentRelease(config: any) {
   };
 }
 
-/** evaluatePositionStartGuard 按岗位是否使用 AI 判断余额和本地程序版本是否允许启动。 */
-export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown, requiredVersion: unknown, usesAI = true): PositionStartGuardFailure | null {
-  if (usesAI) {
+/** evaluatePositionStartGuard 按岗位是否使用 AI 判断余额和本地程序版本是否允许启动。
+ *  usesAI 为 true 且 skipBalanceCheck 为 false 时检查 AI 余额；
+ *  skipBalanceCheck 为 true 时跳过余额检查（用户已配置自定义 AI API）。 */
+export function evaluatePositionStartGuard(wallet: any, currentVersion: unknown, requiredVersion: unknown, usesAI = true, skipBalanceCheck = false): PositionStartGuardFailure | null {
+  if (usesAI && !skipBalanceCheck) {
     const balance = walletBalanceYuan(wallet);
     if (balance == null) {
       return {

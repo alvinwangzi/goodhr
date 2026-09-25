@@ -477,16 +477,26 @@ export default function PositionsPage() {
   /** checkPositionStartGuard 检查 AI 余额和本地程序版本是否满足启动要求，通过时返回本地健康数据。 */
   async function checkPositionStartGuard(item: any) {
     const usesAI = positionUsesAI(item);
-    setStartStatus(usesAI ? "正在检查 AI 余额和本地程序版本..." : "正在检查本地程序版本...");
+    setStartStatus(usesAI ? "正在检查 AI 配置和本地程序版本..." : "正在检查本地程序版本...");
     try {
       let runtimeConfig = onboardingConfig;
       if (!latestLocalAgentRelease(runtimeConfig).version) {
         const runtimePayload = await cloudRequest("/api/runtime/config");
         runtimeConfig = runtimePayload.config || runtimePayload || {};
       }
+      // 检查用户是否配置了自定义 AI API，有则跳过系统余额检查。
+      let skipBalanceCheck = false;
+      if (usesAI) {
+        try {
+          const aiConfigPayload = await cloudRequest("/api/config/effective-ai");
+          skipBalanceCheck = Boolean(aiConfigPayload?.config?.api_key_set);
+        } catch {
+          // 读取 AI 配置失败时保守处理，继续走余额检查。
+        }
+      }
       const [health, walletPayload] = await Promise.all([
         localRequest(agentBase, "/health"),
-        usesAI ? cloudRequest("/api/ai-wallet") : Promise.resolve(null),
+        usesAI && !skipBalanceCheck ? cloudRequest("/api/ai-wallet") : Promise.resolve(null),
       ]);
       const release = latestLocalAgentRelease(runtimeConfig);
       const guardFailure = evaluatePositionStartGuard(
@@ -494,6 +504,7 @@ export default function PositionsPage() {
         health.version || health.agent_version,
         release.version,
         usesAI,
+        skipBalanceCheck,
       );
       if (guardFailure) {
         await reportUserFlow({ step: "position_started", status: "blocked", reason_code: guardFailure.code, message: guardFailure.message, source: "position_start_guard", position_id: item.id }).catch(() => undefined);
@@ -1192,7 +1203,23 @@ export default function PositionsPage() {
                     }
                   />
                 }
-                label='AI 自动回复（会员功能）'
+                label={
+                  <Stack direction='row' spacing={0.75} sx={{ alignItems: 'center' }}>
+                    <span>AI 自动回复</span>
+                    <Chip
+                      size='small'
+                      label='PRO 用户专享功能'
+                      sx={{
+                        height: 20,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: '#fff',
+                        backgroundColor: 'primary.main',
+                        '& .MuiChip-label': { px: 0.75 },
+                      }}
+                    />
+                  </Stack>
+                }
               />
             </Stack>
             {!startAutoReplyOptionEnabled ? (
@@ -1807,30 +1834,6 @@ export default function PositionsPage() {
                     control={
                       <Checkbox
                         size='small'
-                        checked={form.request_phone}
-                        onChange={(event) =>
-                          setForm({ ...form, request_phone: event.target.checked })
-                        }
-                      />
-                    }
-                    label='索要电话'
-                  />
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size='small'
-                        checked={form.request_wechat}
-                        onChange={(event) =>
-                          setForm({ ...form, request_wechat: event.target.checked })
-                        }
-                      />
-                    }
-                    label='索要微信'
-                  />
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size='small'
                         checked={form.request_resume}
                         onChange={(event) =>
                           setForm({ ...form, request_resume: event.target.checked })
@@ -1863,16 +1866,30 @@ export default function PositionsPage() {
           </Box>
           <Divider />
           <Box>
-            <Typography
-              component='h3'
-              sx={{ mb: 1.5, fontSize: 17, fontWeight: 780 }}
-            >
-              AI 自动回复
-            </Typography>
+            <Stack direction='row' spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
+              <Typography
+                component='h3'
+                sx={{ fontSize: 17, fontWeight: 780 }}
+              >
+                AI 自动回复
+              </Typography>
+              <Chip
+                size='small'
+                label='PRO 用户专享功能'
+                sx={{
+                  height: 22,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#fff',
+                  backgroundColor: 'primary.main',
+                  '& .MuiChip-label': { px: 1 },
+                }}
+              />
+            </Stack>
             <Typography sx={{ mb: 1.5, color: "text.secondary", fontSize: 13 }}>
               候选人发消息过来时，AI 根据以下配置自动回复。
             </Typography>
-            <Stack spacing={2}>
+            <Stack spacing={2} sx={{ opacity: canUseAutoReply(subscription) ? 1 : 0.55, pointerEvents: canUseAutoReply(subscription) ? 'auto' : 'none' }}>
               <PromptField
                 label='AI 回复提示词（可选）'
                 value={form.reply_prompt}
@@ -1883,6 +1900,7 @@ export default function PositionsPage() {
                 onChange={(value) =>
                   setForm({ ...form, reply_prompt: value })
                 }
+                disabled={!canUseAutoReply(subscription)}
               />
               <Box>
                 <Typography sx={{ mb: 0.5, fontSize: 14, fontWeight: 600 }}>
@@ -1902,6 +1920,7 @@ export default function PositionsPage() {
                         slotProps={{ htmlInput: { maxLength: 20 } }}
                         helperText={`${entry.q.length}/20`}
                         sx={{ flex: 2 }}
+                        disabled={!canUseAutoReply(subscription)}
                         onChange={(e) => {
                           const next = [...form.reply_faq];
                           next[index] = { ...next[index], q: e.target.value.slice(0, 20) };
@@ -1916,6 +1935,7 @@ export default function PositionsPage() {
                         slotProps={{ htmlInput: { maxLength: 50 } }}
                         helperText={`${entry.a.length}/50`}
                         sx={{ flex: 3 }}
+                        disabled={!canUseAutoReply(subscription)}
                         onChange={(e) => {
                           const next = [...form.reply_faq];
                           next[index] = { ...next[index], a: e.target.value.slice(0, 50) };
@@ -1925,6 +1945,7 @@ export default function PositionsPage() {
                       <IconButton
                         size='small'
                         sx={{ mt: 0.5 }}
+                        disabled={!canUseAutoReply(subscription)}
                         onClick={() => {
                           const next = form.reply_faq.filter((_, i) => i !== index);
                           setForm({ ...form, reply_faq: next });
@@ -1938,6 +1959,7 @@ export default function PositionsPage() {
                     <Button
                       size='small'
                       startIcon={<AddRoundedIcon />}
+                      disabled={!canUseAutoReply(subscription)}
                       onClick={() =>
                         setForm({
                           ...form,
@@ -1958,6 +1980,7 @@ export default function PositionsPage() {
                 value={form.reply_reject_template}
                 placeholder='感谢你的关注，我们看了你的信息，跟我们的岗位要求不匹配。下次有机会再合作。'
                 helperText='候选人不符合岗位要求时发送此消息，留空使用系统默认。'
+                disabled={!canUseAutoReply(subscription)}
                 onChange={(e) =>
                   setForm({ ...form, reply_reject_template: e.target.value.slice(0, 200) })
                 }
@@ -1986,6 +2009,7 @@ function PromptField({
   emptyPlaceholder = "系统暂未配置默认提示词",
   description,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -1994,6 +2018,7 @@ function PromptField({
   emptyPlaceholder?: string;
   description: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <Box>
@@ -2006,6 +2031,7 @@ function PromptField({
           size='small'
           startIcon={<RestartAltRoundedIcon />}
           onClick={() => onChange(defaultValue)}
+          disabled={disabled}
         >
           {defaultActionLabel}
         </Button>
@@ -2016,6 +2042,7 @@ function PromptField({
         multiline
         minRows={6}
         fullWidth
+        disabled={disabled}
         placeholder={defaultValue ? "已加载系统默认提示词" : emptyPlaceholder}
       />
       <Typography
@@ -2179,7 +2206,7 @@ function createEmptyForm() {
     output_structured_resume: false,
     request_phone: false,
     request_wechat: false,
-    request_resume: false,
+    request_resume: true,
     greet_message: "",
     description: "",
     match_limit: 50,

@@ -1,4 +1,4 @@
-/** 本文件负责配置 GoodHR 新版 Next.js 前端的构建行为。 */
+/** 本文件负责配置 HR Plus 新版 Next.js 前端的构建行为。 */
 import type { NextConfig } from "next";
 
 const staticExport = process.env.GOODHR_STATIC_EXPORT === "1";
@@ -6,6 +6,7 @@ const staticExport = process.env.GOODHR_STATIC_EXPORT === "1";
 const nextConfig: NextConfig = {
   output: staticExport ? "export" : "standalone",
   poweredByHeader: false,
+  devIndicators: false,
   images: staticExport ? { unoptimized: true } : undefined,
   ...(staticExport
     ? {}

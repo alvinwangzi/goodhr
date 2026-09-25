@@ -48,7 +48,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 		"system.app_config": {
 			ConfigKey: "system.app_config",
 			ConfigValue: `{
-				"free_daily_greet_limit": 100,
+				"free_daily_greet_limit": 20,
 				"position_requirement_optimize_prompt": "你是一个招聘筛选规则整理助手。请把用户输入的岗位要求整理成适合 AI 筛选候选人简历的规则。\n\n要求：\n1. 只保留候选人自身条件，不要保留岗位福利、薪资待遇、工作时间、公司介绍、岗位职责、工作内容。\n2. 去掉无法从简历中稳定判断的主观要求，例如：有上进心、责任心强、抗压能力强、沟通能力好、性格开朗、团队意识强、吃苦耐劳等。\n3. 优先保留硬性条件，例如：学历、专业、工作年限、行业经验、岗位经验、证书、技能、城市、年龄、到岗状态。\n4. 如果原文里有模糊条件，请改写成更清晰的筛选规则。\n5. 输出中文，按条目列出，不要解释，不要输出 JSON。\n\n用户输入：\n{{input}}",
 				"email_domain_whitelist": ["qq.com", "foxmail.com", "163.com", "126.com", "yeah.net", "sina.com", "sina.cn", "sohu.com", "aliyun.com", "139.com", "189.cn", "wo.cn", "gmail.com", "outlook.com", "hotmail.com", "live.com", "icloud.com", "yahoo.com", "proton.me", "protonmail.com"],
 				"announcements_enabled": true,
@@ -94,7 +94,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"original_price": 0,
 					"discount_amount": 0,
 					"allow_auto_reply": false,
-					"features": ["多平台账号管理", "关键词筛选", "基础自动打招呼", "每天最多打100个招呼"],
+					"features": ["多平台账号管理", "关键词筛选", "基础自动打招呼", "打招呼后索要简历", "每天最多打20个招呼"],
 					"description": "关键词筛选和基础自动打招呼可以永久免费使用。",
 					"created_at": "2026-07-31"
 				},
@@ -115,8 +115,8 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"name": "Pro包年会员",
 					"member_type": "pro",
 					"duration_days": 365,
-					"original_price": 1200,
-					"discount_amount": 201,
+					"original_price": 1300,
+					"discount_amount": 301,
 					"allow_auto_reply": true,
 					"features": ["多平台账号管理", "关键词筛选", "AI筛选与详情分析", "AI自动打招呼", "AI自动回复"],
 					"description": "完整开放现有会员能力，包含自动回复。",

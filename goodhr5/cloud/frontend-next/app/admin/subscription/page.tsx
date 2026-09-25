@@ -379,19 +379,29 @@ export default function SubscriptionPage() {
               </>
             ) : (
               <>
-                <Chip
-                  size='small'
-                  label='已过期'
-                  color='default'
-                />
-                {subscription.member_type && subscription.member_type !== "free" && subscription.expires_at ? (
-                  <Typography
-                    noWrap
-                    sx={{ color: "text.secondary", fontSize: 12 }}
-                  >
-                    {membershipName(subscription.member_type)} 已于 {formatDate(subscription.expires_at)} 过期
-                  </Typography>
-                ) : null}
+                {subscription.member_type && subscription.member_type !== "free" ? (
+                  <>
+                    <Chip
+                      size='small'
+                      label='已过期'
+                      color='default'
+                    />
+                    {subscription.expires_at ? (
+                      <Typography
+                        noWrap
+                        sx={{ color: "text.secondary", fontSize: 12 }}
+                      >
+                        {membershipName(subscription.member_type)} 已于 {formatDate(subscription.expires_at)} 过期
+                      </Typography>
+                    ) : null}
+                  </>
+                ) : (
+                  <Chip
+                    size='small'
+                    label='未开通'
+                    color='default'
+                  />
+                )}
               </>
             )}
           </Stack>

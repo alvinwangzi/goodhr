@@ -29,6 +29,7 @@ type PositionExecutionService struct {
 	subscriptions  SubscriptionStore
 	systemConfigs  SystemConfigStore
 	aiWallet       AIWalletStore
+	aiConfigStore  AIConfigStore
 	mailer         Mailer
 	dailyStats     SystemDailyStatsStore
 	userFlow       UserFlowStore
@@ -38,13 +39,13 @@ type PositionExecutionService struct {
 
 // NewPositionExecutionService 创建岗位运行服务。
 // 运行状态归属岗位展示，同时每次启动在 task_runs 记录一条执行任务。
-func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, candidateStore CandidateStore, screeningStore CandidateScreeningStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore, runStore TaskRunStore) *PositionExecutionService {
+func NewPositionExecutionService(auth *AuthService, store PositionStore, positionLogs PositionLogService, tenantStore TenantStore, candidateStore CandidateStore, screeningStore CandidateScreeningStore, subscriptions SubscriptionStore, systemConfigs SystemConfigStore, aiWallet AIWalletStore, aiConfigStore AIConfigStore, mailer Mailer, dailyStats SystemDailyStatsStore, userFlow UserFlowStore, agents AgentStore, runStore TaskRunStore) *PositionExecutionService {
 	return &PositionExecutionService{
 		auth: auth, store: store, positionLogs: positionLogs, tenantStore: tenantStore,
 		candidateStore: candidateStore, screeningStore: screeningStore,
 		subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
-		aiWallet:      aiWallet, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
+		aiWallet: aiWallet, aiConfigStore: aiConfigStore, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
 		runStore: runStore,
 	}
 }
@@ -316,12 +317,16 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		if s.aiWallet == nil {
 			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
 		}
-		balance, err := s.aiWallet.BalanceUnits(email)
-		if err != nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
-		}
-		if balance < minimumPositionAIBalanceUnits {
-			return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
+		// 用户配置了自己的 AI API Key 时，不检查系统余额。
+		hasCustomAI := s.hasCustomAIConfig(email)
+		if !hasCustomAI {
+			balance, err := s.aiWallet.BalanceUnits(email)
+			if err != nil {
+				return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
+			}
+			if balance < minimumPositionAIBalanceUnits {
+				return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
+			}
 		}
 	}
 	if err := s.store.ClaimPositionStart(email, position.ID); err != nil {
@@ -334,6 +339,19 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		return &positionStartError{status: http.StatusInternalServerError, code: "POSITION_START_FAILED", message: "云端没能记下岗位状态，这次没有启动，请稍后再试"}
 	}
 	return nil
+}
+
+// hasCustomAIConfig 判断用户是否配置了自己的 AI API Key。
+// email 为当前账号，返回 true 表示用户使用了自定义 AI，不需要检查系统余额。
+func (s *PositionExecutionService) hasCustomAIConfig(email string) bool {
+	if s.aiConfigStore == nil {
+		return false
+	}
+	config, err := s.aiConfigStore.UserConfig(email)
+	if err != nil {
+		return false
+	}
+	return config.APIKey != ""
 }
 
 // positionUsesAI 判断岗位的基础筛选或详情筛选是否明确使用 AI。

@@ -15,8 +15,8 @@ SET config_value = jsonb_set(
   (
     SELECT jsonb_agg(
       jsonb_set(
-        jsonb_set(item, 'enabled', 'false'),
-        'url',
+        jsonb_set(item, '{enabled}', 'false'),
+        '{url}',
         '"http://localhost:3000"'
       )
     )

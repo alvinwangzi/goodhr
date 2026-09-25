@@ -26,3 +26,8 @@ test("基础筛选或详情筛选启用 AI 时识别为 AI 岗位", () => {
   assert.equal(positionUsesAI({ common_config: { mode_default: "keyword", detail_mode: "ai" } }), true);
   assert.equal(positionUsesAI({ common_config: { mode_default: "keyword", detail_mode: "ocr" } }), false);
 });
+
+test("AI 岗位但用户已配置自定义 API 时跳过余额检查", () => {
+  const failure = evaluatePositionStartGuard({ balance: "0" }, "5.3.5", "5.3.5", true, true);
+  assert.equal(failure, null);
+});

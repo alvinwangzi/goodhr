@@ -14,7 +14,7 @@ func mustNewServer(t *testing.T) *Server {
 	}
 	if err := server.systemConfigs.Save(SystemConfig{
 		ConfigKey:   "system.app_config",
-		ConfigValue: `{"free_daily_greet_limit":100,"email_domain_whitelist":["example.com","qq.com"]}`,
+		ConfigValue: `{"free_daily_greet_limit":20,"email_domain_whitelist":["example.com","qq.com"]}`,
 		Description: "测试环境其它配置",
 		Enabled:     true,
 	}); err != nil {

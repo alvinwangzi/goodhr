@@ -83,6 +83,11 @@ func TestPositionStartRejectsInsufficientAIBalance(t *testing.T) {
 	token := loginForTest(t, routes, email)
 	bindPositionDeviceForTest(t, routes, token)
 	positionID := createPositionWithConfigForTest(t, routes, token, "AI 岗位", `{"mode_default":"ai"}`)
+
+	// 清除可能残留的自定义 AI 配置，确保走系统 AI 余额检查。
+	store := server.positionExecution.aiConfigStore
+	_, _ = store.SaveUserConfig(email, AIConfig{BaseURL: "", Model: "", APIKey: "", Enabled: false})
+
 	wallet := server.positionExecution.aiWallet
 	balance, err := wallet.BalanceUnits(email)
 	if err != nil {
@@ -100,6 +105,44 @@ func TestPositionStartRejectsInsufficientAIBalance(t *testing.T) {
 	}
 	if code := positionStartErrorCodeForTest(t, resp); code != "AI_BALANCE_INSUFFICIENT" {
 		t.Fatalf("error code = %s", code)
+	}
+}
+
+// TestPositionStartSkipsBalanceCheckWithCustomAI 验证用户配置了自己的 AI API Key 时，即使余额为零也能启动岗位。
+func TestPositionStartSkipsBalanceCheckWithCustomAI(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "position-custom-ai@example.com"
+	token := loginForTest(t, routes, email)
+	bindPositionDeviceForTest(t, routes, token)
+	positionID := createPositionWithConfigForTest(t, routes, token, "自定义AI岗位", `{"mode_default":"ai"}`)
+
+	// 清空余额。
+	wallet := server.positionExecution.aiWallet
+	balance, err := wallet.BalanceUnits(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = wallet.AdjustBalance(AIWalletRecord{
+		UserEmail: email, ChangeUnits: -balance, Category: "test", Reason: "测试清空余额",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 给用户配置自定义 AI API Key。
+	store := server.positionExecution.aiConfigStore
+	if _, err := store.SaveUserConfig(email, AIConfig{
+		BaseURL: "https://custom-ai.example.com/v1/chat/completions",
+		Model:   "custom-model",
+		APIKey:  "sk-test-custom-key",
+		Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/start", `{"task_type":"greeting","machine_id":"`+positionTestMachineID+`"}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("start status = %d, body = %s", resp.Code, resp.Body.String())
 	}
 }
 

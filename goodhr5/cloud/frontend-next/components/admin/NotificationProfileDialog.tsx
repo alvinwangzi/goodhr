@@ -1,10 +1,10 @@
-/** 本文件提供个人配置页的邮件通知画像收集弹框。 */
+/** 本文件提供个人配置页的用户调查问卷弹框，用于收集用户画像以指导产品迭代方向。 */
 "use client";
 
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import FavoriteBorderRoundedIcon from "@mui/icons-material/FavoriteBorderRounded";
-import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
+import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import PersonSearchRoundedIcon from "@mui/icons-material/PersonSearchRounded";
 import { Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, IconButton, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
@@ -37,7 +37,7 @@ type NotificationProfile = {
   browser?: string;
 };
 
-/** NotificationProfileDialog 渲染轻量邮件通知画像收集流程。 */
+/** NotificationProfileDialog 渲染用户调查问卷流程，收集画像以指导产品迭代。 */
 export default function NotificationProfileDialog({ openSignal = 0 }: { openSignal?: number }) {
   const { notify } = useAdmin();
   const [open, setOpen] = useState(false);
@@ -48,7 +48,7 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
 
   useEffect(() => {
     let alive = true;
-    /** loadProfile 读取用户通知画像，未填写且未取消时打开弹框。 */
+    /** loadProfile 读取用户问卷记录，未完成且未跳过时打开弹框。 */
     async function loadProfile() {
       try {
         const data = await cloudRequest("/api/config/notification-profile");
@@ -85,13 +85,13 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
       await cloudRequest("/api/config/notification-profile", { method: "PUT", body: { ...form, os: device.os, browser: device.browser, dismissed: true } });
       setOpen(false);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "跳过设置失败，请稍后重试", "error");
+      notify(error instanceof Error ? error.message : "跳过问卷失败，请稍后重试", "error");
     } finally {
       setLoading(false);
     }
   }
 
-  /** next 进入下一步，表单页会先保存用户画像。 */
+  /** next 进入下一步，表单页会先保存问卷数据。 */
   async function next() {
     if (step === 0) {
       setStep(1);
@@ -131,11 +131,11 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
         <Box sx={{ px: { xs: 2.25, sm: 3 }, pt: 3, pb: 2.5 }}>
           <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
             <Box sx={{ width: 42, height: 42, borderRadius: "8px", display: "grid", placeItems: "center", bgcolor: "primary.main", color: "primary.contrastText", animation: "profilePulse 1.8s ease-in-out infinite" }}>
-              {step === 2 ? <CheckCircleRoundedIcon /> : <NotificationsActiveRoundedIcon />}
+              {step === 2 ? <CheckCircleRoundedIcon /> : <FactCheckRoundedIcon />}
             </Box>
             <Box>
-              <Typography component="h2" sx={{ fontSize: 22, fontWeight: 780 }}>通知偏好设置</Typography>
-              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>设置后可减少不必要的通知。</Typography>
+              <Typography component="h2" sx={{ fontSize: 22, fontWeight: 780 }}>用户调查问卷</Typography>
+              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>帮助我们了解用户，指导产品升级方向。</Typography>
             </Box>
           </Stack>
         </Box>
@@ -148,7 +148,7 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
       </DialogContent>
 
       <DialogActions sx={{ px: { xs: 2.25, sm: 3 }, py: 2, justifyContent: "space-between", borderTop: "1px solid", borderColor: "divider" }}>
-        <Button disabled={loading} onClick={() => void cancel()}>取消</Button>
+        <Button disabled={loading} onClick={() => void cancel()}>跳过</Button>
         <Button variant="contained" disabled={loading} onClick={() => void next()}>
           {loading ? <CircularProgress size={18} color="inherit" /> : step === 2 ? "完成" : "下一步"}
         </Button>
@@ -166,7 +166,7 @@ export default function NotificationProfileDialog({ openSignal = 0 }: { openSign
 
 /** IntroStep 展示收集说明。 */
 function IntroStep() {
-  return <Stack spacing={2.5} sx={{ animation: "profilePulse 2.4s ease-in-out 1" }}><Typography sx={{ fontSize: 18, fontWeight: 760 }}>只需 10 秒完成设置。</Typography><Typography sx={{ color: "text.secondary", lineHeight: 1.9 }}>我们需要了解您常用的招聘平台，以便精准推送相关更新，避免发送无关通知。</Typography><Box sx={{ p: 2, borderRadius: "8px", bgcolor: "#fff8e8", border: "1px solid #f2dfb8" }}><Typography sx={{ fontWeight: 720 }}>您也可以跳过此步骤。</Typography><Typography sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.8 }}>跳过将收到所有系统更新通知。</Typography></Box></Stack>;
+  return <Stack spacing={2.5} sx={{ animation: "profilePulse 2.4s ease-in-out 1" }}><Typography sx={{ fontSize: 18, fontWeight: 760 }}>只需 10 秒，帮我们做得更好。</Typography><Typography sx={{ color: "text.secondary", lineHeight: 1.9 }}>你的回答会直接用于产品迭代方向，让我们做出更符合你需求的改进。</Typography><Box sx={{ p: 2, borderRadius: "8px", bgcolor: "#fff8e8", border: "1px solid #f2dfb8" }}><Typography sx={{ fontWeight: 720 }}>你也可以跳过。</Typography><Typography sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.8 }}>跳过不影响正常使用。</Typography></Box></Stack>;
 }
 
 /** FormStep 展示身份、性别和常用平台选择。 */
@@ -176,7 +176,7 @@ function FormStep({ form, setForm, togglePlatform }: { form: NotificationProfile
 
 /** DoneStep 展示保存完成提示。 */
 function DoneStep() {
-  return <Stack spacing={2.25} sx={{ textAlign: "center", alignItems: "center", py: 3 }}><CheckCircleRoundedIcon sx={{ fontSize: 58, color: "primary.main", animation: "profilePulse 1.2s ease-in-out 1" }} /><Typography sx={{ fontSize: 22, fontWeight: 780 }}>感谢赏脸，我记住了。</Typography><Typography sx={{ maxWidth: 420, color: "text.secondary", lineHeight: 1.9 }}>以后我们会尽量只发你可能真的用得上的通知。不保证完全不打扰，但我会努力当个有分寸的系统。</Typography></Stack>;
+  return <Stack spacing={2.25} sx={{ textAlign: "center", alignItems: "center", py: 3 }}><CheckCircleRoundedIcon sx={{ fontSize: 58, color: "primary.main", animation: "profilePulse 1.2s ease-in-out 1" }} /><Typography sx={{ fontSize: 22, fontWeight: 780 }}>感谢参与。</Typography><Typography sx={{ maxWidth: 420, color: "text.secondary", lineHeight: 1.9 }}>你的反馈会直接影响下一步的产品方向，我们会认真对待每一条信息。</Typography></Stack>;
 }
 
 /** ChoiceGroup 渲染单选按钮组。 */
