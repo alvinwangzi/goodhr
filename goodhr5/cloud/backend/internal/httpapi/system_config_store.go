@@ -106,7 +106,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"original_price": 49.9,
 					"discount_amount": 30,
 					"allow_auto_reply": false,
-					"features": ["关键词筛选", "AI筛选与详情分析", "AI自动打招呼"],
+					"features": ["关键词筛选", "AI筛选与详情分析", "每天打招呼无上限", "AI自动打招呼"],
 					"description": "适合日常招聘使用，包含 AI 筛选和自动打招呼，不包含自动回复和索要简历。",
 					"created_at": "2026-07-31"
 				},
@@ -118,7 +118,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"original_price": 1300,
 					"discount_amount": 301,
 					"allow_auto_reply": true,
-					"features": ["关键词筛选", "AI筛选与详情分析", "AI自动打招呼", "AI自动回复", "自动索要简历"],
+					"features": ["关键词筛选", "AI筛选与详情分析", "每天打招呼无上限", "AI自动打招呼", "AI自动回复", "自动索要简历"],
 					"description": "完整开放现有会员能力，包含自动回复和索要简历。",
 					"created_at": "2026-07-31"
 				}
