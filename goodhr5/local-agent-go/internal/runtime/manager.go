@@ -282,7 +282,7 @@ func findFile(root string, name string) string {
 	return found
 }
 
-// bundledNodePath 返回 GoodHR 自带 Node 可执行文件路径。
+// bundledNodePath 返回 HRPlus 自带 Node 可执行文件路径。
 // 找不到时返回空字符串，调用方可继续尝试系统 Node。
 func (m *Manager) bundledNodePath() string {
 	root := filepath.Join(m.cfg.RuntimeDir, "node")

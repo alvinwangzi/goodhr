@@ -111,7 +111,7 @@ func (s *Server) Run() error {
 		Handler:           s.withCORS(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	log.Printf("GoodHR 5 Go Local Agent started on http://%s", net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
+	log.Printf("HRPlus Local Agent started on http://%s", net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
 	s.openConsoleAfterStart(port)
 	return server.Serve(ln)
 }
@@ -618,7 +618,7 @@ func (s *Server) handleLocalOCRRecognize(w http.ResponseWriter, r *http.Request)
 	response.Success(w, map[string]any{"text": result.Text, "raw": result.Raw})
 }
 
-// validateLocalImagePath 校验本地图片路径是否位于 GoodHR 数据目录。
+// validateLocalImagePath 校验本地图片路径是否位于 HRPlus 数据目录。
 // imagePath 为图片绝对路径。
 func (s *Server) validateLocalImagePath(imagePath string) error {
 	if strings.TrimSpace(imagePath) == "" {
@@ -631,7 +631,7 @@ func (s *Server) validateLocalImagePath(imagePath string) error {
 	dataDir := filepath.Clean(s.cfg.DataDir) + string(os.PathSeparator)
 	screenshotDir := filepath.Clean(s.cfg.ScreenshotsDir) + string(os.PathSeparator)
 	if !strings.HasPrefix(cleanPath, dataDir) && !strings.HasPrefix(cleanPath, screenshotDir) {
-		return fmt.Errorf("只能识别 GoodHR 本地数据目录内的图片")
+		return fmt.Errorf("只能识别 HRPlus 本地数据目录内的图片")
 	}
 	return nil
 }

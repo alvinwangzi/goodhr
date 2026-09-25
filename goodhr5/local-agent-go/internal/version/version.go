@@ -1,4 +1,4 @@
-// Package version 负责提供 GoodHR 本地程序版本信息。
+// Package version 负责提供 HRPlus 本地程序版本信息。
 package version
 
 // Value 是当前本地程序版本号。

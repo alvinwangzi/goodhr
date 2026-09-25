@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// goodHRHealthResponse 表示本地 GoodHR 健康检查的关键身份字段。
+// goodHRHealthResponse 表示本地 HRPlus 健康检查的关键身份字段。
 type goodHRHealthResponse struct {
 	OK   bool `json:"ok"`
 	Data struct {
@@ -27,7 +27,7 @@ type goodHRHealthResponse struct {
 	} `json:"data"`
 }
 
-// StopGoodHRPortOwner 仅在固定端口占用者确认是旧 GoodHR 本地程序时结束其进程树。
+// StopGoodHRPortOwner 仅在固定端口占用者确认是旧 HRPlus 本地程序时结束其进程树。
 // host 和 port 为待检查的监听地址，currentPID 为当前新版进程 ID。
 func StopGoodHRPortOwner(host string, port int, currentPID int) error {
 	pid, occupied, err := findListeningPID(port)
@@ -41,10 +41,10 @@ func StopGoodHRPortOwner(host string, port int, currentPID int) error {
 		return fmt.Errorf("端口 %d 正由当前进程 PID=%d 使用，拒绝结束自身", port, pid)
 	}
 	if err := verifyGoodHRHealth(host, port); err != nil {
-		return fmt.Errorf("端口 %d 被非 GoodHR 程序或异常旧程序占用，已禁止自动结束 PID=%d：%w", port, pid, err)
+		return fmt.Errorf("端口 %d 被非 HRPlus 程序或异常旧程序占用，已禁止自动结束 PID=%d：%w", port, pid, err)
 	}
 	if err := TerminateTree(pid); err != nil {
-		return fmt.Errorf("结束占用端口 %d 的旧 GoodHR 程序 PID=%d 失败：%w", port, pid, err)
+		return fmt.Errorf("结束占用端口 %d 的旧 HRPlus 程序 PID=%d 失败：%w", port, pid, err)
 	}
 	return waitPortReleased(port, 5*time.Second)
 }
@@ -81,7 +81,7 @@ func parseListeningPID(output string, port int) (int, bool, error) {
 	return 0, false, nil
 }
 
-// verifyGoodHRHealth 验证指定地址返回的是 GoodHR 本地程序健康信息。
+// verifyGoodHRHealth 验证指定地址返回的是 HRPlus 本地程序健康信息。
 // host 和 port 为健康检查监听地址。
 func verifyGoodHRHealth(host string, port int) error {
 	client := &http.Client{Timeout: 1200 * time.Millisecond}
@@ -99,7 +99,7 @@ func verifyGoodHRHealth(host string, port int) error {
 		return fmt.Errorf("健康检查不是有效 JSON：%w", err)
 	}
 	if !health.OK || health.Data.Status != "ok" || strings.TrimSpace(health.Data.Version) == "" || health.Data.Port != port || strings.TrimSpace(health.Data.DataDir) == "" {
-		return fmt.Errorf("健康检查缺少 GoodHR 身份字段")
+		return fmt.Errorf("健康检查缺少 HRPlus 身份字段")
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ func waitPortReleased(port int, timeout time.Duration) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("旧 GoodHR 程序已结束，但端口 %d 未在限定时间内释放", port)
+			return fmt.Errorf("旧 HRPlus 程序已结束，但端口 %d 未在限定时间内释放", port)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

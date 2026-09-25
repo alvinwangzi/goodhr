@@ -1,4 +1,4 @@
-// Package browser 文件作用：统一 GoodHR 自动化浏览器的固定内容视口尺寸。
+// Package browser 文件作用：统一 HRPlus 自动化浏览器的固定内容视口尺寸。
 package browser
 
 const (

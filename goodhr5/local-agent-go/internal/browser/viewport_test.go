@@ -1,4 +1,4 @@
-// Package browser 文件作用：验证 GoodHR 自动化浏览器的固定视口配置。
+// Package browser 文件作用：验证 HRPlus 自动化浏览器的固定视口配置。
 package browser
 
 import "testing"

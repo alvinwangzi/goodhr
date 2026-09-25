@@ -64,7 +64,7 @@ func (m *WorkerManager) SetAgentBaseURL(baseURL string) {
 	}
 }
 
-// CleanupFixedWorker 清理固定端口上的旧 GoodHR Node Worker。
+// CleanupFixedWorker 清理固定端口上的旧 HRPlus Node Worker。
 // ctx 为请求上下文，通常在 Go 本地程序启动后调用。
 func (m *WorkerManager) CleanupFixedWorker(ctx context.Context) error {
 	m.mu.Lock()
@@ -406,7 +406,7 @@ func (m *WorkerManager) statusLocked() WorkerStatus {
 	return status
 }
 
-// probeWorker 请求 Worker 健康检查接口，确认端口上运行的是 GoodHR Worker。
+// probeWorker 请求 Worker 健康检查接口，确认端口上运行的是 HRPlus Worker。
 // ctx 为请求上下文，返回健康检查数据和是否可复用。
 func (m *WorkerManager) probeWorker(ctx context.Context) (map[string]any, bool) {
 	return probeWorkerAt(ctx, m.baseURL)
@@ -439,7 +439,7 @@ func probeWorkerAt(ctx context.Context, baseURL string) (map[string]any, bool) {
 	return data, true
 }
 
-// cleanupFixedWorkerLocked 清理固定端口上的旧 GoodHR Worker。
+// cleanupFixedWorkerLocked 清理固定端口上的旧 HRPlus Worker。
 // ctx 为请求上下文，调用前必须持有锁。
 func (m *WorkerManager) cleanupFixedWorkerLocked(ctx context.Context) error {
 	if health, ok := probeWorkerAt(ctx, m.baseURL); ok {
@@ -620,7 +620,7 @@ func (m *WorkerManager) waitForReadyLocked(ctx context.Context, timeout time.Dur
 	return fmt.Errorf("Node Browser Worker 启动超时")
 }
 
-// findReadyWorkerLocked 查找已经就绪的 GoodHR Worker。
+// findReadyWorkerLocked 查找已经就绪的 HRPlus Worker。
 // ctx 为请求上下文，client 为复用的 HTTP 客户端。
 func (m *WorkerManager) findReadyWorkerLocked(ctx context.Context, client *http.Client) (string, bool) {
 	baseURLs := []string{m.baseURL}

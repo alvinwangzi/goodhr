@@ -39,7 +39,7 @@ func TestSafeDownloadFilePathRejectsOutsideFile(t *testing.T) {
 	}
 
 	_, err := safeDownloadFilePath(filePath, downloadsDir)
-	if err == nil || !strings.Contains(err.Error(), "GoodHR 下载目录") {
+	if err == nil || !strings.Contains(err.Error(), "HRPlus 下载目录") {
 		t.Fatalf("err = %v", err)
 	}
 }

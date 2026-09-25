@@ -122,7 +122,7 @@ func showDownloadToastWindowsNative(filePath string) (string, error) {
 	defer func() {
 		currentToast = nil
 	}()
-	title := syscall.StringToUTF16Ptr("GoodHR")
+	title := syscall.StringToUTF16Ptr("HRPlus")
 	className := syscall.StringToUTF16Ptr(windowsToastClassName)
 	screenW, _, _ := procGetSystemMetrics.Call(0)
 	screenH, _, _ := procGetSystemMetrics.Call(1)

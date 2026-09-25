@@ -142,7 +142,7 @@ func defaultDataDir() (string, error) {
 func defaultDownloadsDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return filepath.Join(os.TempDir(), "GoodHR", "Downloads")
+		return filepath.Join(os.TempDir(), "HRPlus", "Downloads")
 	}
 	return filepath.Join(home, "Downloads")
 }

@@ -164,9 +164,9 @@ func showDownloadToastDarwin(filePath string) (string, error) {
 	script := `
 on run argv
 set fileName to item 1 of argv
-set dialogText to "我下载好了，公主请验收：" & return & fileName
+set dialogText to "文件下载完成，请查看：" & return & fileName
 try
-	set dialogResult to display dialog dialogText with title "GoodHR" buttons {"打开文件夹", "打开文件", "先放着"} default button "打开文件" cancel button "先放着" giving up after 5
+	set dialogResult to display dialog dialogText with title "HRPlus" buttons {"打开文件夹", "打开文件", "先放着"} default button "打开文件" cancel button "先放着" giving up after 5
 	if gave up of dialogResult is true then
 		return "timeout"
 	end if
@@ -235,7 +235,7 @@ func safeDownloadFilePath(rawPath string, downloadsDir string) (string, error) {
 		baseDir = evaluated
 	}
 	if !isPathInside(baseDir, filePath) {
-		return "", fmt.Errorf("只能打开 GoodHR 下载目录里的文件")
+		return "", fmt.Errorf("只能打开 HRPlus 下载目录里的文件")
 	}
 	return filePath, nil
 }

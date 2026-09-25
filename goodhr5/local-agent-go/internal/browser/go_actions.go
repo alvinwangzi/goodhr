@@ -87,7 +87,7 @@ func (c *GoController) MarkOverlay(ctx context.Context, payload map[string]any) 
 
 	label := stringFromAny(payload["label"])
 	if label == "" {
-		label = "GoodHR"
+		label = "HRPlus"
 	}
 	_, err := c.evalLocked(ctx, fmt.Sprintf(`(() => {
 const badge = document.createElement("div");

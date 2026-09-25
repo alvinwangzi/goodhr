@@ -448,7 +448,7 @@ func (r *Runner) ensurePowerProtection(positionID string) error {
 		return nil
 	}
 	r.mu.Unlock()
-	guard, err := power.PreventSleep("GoodHR 岗位运行运行中")
+	guard, err := power.PreventSleep("HRPlus 岗位运行运行中")
 	if err != nil {
 		return err
 	}
