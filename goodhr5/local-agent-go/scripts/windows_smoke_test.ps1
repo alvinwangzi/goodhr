@@ -1,4 +1,4 @@
-# 文件作用：在 Windows 真机上检查 GoodHR Go 本地程序的基础接口、运行组件状态和诊断信息。
+# 文件作用：在 Windows 真机上检查 HRPlus 本地程序的基础接口、运行组件状态和诊断信息。
 param(
   [string]$BaseUrl = "http://127.0.0.1:55271"
 )
@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 # message 为中文步骤说明。
 function Write-Step {
   param([string]$message)
-  Write-Host "[GoodHR] $message" -ForegroundColor Cyan
+  Write-Host "[HRPlus] $message" -ForegroundColor Cyan
 }
 
 # Invoke-GoodHRGet 请求本地程序接口并返回 JSON。
@@ -21,7 +21,7 @@ function Invoke-GoodHRGet {
   return Invoke-RestMethod -Method Get -Uri $url -TimeoutSec 10
 }
 
-Write-Step "开始检查 GoodHR Go 本地程序：$BaseUrl"
+Write-Step "开始检查 HRPlus 本地程序：$BaseUrl"
 
 $health = Invoke-GoodHRGet "/health"
 Write-Host "health.status = $($health.data.status)"

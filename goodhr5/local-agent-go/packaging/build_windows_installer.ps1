@@ -1,4 +1,4 @@
-# Purpose: build GoodHR Go Local Agent and create the Windows installer.
+# Purpose: build the HRPlus Local Agent and create the Windows installer.
 param(
   [string]$Version = "0.1.1",
   [string]$Environment = $env:GOODHR_APP_ENV,
@@ -19,7 +19,7 @@ $DistInstallerDir = Join-Path $RootDir "dist\installers\$Environment"
 # message is the build step text.
 function Write-Step {
   param([string]$message)
-  Write-Host "[GoodHR] $message" -ForegroundColor Cyan
+  Write-Host "[HRPlus] $message" -ForegroundColor Cyan
 }
 
 # 清理旧的构建产物，避免残留文件影响新包。

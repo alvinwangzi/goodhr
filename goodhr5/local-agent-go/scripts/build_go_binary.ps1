@@ -1,4 +1,4 @@
-# Purpose: build the GoodHR Go Local Agent executable for release or installer packaging.
+# Purpose: build the HRPlus Local Agent executable for release or installer packaging.
 param(
   [string]$TargetOS = "windows",
   [string]$TargetArch = "amd64",
@@ -21,7 +21,7 @@ if ($ConfigFile) {
 # message is the build step text.
 function Write-Step {
   param([string]$message)
-  Write-Host "[GoodHR] $message" -ForegroundColor Cyan
+  Write-Host "[HRPlus] $message" -ForegroundColor Cyan
 }
 
 Write-Step "构建本地程序：环境=$Environment GOOS=$TargetOS GOARCH=$TargetArch"
