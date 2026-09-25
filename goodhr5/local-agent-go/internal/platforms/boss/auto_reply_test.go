@@ -158,7 +158,7 @@ func (*replyPage) Delay(context.Context, string, float64) error { return nil }
 
 // TestAutoReplyUnverifiedBlocked 验证未取得 Boss 页面证据时不执行任何浏览器动作。
 func TestAutoReplyUnverifiedBlocked(t *testing.T) {
-	runtime := NewRuntime()
+	runtime := &Runtime{replyConfig: &replyPageConfig{Verified: false}}
 	page := newReplyPage()
 	if runtime.AutoReplyAvailable() == nil {
 		t.Fatal("未验证配置不能启用")
@@ -293,7 +293,7 @@ func TestAutoReplyDraftAndStaleContext(t *testing.T) {
 			runtime := &Runtime{replyConfig: &cfg}
 			page := newReplyPage()
 			target := platformcore.ReplyTarget{PositionID: "job1"}
-			conversation := platformcore.ReplyConversation{ID: "a", PositionID: "job1"}
+			conversation := platformcore.ReplyConversation{ID: "a", PositionID: "job1", Name: "同名"}
 			value, err := runtime.ReadReplyContext(t.Context(), page, target, conversation)
 			if err != nil {
 				t.Fatal(err)
@@ -339,7 +339,7 @@ func TestAutoReplyConfirmationEvidence(t *testing.T) {
 	page := newReplyPage()
 	page.active = "a"
 	target := platformcore.ReplyTarget{PositionID: "job1"}
-	conversation := platformcore.ReplyConversation{ID: "a", PositionID: "job1"}
+	conversation := platformcore.ReplyConversation{ID: "a", PositionID: "job1", Name: "同名"}
 	inbound := platformcore.ReplyMessageFingerprint("a", platformcore.ReplyMessage{ID: "a1", Direction: "inbound"})
 	page.messages["a"] = append([]map[string]string{{"id": "old", "direction": "out", "kind": "text", "text": "你好"}}, page.messages["a"]...)
 	confirmed, err := runtime.ConfirmReply(t.Context(), page, target, conversation, inbound, platformcore.ReplyHash("你好"))

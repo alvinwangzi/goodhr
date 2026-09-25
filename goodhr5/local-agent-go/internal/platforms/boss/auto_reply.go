@@ -151,7 +151,10 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 	matchIndex := -1
 	for i, field := range fields {
 		// 下拉选项文本可能包含城市和薪资后缀（如 "Java开发工程师 _ 南京 8-12K"），
-		// 只要包含目标岗位名即视为匹配。
+		// 只要包含目标岗位名即视为匹配。但截断名称（以 "..." 结尾）不可接受。
+		if strings.HasSuffix(field["name"], "...") {
+			continue
+		}
 		if field["name"] == name || strings.Contains(field["name"], name) {
 			matches++
 			target = platformcore.ReplyTarget{PositionID: field["id"], PositionName: name, NameUnique: true}

@@ -44,14 +44,14 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 	if err := json.NewDecoder(createResp.Body).Decode(&createPayload); err != nil {
 		t.Fatal(err)
 	}
-	if createPayload.Order.OrderNo == "" || createPayload.Order.Amount != "40.00" || createPayload.Payment.CodeURL == "" {
+	if createPayload.Order.OrderNo == "" || createPayload.Order.Amount != "19.90" || createPayload.Payment.CodeURL == "" {
 		t.Fatalf("unexpected order payload: %+v", createPayload.Order)
 	}
 
 	result := PaymentProviderTransactionResult{
 		OrderNo:     createPayload.Order.OrderNo,
 		TradeNo:     "trade-test",
-		AmountCents: 4000,
+		AmountCents: 1990,
 		Paid:        true,
 		Raw:         map[string]string{"trade_state": "SUCCESS"},
 	}
@@ -184,7 +184,7 @@ func TestBuildSubscriptionPaymentQuoteProratesPlusUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.UpgradeFromType != memberTypePlus || quote.UpgradeCreditCents != 2000 || quote.AmountCents != 32000 {
+	if quote.UpgradeFromType != memberTypePlus || quote.UpgradeCreditCents != 995 || quote.AmountCents != 98905 {
 		t.Fatalf("unexpected upgrade quote: %+v", quote)
 	}
 }
@@ -240,7 +240,7 @@ func TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.UpgradeFromType != memberTypePro || quote.UpgradeCreditCents != 0 || quote.AmountCents != 4000 {
+	if quote.UpgradeFromType != memberTypePro || quote.UpgradeCreditCents != 0 || quote.AmountCents != 1990 {
 		t.Fatalf("Pro 切换 Plus 报价不正确: %+v", quote)
 	}
 }

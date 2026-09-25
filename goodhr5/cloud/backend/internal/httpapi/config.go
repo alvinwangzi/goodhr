@@ -114,6 +114,10 @@ func (c Config) AuthStore() (AuthStore, error) {
 
 // Mailer 创建验证码发信器。优先检查 SMTP 配置，配置完整时使用 SMTP 发信器（开发/生产环境通用）；配置不完整时降级为开发发信器，不发送真实邮件，并在启动日志中提示。
 func (c Config) Mailer() (Mailer, bool) {
+	if c.IsDev() {
+		log.Printf("[Mailer] 当前为开发环境（GOODHR_APP_ENV=%q），走开发发信器，不发送真实邮件", strings.TrimSpace(c.AppEnv))
+		return DevMailer{}, true
+	}
 	if c.SMTPHost != "" && c.SMTPUsername != "" && c.SMTPPassword != "" {
 		log.Printf("[Mailer] SMTP 配置完整，使用 SMTP 发信器 host=%s port=%d", c.SMTPHost, c.SMTPPort)
 		return SMTPMailer{
@@ -124,11 +128,7 @@ func (c Config) Mailer() (Mailer, bool) {
 			From:     c.SMTPFrom,
 		}, false
 	}
-	if c.IsDev() {
-		log.Printf("[Mailer] 当前为开发环境（GOODHR_APP_ENV=%q），SMTP 未配置，走开发发信器，不发送真实邮件", strings.TrimSpace(c.AppEnv))
-	} else {
-		log.Printf("[Mailer] 警告：当前为生产环境（GOODHR_APP_ENV=prod），但 SMTP 配置不完整（host/username/password 需全部填写）；降级为开发发信器，不会发送真实邮件")
-	}
+	log.Printf("[Mailer] 警告：当前为生产环境（GOODHR_APP_ENV=prod），但 SMTP 配置不完整（host/username/password 需全部填写）；降级为开发发信器，不会发送真实邮件")
 	return DevMailer{}, true
 }
 
