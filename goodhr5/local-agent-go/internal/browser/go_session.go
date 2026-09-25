@@ -393,8 +393,8 @@ func resolveBrowserExecutable(raw string) string {
 		candidates = appendBrowserExecutableCandidates(candidates, filepath.Join(wd, "dist", "runtime", "cloakbrowser"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		candidates = appendBrowserExecutableCandidates(candidates, filepath.Join(home, "Library", "Application Support", "GoodHR", "runtime", "cloakbrowser"))
-		candidates = appendBrowserExecutableCandidates(candidates, filepath.Join(home, "AppData", "Roaming", "GoodHR", "runtime", "cloakbrowser"))
+		candidates = appendBrowserExecutableCandidates(candidates, filepath.Join(home, "Library", "Application Support", "HRPlus", "runtime", "cloakbrowser"))
+		candidates = appendBrowserExecutableCandidates(candidates, filepath.Join(home, "AppData", "Roaming", "HRPlus", "runtime", "cloakbrowser"))
 	}
 	for _, candidate := range candidates {
 		if candidate == "" {

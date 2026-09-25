@@ -128,7 +128,7 @@ func (c *Config) Address(port int) string {
 }
 
 // defaultDataDir 返回默认本地数据目录。
-// macOS 下通常位于 ~/Library/Application Support/GoodHR。
+// macOS 下通常位于 ~/Library/Application Support/HRPlus，Windows 下位于 %APPDATA%\HRPlus。
 func defaultDataDir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
