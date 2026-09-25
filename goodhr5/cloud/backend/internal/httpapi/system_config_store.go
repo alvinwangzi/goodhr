@@ -94,7 +94,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"original_price": 0,
 					"discount_amount": 0,
 					"allow_auto_reply": false,
-					"features": ["多平台账号管理", "关键词筛选", "基础自动打招呼", "打招呼后索要简历", "每天最多打20个招呼"],
+					"features": ["多平台账号管理", "关键词筛选", "基础自动打招呼", "每天最多打20个招呼"],
 					"description": "关键词筛选和基础自动打招呼可以永久免费使用。",
 					"created_at": "2026-07-31"
 				},
@@ -103,11 +103,11 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"name": "Plus包月会员",
 					"member_type": "plus",
 					"duration_days": 30,
-					"original_price": 120,
-					"discount_amount": 21,
+					"original_price": 49.9,
+					"discount_amount": 30,
 					"allow_auto_reply": false,
 					"features": ["多平台账号管理", "关键词筛选", "AI筛选与详情分析", "AI自动打招呼"],
-					"description": "适合日常招聘使用，包含 AI 筛选和自动打招呼，不包含自动回复。",
+					"description": "适合日常招聘使用，包含 AI 筛选和自动打招呼，不包含自动回复和索要简历。",
 					"created_at": "2026-07-31"
 				},
 				{
@@ -119,7 +119,7 @@ func defaultMemorySystemConfigs() map[string]SystemConfig {
 					"discount_amount": 301,
 					"allow_auto_reply": true,
 					"features": ["多平台账号管理", "关键词筛选", "AI筛选与详情分析", "AI自动打招呼", "AI自动回复"],
-					"description": "完整开放现有会员能力，包含自动回复。",
+					"description": "完整开放现有会员能力，包含自动回复和索要简历。",
 					"created_at": "2026-07-31"
 				}
 			]`,

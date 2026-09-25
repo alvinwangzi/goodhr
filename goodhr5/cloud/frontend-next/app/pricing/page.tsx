@@ -35,6 +35,7 @@ const comparisons = [
   ["基础岗位运行和打招呼", true, true, true],
   ["AI 候选人筛选", false, true, true],
   ["AI 详情分析", false, true, true],
+  ["索要简历", false, false, true],
   ["自动回复", false, false, true],
 ] as const;
 

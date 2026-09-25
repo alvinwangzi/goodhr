@@ -1835,12 +1835,29 @@ export default function PositionsPage() {
                       <Checkbox
                         size='small'
                         checked={form.request_resume}
+                        disabled={!canUseAutoReply(subscription)}
                         onChange={(event) =>
                           setForm({ ...form, request_resume: event.target.checked })
                         }
                       />
                     }
-                    label='索要简历'
+                    label={
+                      <Stack direction='row' spacing={0.75} sx={{ alignItems: 'center' }}>
+                        <span>索要简历</span>
+                        <Chip
+                          size='small'
+                          label='PRO 用户专享功能'
+                          sx={{
+                            height: 20,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#fff',
+                            backgroundColor: 'primary.main',
+                            '& .MuiChip-label': { px: 0.75 },
+                          }}
+                        />
+                      </Stack>
+                    }
                   />
                 </Stack>
                 <Typography sx={{ color: "text.secondary", fontSize: 12.5 }}>
@@ -2206,7 +2223,7 @@ function createEmptyForm() {
     output_structured_resume: false,
     request_phone: false,
     request_wechat: false,
-    request_resume: true,
+    request_resume: false,
     greet_message: "",
     description: "",
     match_limit: 50,

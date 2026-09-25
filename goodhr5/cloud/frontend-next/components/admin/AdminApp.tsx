@@ -725,9 +725,14 @@ export default function AdminApp({ children }: { children: ReactNode }) {
                   (user?.role === "super_admin" ? "超级管理员" : "用户")}
                 {subscription.active && subscription.member_type !== "free"
                   ? ` · ${subscription.member_name || membershipName(subscription.member_type)} · 剩${subscription.remaining_days}天`
-                  : !subscription.active && subscription.member_type !== "free"
-                  ? ` · ${subscription.member_name || membershipName(subscription.member_type)} · 已过期`
-                  : ""}
+                  : !subscription.active && subscription.member_type && subscription.member_type !== "free"
+                  ? (() => {
+                      const expiredDays = subscription.expires_at
+                        ? Math.floor((Date.now() - new Date(subscription.expires_at).getTime()) / 86400000)
+                        : 0;
+                      return ` · 普通用户（原${subscription.member_name || membershipName(subscription.member_type)}已过期${expiredDays > 0 ? `${expiredDays}天` : ""}）`;
+                    })()
+                  : " · 普通用户"}
               </Typography>
             </Box>
             <Button

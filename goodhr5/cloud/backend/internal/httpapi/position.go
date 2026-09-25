@@ -185,6 +185,9 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 	if positionUsesAI(position) && !s.requireAIMembership(w, session.Email) {
 		return
 	}
+	if positionRequestsResume(position) && !s.requireAutoReplyMembership(w, session.Email) {
+		return
+	}
 
 	// 调用岗位存储保存岗位配置，用于后续岗位运行快速选择筛选条件。
 	saved, err := s.store.SavePosition(position)
@@ -226,6 +229,38 @@ func (s *PositionService) requireAIMembership(w http.ResponseWriter, email strin
 		return false
 	}
 	return true
+}
+
+// requireAutoReplyMembership 统一检查用户是否可以使用 PRO 专享的自动回复和索要简历功能。
+func (s *PositionService) requireAutoReplyMembership(w http.ResponseWriter, email string) bool {
+	if s.subscriptions == nil {
+		writeError(w, http.StatusServiceUnavailable, "会员状态查询失败，请稍后重试")
+		return false
+	}
+	subscription, err := s.subscriptions.UserSubscription(email)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "会员状态查询失败，请稍后重试")
+		return false
+	}
+	access, err := subscriptionAccess(s.systemConfigs, subscription, time.Now())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "会员套餐配置读取失败，请稍后重试")
+		return false
+	}
+	if !access.AllowAutoReply {
+		writeError(w, http.StatusForbidden, "索要简历属于 Pro会员，当前套餐暂时不能使用")
+		return false
+	}
+	return true
+}
+
+// positionRequestsResume 判断岗位是否配置了索要简历。
+func positionRequestsResume(position Position) bool {
+	if position.CommonConfig == nil {
+		return false
+	}
+	v, ok := position.CommonConfig["request_resume"]
+	return ok && v == true
 }
 
 // Delete 删除当前登录用户的岗位配置。
