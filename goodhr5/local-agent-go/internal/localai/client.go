@@ -26,7 +26,7 @@ const (
 	defaultGreetThreshold        = 70.0
 	defaultDetailThreshold       = 60.0
 	defaultGreetPrompt           = `你是资深招聘顾问。请给候选人打“打招呼建议分”。只输出 JSON：{"score": 78, "reason": "匹配核心要求"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
-	defaultDetailPrompt          = `你是资深招聘顾问。请只根据候选人基础信息判断是否值得打开详情。只输出 JSON：{"score": 66, "reason": "可进一步确认细节"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
+	defaultDetailPrompt          = `你是资深招聘顾问。根据下方岗位要求中的硬性条件（学历、工作年限、年龄等）预判候选人是否值得打开详情。硬性条件不满足的必须给 0 分，reason 写明哪条不满足。只输出 JSON：{"score": 66, "reason": "满足硬性条件，可看详情"} 或 {"score": 0, "reason": "应届生，要求3年以上"}。score 为 0-100 数字，reason 控制在30字以内，禁止 Markdown。`
 	defaultVisionSystem          = `你是资深招聘顾问。请先识别图片中的候选人详情，再结合岗位要求完成本次分析。只输出 JSON，禁止 Markdown。必须按下面示例返回，analysis 必须包含 score、reason，reason 控制在30字以内：${结构化简历}`
 )
 
