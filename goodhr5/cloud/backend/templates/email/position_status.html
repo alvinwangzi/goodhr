@@ -1,10 +1,10 @@
-<!-- 本文件是 GoodHR 岗位运行状态提醒邮件 HTML 模板，使用后台一致的浅色绿色视觉并适配移动端。 -->
+<!-- 本文件是 HRPlus 岗位运行状态提醒邮件 HTML 模板，使用后台一致的浅色绿色视觉并适配移动端。 -->
 <!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GoodHR 岗位运行状态提醒</title>
+    <title>HRPlus 岗位运行状态提醒</title>
     <style>@media only screen and (max-width:620px){.wrap{padding:14px!important}.panel{width:100%!important}.content{padding:24px 18px!important}.title{font-size:24px!important}.label,.value{display:block!important;width:auto!important}.label{padding-bottom:4px!important}.value{padding-top:0!important}}</style>
   </head>
   <body bgcolor="#f4f7f5" style="margin:0;padding:0;background:#f4f7f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;color:#1f2a23;">
@@ -12,7 +12,7 @@
       <table class="panel" role="presentation" width="580" cellspacing="0" cellpadding="0" bgcolor="#ffffff" style="width:580px;max-width:100%;background:#fff;border:1px solid #dce7df;border-radius:14px;overflow:hidden;">
         <tr><td style="height:6px;background:#16724c;font-size:0;line-height:0;">&nbsp;</td></tr>
         <tr><td class="content" style="padding:32px 36px;">
-          <div style="font-size:13px;font-weight:700;color:#16724c;margin-bottom:10px;">GOODHR · 岗位提醒</div>
+          <div style="font-size:13px;font-weight:700;color:#16724c;margin-bottom:10px;">HRPLUS · 岗位提醒</div>
           <h1 class="title" style="margin:0 0 12px;font-size:28px;line-height:1.3;color:#1f2a23;">{{.StatusLabel}}</h1>
           <p style="margin:0 0 22px;font-size:15px;line-height:1.8;color:#56645b;">本轮运行已结束，重点数据如下。</p>
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f8faf8;border:1px solid #e2ebe5;font-size:14px;">
@@ -22,7 +22,7 @@
             <tr><td class="label" style="padding:12px 14px;color:#68746c;">本次跳过</td><td class="value" style="padding:12px 14px;font-weight:700;">{{.RunSkippedCount}}</td></tr>
             {{if .ErrorMessage}}<tr><td class="label" style="padding:12px 14px;color:#a94b45;border-top:1px solid #ead7d4;">失败原因</td><td class="value" style="padding:12px 14px;color:#8f3f3a;font-weight:700;border-top:1px solid #ead7d4;">{{.ErrorMessage}}</td></tr>{{end}}
           </table>
-          <p style="margin:20px 0 0;font-size:13px;line-height:1.8;color:#7b8780;">请返回 GoodHR 控制台查看完整日志，根据提示调整后重试。</p>
+          <p style="margin:20px 0 0;font-size:13px;line-height:1.8;color:#7b8780;">请返回 HRPlus 控制台查看完整日志，根据提示调整后重试。</p>
         </td></tr>
       </table>
     </td></tr></table>

@@ -123,7 +123,7 @@ func (s *AuthService) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("GoodHR 登录验证码已生成 email=%s code_length=%d", email, len(code))
+	log.Printf("HRPlus 登录验证码已生成 email=%s code_length=%d", email, len(code))
 	if err := s.mailer.SendLoginCode(email, code); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send code")
 		return
@@ -170,7 +170,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !accepted && !req.AgreementAccepted {
-			writeError(w, http.StatusForbidden, "请先阅读并同意 GoodHR 使用协议")
+			writeError(w, http.StatusForbidden, "请先阅读并同意 HRPlus 使用协议")
 			return
 		}
 	}
@@ -315,7 +315,7 @@ func (s *AuthService) LoginPassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !accepted && !req.AgreementAccepted {
-			writeError(w, http.StatusForbidden, "请先阅读并同意 GoodHR 使用协议")
+			writeError(w, http.StatusForbidden, "请先阅读并同意 HRPlus 使用协议")
 			return
 		}
 	}
@@ -412,7 +412,7 @@ func (s *AuthService) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// AgreementStatus 查询指定邮箱是否已经同意 GoodHR 使用协议。
+// AgreementStatus 查询指定邮箱是否已经同意 HRPlus 使用协议。
 func (s *AuthService) AgreementStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")

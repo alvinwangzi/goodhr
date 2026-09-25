@@ -246,7 +246,7 @@ func (s *MemoryPositionStore) UserFlowProgress(userEmail string) (UserFlowProgre
 	return progress, nil
 }
 
-// positionBusinessDate 返回 GoodHR 业务使用的北京时间日期。
+// positionBusinessDate 返回 HRPlus 业务使用的北京时间日期。
 // now 为任意时区的当前时间，返回 YYYY-MM-DD 格式日期。
 func positionBusinessDate(now time.Time) string {
 	return now.In(chinaLocation()).Format(time.DateOnly)

@@ -22,8 +22,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("GoodHR 5 cloud backend log file: %s", logPath)
-	log.Printf("GoodHR 5 cloud backend listening on %s", addr)
+	log.Printf("HRPlus cloud backend log file: %s", logPath)
+	log.Printf("HRPlus cloud backend listening on %s", addr)
 	if err := http.ListenAndServe(addr, server.Routes()); err != nil {
 		log.Fatal(err)
 	}

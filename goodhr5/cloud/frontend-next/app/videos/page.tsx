@@ -9,15 +9,15 @@ import VideoGuideList from "./VideoGuideList";
 import { absoluteURL, createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
-  title: "GoodHR视频教程 - 招聘平台自动化、AI筛选与自动打招呼",
+  title: "HRPlus视频教程 - 招聘平台自动化、AI筛选与自动打招呼",
   description:
-    "观看 GoodHR 安装、AI接口配置、岗位模板、自动筛选候选人、自动打招呼和招聘岗位运行使用教程。",
+    "观看 HRPlus 安装、AI接口配置、岗位模板、自动筛选候选人、自动打招呼和招聘岗位运行使用教程。",
   path: "/videos",
   keywords: [
     "BOSS自动打招呼教程",
     "AI筛选简历教程",
     "招聘自动化教程",
-    "GoodHR安装教程",
+    "HRPlus安装教程",
   ],
 });
 
@@ -31,7 +31,7 @@ export default async function VideosPage() {
         data={{
           "@context": "https://schema.org",
           "@type": "ItemList",
-          name: "GoodHR 招聘自动化视频教程",
+          name: "HRPlus 招聘自动化视频教程",
           url: absoluteURL("/videos"),
         }}
       />

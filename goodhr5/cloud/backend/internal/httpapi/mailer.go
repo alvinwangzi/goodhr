@@ -67,37 +67,37 @@ type TeamInvitationNotice struct {
 type DevMailer struct{}
 
 func (m DevMailer) SendLoginCode(email string, code string) error {
-	log.Printf("GoodHR dev login code for %s: %s", email, code)
+	log.Printf("HRPlus dev login code for %s: %s", email, code)
 	return nil
 }
 
 // SendSubscriptionReward 在开发模式下记录会员天数变动提醒。
 func (m DevMailer) SendSubscriptionReward(email string, notice SubscriptionRewardNotice) error {
-	log.Printf("GoodHR dev subscription changed for %s: reason=%s member=%s days=%d expires=%s related=%s", email, notice.Reason, notice.MemberName, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
+	log.Printf("HRPlus dev subscription changed for %s: reason=%s member=%s days=%d expires=%s related=%s", email, notice.Reason, notice.MemberName, notice.Days, notice.ExpiresAt.Format(time.RFC3339), notice.RelatedEmail)
 	return nil
 }
 
 // SendAIBalanceNotice 在开发模式下记录 AI 余额变动提醒。
 func (m DevMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) error {
-	log.Printf("GoodHR dev AI balance changed for %s: reason=%s change=%s balance=%s", email, notice.Reason, aiUnitsToYuanString(notice.ChangeUnits), aiUnitsToYuanString(notice.BalanceUnits))
+	log.Printf("HRPlus dev AI balance changed for %s: reason=%s change=%s balance=%s", email, notice.Reason, aiUnitsToYuanString(notice.ChangeUnits), aiUnitsToYuanString(notice.BalanceUnits))
 	return nil
 }
 
 // SendPositionStatus 在开发模式下记录岗位状态提醒。
 func (m DevMailer) SendPositionStatus(email string, notice PositionStatusNotice) error {
-	log.Printf("GoodHR dev position status for %s: position=%s status=%s error=%s", email, notice.PositionName, notice.StatusLabel, notice.ErrorMessage)
+	log.Printf("HRPlus dev position status for %s: position=%s status=%s error=%s", email, notice.PositionName, notice.StatusLabel, notice.ErrorMessage)
 	return nil
 }
 
 // SendCustomHTML 在开发模式下记录自定义邮件发送请求。
 func (m DevMailer) SendCustomHTML(email string, subject string, htmlBody string, plainText string) error {
-	log.Printf("GoodHR dev custom mail for %s: subject=%s", email, subject)
+	log.Printf("HRPlus dev custom mail for %s: subject=%s", email, subject)
 	return nil
 }
 
 // SendTeamInvitation 在开发模式下记录团队邀请邮件。
 func (m DevMailer) SendTeamInvitation(email string, notice TeamInvitationNotice) error {
-	log.Printf("GoodHR dev team invitation for %s: inviter=%s team=%s", email, notice.InviterEmail, notice.TeamName)
+	log.Printf("HRPlus dev team invitation for %s: inviter=%s team=%s", email, notice.InviterEmail, notice.TeamName)
 	return nil
 }
 
@@ -110,10 +110,10 @@ type SMTPMailer struct {
 }
 
 func (m SMTPMailer) SendLoginCode(email string, code string) error {
-	return m.sendMessage(email, "GoodHR 登录验证码", "login_code.html", map[string]any{
+	return m.sendMessage(email, "HRPlus 登录验证码", "login_code.html", map[string]any{
 		"Code": code,
 	}, []string{
-		"你的 GoodHR 登录验证码是：" + code,
+		"你的 HRPlus 登录验证码是：" + code,
 		"验证码 5 分钟内有效，请勿转发给他人。",
 	})
 }
@@ -142,7 +142,7 @@ func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewa
 	}
 	daysText := fmt.Sprintf("%+d 天", notice.Days)
 	lines := []string{
-		"你好，你的 GoodHR 会员时间有变动。",
+		"你好，你的 HRPlus 会员时间有变动。",
 		"变动原因：" + reason,
 		"变动天数：" + daysText,
 		"会员套餐：" + memberName,
@@ -154,8 +154,8 @@ func (m SMTPMailer) SendSubscriptionReward(email string, notice SubscriptionRewa
 	if strings.TrimSpace(notice.RelatedEmail) != "" {
 		lines = append(lines, "关联用户："+strings.TrimSpace(notice.RelatedEmail))
 	}
-	lines = append(lines, "感谢使用 GoodHR。")
-	return m.sendMessage(email, "GoodHR 会员时间变动提醒", "subscription_reward.html", map[string]any{
+	lines = append(lines, "感谢使用 HRPlus。")
+	return m.sendMessage(email, "HRPlus 会员时间变动提醒", "subscription_reward.html", map[string]any{
 		"Reason":         reason,
 		"DaysText":       daysText,
 		"MemberType":     memberType,
@@ -188,13 +188,13 @@ func (m SMTPMailer) SendAIBalanceNotice(email string, notice AIBalanceNotice) er
 	}
 	balanceText := aiUnitsToYuanString(notice.BalanceUnits)
 	lines := []string{
-		"你好，你的 GoodHR AI 余额有变动。",
+		"你好，你的 HRPlus AI 余额有变动。",
 		"变动原因：" + reason,
 		"变动金额：￥" + changeText,
 		"当前余额：￥" + balanceText,
 		"这是一封自动提醒邮件，不需要回复。",
 	}
-	return m.sendMessage(email, "GoodHR AI 余额变动提醒", "ai_balance_notice.html", map[string]any{
+	return m.sendMessage(email, "HRPlus AI 余额变动提醒", "ai_balance_notice.html", map[string]any{
 		"Reason":      reason,
 		"ChangeText":  changeText,
 		"BalanceText": balanceText,
@@ -207,7 +207,7 @@ func (m SMTPMailer) SendPositionStatus(email string, notice PositionStatusNotice
 	if statusLabel == "" {
 		statusLabel = "岗位运行结束"
 	}
-	subject := "GoodHR " + statusLabel + "提醒"
+	subject := "HRPlus " + statusLabel + "提醒"
 	lines := []string{
 		"岗位运行已结束，以下是本轮数据。",
 		"岗位名称：" + notice.PositionName,
@@ -218,7 +218,7 @@ func (m SMTPMailer) SendPositionStatus(email string, notice PositionStatusNotice
 	if strings.TrimSpace(notice.ErrorMessage) != "" {
 		lines = append(lines, "失败原因："+strings.TrimSpace(notice.ErrorMessage))
 	}
-	lines = append(lines, "你可以回到 GoodHR 控制台查看岗位日志。")
+	lines = append(lines, "你可以回到 HRPlus 控制台查看岗位日志。")
 	return m.sendMessage(email, subject, "position_status.html", map[string]any{
 		"PositionName": notice.PositionName, "Status": notice.Status,
 		"StatusLabel": statusLabel, "TodayGreetedCount": notice.TodayGreetedCount,
@@ -237,7 +237,7 @@ func (m SMTPMailer) SendTeamInvitation(email string, notice TeamInvitationNotice
 	if teamName == "" {
 		teamName = strings.TrimSpace(notice.TeamOwner) + " 的团队"
 	}
-	return m.sendMessage(email, "GoodHR 团队邀请", "team_invitation.html", map[string]any{
+	return m.sendMessage(email, "HRPlus 团队邀请", "team_invitation.html", map[string]any{
 		"InviterEmail": strings.TrimSpace(notice.InviterEmail),
 		"TeamName":     teamName,
 		"TeamOwner":    strings.TrimSpace(notice.TeamOwner),
@@ -246,7 +246,7 @@ func (m SMTPMailer) SendTeamInvitation(email string, notice TeamInvitationNotice
 	}, []string{
 		"收到团队邀请。",
 		strings.TrimSpace(notice.InviterEmail) + " 邀请你加入 " + teamName + "。",
-		"登录 GoodHR 后确认加入，系统将同步岗位和简历数据。",
+		"登录 HRPlus 后确认加入，系统将同步岗位和简历数据。",
 		strings.TrimSpace(notice.LoginURL),
 	})
 }
@@ -272,7 +272,7 @@ func sendTeamInvitationNotice(mailer Mailer, email string, notice TeamInvitation
 		"RoleLabel":    roleLabel,
 		"LoginURL":     strings.TrimSpace(notice.LoginURL),
 	})
-	return mailer.SendCustomHTML(email, "GoodHR 团队邀请", htmlBody, "登录 GoodHR 后确认是否加入团队："+strings.TrimSpace(notice.LoginURL))
+	return mailer.SendCustomHTML(email, "HRPlus 团队邀请", htmlBody, "登录 HRPlus 后确认是否加入团队："+strings.TrimSpace(notice.LoginURL))
 }
 
 // SendCustomHTML 发送超管自定义 HTML 邮件。
@@ -359,7 +359,7 @@ func emailTemplatePaths(templateName string) []string {
 func buildMailMessage(from string, to string, subject string, plainBody string, htmlBody string) string {
 	boundary := fmt.Sprintf("goodhr-%d", time.Now().UnixNano())
 	headers := []string{
-		"From: " + formatAddress("GoodHR", from),
+		"From: " + formatAddress("HRPlus", from),
 		"To: " + to,
 		"Subject: " + mime.QEncoding.Encode("UTF-8", subject),
 		"MIME-Version: 1.0",

@@ -65,7 +65,7 @@ func TestMailTemplatesRender(t *testing.T) {
 
 // TestBuildMailMessageHasSingleSubject 验证邮件只包含一个主题头。
 func TestBuildMailMessageHasSingleSubject(t *testing.T) {
-	message := buildMailMessage("from@example.com", "to@example.com", "GoodHR 测试", "hello", "<p>hello</p>")
+	message := buildMailMessage("from@example.com", "to@example.com", "HRPlus 测试", "hello", "<p>hello</p>")
 	if count := strings.Count(message, "\r\nSubject: "); count != 1 {
 		t.Fatalf("subject header count = %d, want 1", count)
 	}

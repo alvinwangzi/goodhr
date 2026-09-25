@@ -65,7 +65,7 @@ func (s *CandidateService) Collection(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.store.ListPositionCandidates(tenant.ID, query)
 	if err != nil {
-		log.Printf("GoodHR list candidates error: tenant=%s query=%+v err=%v", tenant.ID, query, err)
+		log.Printf("HRPlus list candidates error: tenant=%s query=%+v err=%v", tenant.ID, query, err)
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return
 	}

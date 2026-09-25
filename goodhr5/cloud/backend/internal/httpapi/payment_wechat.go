@@ -299,7 +299,7 @@ func decodePaymentPEM(value string) (string, error) {
 func paymentTitle(title string) string {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return "GoodHR 服务"
+		return "HRPlus 服务"
 	}
 	runes := []rune(title)
 	if len(runes) > 42 {

@@ -172,7 +172,7 @@ func (s *PaymentService) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	payResult, err := provider.CreateOrder(r.Context(), PaymentProviderOrderInput{
 		OrderNo:     order.OrderNo,
-		Title:       "GoodHR " + order.PlanName,
+		Title:       "HRPlus " + order.PlanName,
 		AmountCents: order.AmountCents,
 		Remark:      "user:" + session.Email + ",plan:" + order.PlanID,
 	})
@@ -247,7 +247,7 @@ func (s *PaymentService) AIBalanceOrder(w http.ResponseWriter, r *http.Request) 
 	}
 	payResult, err := provider.CreateOrder(r.Context(), PaymentProviderOrderInput{
 		OrderNo:     order.OrderNo,
-		Title:       "GoodHR AI余额充值",
+		Title:       "HRPlus AI余额充值",
 		AmountCents: order.AmountCents,
 		Remark:      "user:" + session.Email + ",type:ai_balance",
 	})

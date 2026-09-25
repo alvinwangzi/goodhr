@@ -677,7 +677,7 @@ type recoveryEmailTemplate struct {
 // 模板不包含已读追踪图，追踪图由 sendBatch 统一追加。
 func defaultRecoveryEmailTemplates() map[string]recoveryEmailTemplate {
 	subjects := map[string]string{
-		"agent_detected":          "需要帮助吗？GoodHR 本地程序还未启动",
+		"agent_detected":          "需要帮助吗？HRPlus 本地程序还未启动",
 		"runtime_ready":           "需要帮助吗？运行组件还未安装完成",
 		"position_created":        "需要帮助吗？招聘岗位还未创建",
 		"platform_login_verified": "需要帮助吗？招聘平台还未登录",

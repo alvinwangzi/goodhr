@@ -282,7 +282,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
-		"name":    "GoodHR 5 Cloud API",
+		"name":    "HRPlus Cloud API",
 		"version": "0.1.0",
 	})
 }
