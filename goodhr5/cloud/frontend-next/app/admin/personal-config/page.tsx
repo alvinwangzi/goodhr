@@ -4,6 +4,7 @@
 import PsychologyAltRoundedIcon from "@mui/icons-material/PsychologyAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
+import RepeatRoundedIcon from "@mui/icons-material/RepeatRounded";
 import {
   Box,
   Button,
@@ -33,6 +34,10 @@ const defaults = {
   rest_times_max: 3,
   rest_duration_min: 2,
   rest_duration_max: 7,
+  re_greet_interval_min: 30,
+  re_greet_interval_max: 50,
+  re_greet_time_range: 7,
+  re_greet_max_count: 1,
 };
 
 /** PersonalConfigPage 管理操作节奏和模拟人工操作参数。 */
@@ -195,6 +200,39 @@ export default function PersonalConfigPage() {
               max={form.rest_duration_max}
               onMin={(value) => setNumber("rest_duration_min", value)}
               onMax={(value) => setNumber("rest_duration_max", value)}
+            />
+          </Stack>
+        </SectionPanel>
+
+        <SectionPanel>
+          <SectionTitle
+            icon={<RepeatRoundedIcon />}
+            title='复打招呼'
+            description='对之前打过招呼但未回复的候选人，间隔一段时间后再发一次招呼。全局生效，所有岗位共用。'
+          />
+          <Stack spacing={2.25} sx={{ mt: 2.5 }}>
+            <NumberRange
+              label='复打间隔'
+              help='两次复打之间在此范围内随机等待，模拟人工节奏。'
+              unit='分钟'
+              min={form.re_greet_interval_min}
+              max={form.re_greet_interval_max}
+              onMin={(value) => setNumber("re_greet_interval_min", value)}
+              onMax={(value) => setNumber("re_greet_interval_max", value)}
+            />
+            <CompactNumber
+              label='复打时间范围'
+              help='只复打最近 N 天内打过招呼的候选人，更早的不再打扰。'
+              unit='天'
+              value={form.re_greet_time_range}
+              onChange={(value) => setNumber("re_greet_time_range", value)}
+            />
+            <CompactNumber
+              label='同一候选人最多复打次数'
+              help='达到上限后该候选人不再进入复打名单。'
+              unit='次'
+              value={form.re_greet_max_count}
+              onChange={(value) => setNumber("re_greet_max_count", value)}
             />
           </Stack>
         </SectionPanel>

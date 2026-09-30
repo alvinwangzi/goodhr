@@ -14,6 +14,12 @@ export function agentSupportsAutoReply(health: unknown) {
   return capabilities?.auto_reply === true;
 }
 
+/** agentSupportsReGreet 判断本地程序是否声明了复打招呼能力；老程序缺字段时视为不支持。 */
+export function agentSupportsReGreet(health: unknown) {
+  const capabilities = (health as any)?.capabilities;
+  return capabilities?.re_greet === true;
+}
+
 /** autoReplyEnabledForPlatform 判断平台是否开放 AI 自动回复入口，首批仅 Boss。 */
 export function autoReplyEnabledForPlatform(platformID: unknown) {
   return String(platformID || "").trim().toLowerCase() === "boss";

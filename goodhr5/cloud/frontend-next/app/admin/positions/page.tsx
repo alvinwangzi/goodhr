@@ -56,6 +56,7 @@ import { reportUserFlow } from "@/lib/user-flow";
 import { canUseAI, canUseAutoReply, normalizeSubscription } from "@/lib/subscription";
 import {
   agentSupportsAutoReply,
+  agentSupportsReGreet,
   autoReplyEnabledForPlatform,
   mergeReplyConfig,
   normalizeFAQList,
@@ -166,6 +167,18 @@ export default function PositionsPage() {
     : !startAutoReplyMembershipOK
       ? "当前会员不支持 AI 自动回复，请升级会员后使用。"
       : "自动回复当前岗位的未读消息，不额外占用打招呼数量。";
+  // 复打招呼入口：与自动回复共用平台限制（首批仅 Boss），会员权限复用 canUseAutoReply。
+  const startReGreetPlatformOK = autoReplyEnabledForPlatform(
+    startPositionItem?.platform_id,
+  );
+  const startReGreetMembershipOK = canUseAutoReply(subscription);
+  const startReGreetOptionEnabled =
+    startReGreetPlatformOK && startReGreetMembershipOK;
+  const startReGreetDescription = !startReGreetPlatformOK
+    ? "该平台尚未开放复打招呼。"
+    : !startReGreetMembershipOK
+      ? "当前会员不支持复打招呼，请升级会员后使用。"
+      : "对之前打过招呼但未回复的候选人再发一次招呼，全局配置在个人配置里。";
 
   /** load 读取岗位模板和系统默认提示词。 */
   async function load() {
@@ -569,7 +582,7 @@ export default function PositionsPage() {
         setStartError(message);
         return;
       }
-      if (startTaskType.includes("auto_reply") && !startTaskType.includes("greeting")) {
+      if (startTaskType.includes("auto_reply") && !startTaskType.includes("greeting") && !startTaskType.includes("re_greet")) {
         // 仅自动回复：由本地程序准备消息页，前端只做能力和权限检查。
         if (!agentSupportsAutoReply(health)) {
           const message = "当前本地程序版本还不支持 AI 自动回复，请更新本地程序后重试。";
@@ -585,6 +598,22 @@ export default function PositionsPage() {
           return;
         }
         setStartStatus("正在启动 AI 自动回复，本地程序会自动打开消息页...");
+      } else if (startTaskType.includes("re_greet") && !startTaskType.includes("greeting") && !startTaskType.includes("auto_reply")) {
+        // 仅复打招呼：由本地程序准备消息页并从云端拉复打名单。
+        if (!agentSupportsReGreet(health)) {
+          const message = "当前本地程序版本还不支持复打招呼，请更新本地程序后重试。";
+          setStartStatus(message);
+          setStartError(message);
+          return;
+        }
+        if (!canUseAutoReply(currentSubscription)) {
+          const message = "复打招呼是会员功能，请订阅后重试。";
+          setStartStatus(message);
+          setStartError(message);
+          await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+          return;
+        }
+        setStartStatus("正在启动复打招呼，本地程序会自动打开消息页...");
       } else {
         const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
         setStartStatus("正在打开招聘平台，请确认账号已登录。");
@@ -613,7 +642,13 @@ export default function PositionsPage() {
         return;
       }
       if (!currentSubscription.active) notify("当前是免费版，今天的打招呼数量会按免费额度来，我会省着点用。", "info");
-      setStartStatus(startTaskType.includes("auto_reply") && !startTaskType.includes("greeting") ? "正在启动 AI 自动回复..." : "登录确认好了，正在启动岗位...");
+      setStartStatus(
+        startTaskType.includes("auto_reply") && !startTaskType.includes("greeting") && !startTaskType.includes("re_greet")
+          ? "正在启动 AI 自动回复..."
+          : startTaskType.includes("re_greet") && !startTaskType.includes("greeting") && !startTaskType.includes("auto_reply")
+            ? "正在启动复打招呼..."
+            : "登录确认好了，正在启动岗位...",
+      );
       // 构造 task_type：多选时传逗号分隔字符串，单选打招呼时不传（默认行为）。
       const taskTypePayload = startTaskType.length === 1 && startTaskType[0] === "greeting"
         ? undefined
@@ -1148,7 +1183,7 @@ export default function PositionsPage() {
       <AdminDialog
         open={Boolean(startPositionItem)}
         title={startError ? "岗位还没启动成功" : "开始招聘岗位"}
-        confirmText={startError ? "我知道了" : startRequiresUpdate ? "立即更新" : startTaskType.length > 1 ? "开始运行" : startTaskType.includes("auto_reply") ? "开始 AI 自动回复" : "我已筛选好，立即开始"}
+        confirmText={startError ? "我知道了" : startRequiresUpdate ? "立即更新" : startTaskType.length > 1 ? "开始运行" : startTaskType.includes("auto_reply") && !startTaskType.includes("greeting") ? "开始 AI 自动回复" : startTaskType.includes("re_greet") && !startTaskType.includes("greeting") ? "开始复打招呼" : "我已筛选好，立即开始"}
         showCancel={!startError}
         loading={startLoading}
         loadingText='启动中'
@@ -1221,10 +1256,43 @@ export default function PositionsPage() {
                   </Stack>
                 }
               />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size='small'
+                    checked={startTaskType.includes("re_greet")}
+                    disabled={!startReGreetOptionEnabled}
+                    onChange={(e) =>
+                      setStartTaskType((prev) =>
+                        e.target.checked
+                          ? [...prev, "re_greet"]
+                          : prev.filter((t) => t !== "re_greet"),
+                      )
+                    }
+                  />
+                }
+                label={
+                  <Stack direction='row' spacing={0.75} sx={{ alignItems: 'center' }}>
+                    <span>复打招呼</span>
+                    <Chip
+                      size='small'
+                      label='PRO 用户专享功能'
+                      sx={{
+                        height: 20,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: '#fff',
+                        backgroundColor: 'primary.main',
+                        '& .MuiChip-label': { px: 0.75 },
+                      }}
+                    />
+                  </Stack>
+                }
+              />
             </Stack>
-            {!startAutoReplyOptionEnabled ? (
+            {!startAutoReplyOptionEnabled && !startReGreetOptionEnabled ? (
               <Typography sx={{ fontSize: 12, color: "text.secondary", mt: 0.25 }}>
-                {startAutoReplyDescription}
+                {!startAutoReplyOptionEnabled ? startAutoReplyDescription : startReGreetDescription}
               </Typography>
             ) : null}
           </Box>
