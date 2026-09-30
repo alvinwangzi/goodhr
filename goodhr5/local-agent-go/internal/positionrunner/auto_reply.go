@@ -66,7 +66,7 @@ func normalizeTaskType(value string) (string, error) {
 	if idx := strings.Index(value, ","); idx > 0 {
 		value = strings.TrimSpace(value[:idx])
 	}
-	if value != "greeting" && value != "auto_reply" {
+	if value != "greeting" && value != "auto_reply" && value != "re_greet" {
 		return "", fmt.Errorf("不支持的任务类型")
 	}
 	return value, nil
@@ -86,7 +86,7 @@ func parseTaskTypes(value string) []string {
 		if part == "" || seen[part] {
 			continue
 		}
-		if part != "greeting" && part != "auto_reply" {
+		if part != "greeting" && part != "auto_reply" && part != "re_greet" {
 			continue
 		}
 		seen[part] = true

@@ -103,6 +103,7 @@ type runState struct {
 	cancelReason       string
 	runGreeted         int                         // 本次运行已打招呼数量
 	replyStats         *platformcore.ReplyStats    // 自动回复任务统计，不计入打招呼数量
+	reGreetStats       reGreetStats                // 复打招呼任务统计，不计入打招呼数量
 	pendingDetailClose func(context.Context) error // 当前可能仍打开的候选人详情清理动作
 	// 摸鱼休息状态
 	restMaxTimes  int
@@ -218,6 +219,11 @@ type StartOptions struct {
 	RestTimesMax             int
 	RestDurationMin          float64 // 每次摸鱼休息多少分钟
 	RestDurationMax          float64
+	// 复打招呼全局配置（来自个人配置，所有岗位共用）
+	ReGreetIntervalMin int // 复打最小间隔（分钟）
+	ReGreetIntervalMax int // 复打最大间隔（分钟）
+	ReGreetTimeRange   int // 复打时间范围（天）
+	ReGreetMaxCount    int // 同一候选人最多被复打次数
 	// 提示音和通知
 	EnableSound    bool   `json:"enable_sound"`     // 是否开启提示音
 	EmailForNotify string `json:"email_for_notify"` // 失败通知邮箱

@@ -346,7 +346,7 @@ func (c *Client) SyncTaskStatus(ctx context.Context, token, positionID string, r
 	request.MachineID = strings.TrimSpace(request.MachineID)
 	request.Greeted = max(0, request.Greeted)
 	request.Skipped = max(0, request.Skipped)
-	if request.TaskType == "auto_reply" { request.Greeted = 0 }
+	if request.TaskType == "auto_reply" || request.TaskType == "re_greet" { request.Greeted = 0 }
 	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/status", request)
 	if err != nil {
 		return PositionStatusSyncResult{}, fmt.Errorf("同步云端岗位运行状态失败：%w", err)
@@ -354,11 +354,15 @@ func (c *Client) SyncTaskStatus(ctx context.Context, token, positionID string, r
 	if code >= 400 {
 		return PositionStatusSyncResult{}, fmt.Errorf("%s", cloudMessage(payload, "同步云端岗位运行状态失败"))
 	}
-	if request.TaskType == "auto_reply" {
+	if request.TaskType == "auto_reply" || request.TaskType == "re_greet" {
 		allowed, _ := payload["ok"].(bool)
 		runID := strings.TrimSpace(stringFromMap(payload, "run_id"))
 		if !allowed || stringFromMap(payload, "status") != status || runID == "" || (request.RunID != "" && runID != request.RunID) {
-			return PositionStatusSyncResult{}, fmt.Errorf("云端未确认本次自动回复许可或运行记录")
+			taskLabel := "自动回复"
+			if request.TaskType == "re_greet" {
+				taskLabel = "复打招呼"
+			}
+			return PositionStatusSyncResult{}, fmt.Errorf("云端未确认本次%s许可或运行记录", taskLabel)
 		}
 	}
 	noticeSent, _ := payload["notice_sent"].(bool)
@@ -518,6 +522,91 @@ func (c *Client) FindScreeningByName(ctx context.Context, token string, position
 		Source:              stringFromMap(data, "source"),
 	}
 	return result, nil
+}
+
+// ReGreetCandidate 表示云端返回的复打招呼候选人。
+type ReGreetCandidate struct {
+	ID                  string `json:"id"`
+	PositionID          string `json:"position_id"`
+	Platform            string `json:"platform"`
+	PlatformCandidateID string `json:"platform_candidate_id"`
+	CandidateName       string `json:"candidate_name"`
+	ReGreetCount        int    `json:"re_greet_count"`
+}
+
+// FetchReGreetCandidates 从云端拉取当前岗位的复打招呼候选名单。
+// timeRangeDays 为复打时间范围（天），intervalMinMinutes 为最小间隔（分钟），maxCount 为复打次数上限。
+func (c *Client) FetchReGreetCandidates(ctx context.Context, token string, positionID string, platform string, timeRangeDays int, intervalMinMinutes int, maxCount int) ([]ReGreetCandidate, error) {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return nil, fmt.Errorf("岗位 ID 不能为空")
+	}
+	if platform == "" {
+		platform = "boss"
+	}
+	body := map[string]any{
+		"platform":             platform,
+		"time_range_days":      timeRangeDays,
+		"interval_min_minutes": intervalMinMinutes,
+		"max_count":            maxCount,
+	}
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/re-greet-candidates", body)
+	if err != nil {
+		return nil, fmt.Errorf("拉取复打名单失败：%w", err)
+	}
+	if code >= 400 {
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "拉取复打名单失败"))
+	}
+	rawItems, _ := payload["items"].([]any)
+	items := make([]ReGreetCandidate, 0, len(rawItems))
+	for _, raw := range rawItems {
+		data, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		items = append(items, ReGreetCandidate{
+			ID:                  stringFromMap(data, "id"),
+			PositionID:          stringFromMap(data, "position_id"),
+			Platform:            stringFromMap(data, "platform"),
+			PlatformCandidateID: stringFromMap(data, "platform_candidate_id"),
+			CandidateName:       stringFromMap(data, "candidate_name"),
+			ReGreetCount:        intFromMap(data, "re_greet_count"),
+		})
+	}
+	return items, nil
+}
+
+// ReportReGreetResult 上报单个候选人的复打招呼结果。
+// success 为 true 时云端会将 last_re_greeted_at 更新为 now() 并对 re_greet_count +1。
+func (c *Client) ReportReGreetResult(ctx context.Context, token string, positionID string, platform string, candidateID string, candidateName string, success bool, reason string) error {
+	positionID = strings.TrimSpace(positionID)
+	if positionID == "" {
+		return fmt.Errorf("岗位 ID 不能为空")
+	}
+	candidateID = strings.TrimSpace(candidateID)
+	if candidateID == "" {
+		return fmt.Errorf("候选人 ID 不能为空")
+	}
+	if platform == "" {
+		platform = "boss"
+	}
+	body := map[string]any{
+		"platform":              platform,
+		"platform_candidate_id": candidateID,
+		"candidate_name":        candidateName,
+		"success":               success,
+	}
+	if reason != "" {
+		body["reason"] = reason
+	}
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/re-greet-report", body)
+	if err != nil {
+		return fmt.Errorf("上报复打结果失败：%w", err)
+	}
+	if code >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "上报复打结果失败"))
+	}
+	return nil
 }
 
 // getAuthed 使用 Bearer Token 请求云端接口。

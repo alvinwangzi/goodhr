@@ -32,7 +32,8 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	// 保留原始多选值供 runPosition 解析，只用 normalized 做启动阶段的即时判断。
 	_ = taskType
 	taskTypes := parseTaskTypes(options.TaskType)
-	onlyAutoReply := hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting")
+	onlyAutoReply := hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "re_greet")
+	onlyReGreet := hasTaskType(taskTypes, "re_greet") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "auto_reply")
 	client := cloudapi.New(options.CloudAPIBase)
 	cloudPosition, err := client.FetchPosition(ctx, options.Token, positionID)
 	if err != nil {
@@ -54,6 +55,20 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		}
 		if err := runtime.AutoReplyAvailable(); err != nil {
 			return nil, fmt.Errorf("AI 自动回复暂未开放：%w", err)
+		}
+	}
+	if onlyReGreet {
+		// 复打招呼同样需要平台支持会话操作（Boss 直聘复用消息会话能力）。
+		platformRuntime, err := platforms.RuntimeFor(position.PlatformID)
+		if err != nil {
+			return nil, err
+		}
+		runtime, ok := platformRuntime.(platformcore.AutoReplyRuntime)
+		if !ok {
+			return nil, fmt.Errorf("当前平台暂不支持复打招呼")
+		}
+		if err := runtime.AutoReplyAvailable(); err != nil {
+			return nil, fmt.Errorf("复打招呼暂未开放：%w", err)
 		}
 	}
 	r.positionLog(positionID, "info", "岗位运行启动：正在准备本地运行环境")
@@ -94,19 +109,25 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		return nil, err
 	}
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if onlyAutoReply {
-		// 纯自动回复必须得到云端明确许可和非空执行任务记录 ID，失败不沿用只记警告继续运行的行为。
-		syncResult, syncErr := client.SyncTaskStatus(syncCtx, options.Token, positionID, cloudapi.TaskStatusRequest{Status: "running", TaskType: "auto_reply", MachineID: options.MachineID})
+	if onlyAutoReply || onlyReGreet {
+		// 纯自动回复 / 纯复打招呼必须得到云端明确许可和非空执行任务记录 ID，失败不沿用只记警告继续运行的行为。
+		taskTypeForSync := "auto_reply"
+		taskLabel := "自动回复"
+		if onlyReGreet {
+			taskTypeForSync = "re_greet"
+			taskLabel = "复打招呼"
+		}
+		syncResult, syncErr := client.SyncTaskStatus(syncCtx, options.Token, positionID, cloudapi.TaskStatusRequest{Status: "running", TaskType: taskTypeForSync, MachineID: options.MachineID})
 		if syncErr != nil {
 			syncCancel()
-			r.positionLog(positionID, "error", "岗位运行启动：云端未允许自动回复，错误="+syncErr.Error())
+			r.positionLog(positionID, "error", "岗位运行启动：云端未允许"+taskLabel+"，错误="+syncErr.Error())
 			_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
 			r.clear(positionID)
-			return nil, fmt.Errorf("云端未允许自动回复，任务未开始：%w", syncErr)
+			return nil, fmt.Errorf("云端未允许%s，任务未开始：%w", taskLabel, syncErr)
 		}
 		snapshot.Options.CloudRunID = syncResult.RunID
 		options.CloudRunID = syncResult.RunID
-		r.positionLog(positionID, "info", "岗位运行启动：云端已许可自动回复，本次执行任务记录 ID="+syncResult.RunID)
+		r.positionLog(positionID, "info", "岗位运行启动：云端已许可"+taskLabel+"，本次执行任务记录 ID="+syncResult.RunID)
 	} else if syncResult, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running", options.MachineID); syncErr != nil {
 		r.positionLog(positionID, "warning", "岗位运行启动：云端运行状态同步失败，错误="+syncErr.Error())
 	} else if strings.TrimSpace(syncResult.RunID) != "" {
@@ -134,10 +155,16 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	options.EnableSound = position.EnableSound
 	r.updateRunOptions(positionID, options)
 	taskTypes := parseTaskTypes(options.TaskType)
-	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") {
+	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "re_greet") {
 		// 纯自动回复独立编排：不进入候选人扫描、休息和收尾求简历流程。
 		r.updateProgress(positionID, Progress{Stage: "running", Message: "自动回复已开始执行", TotalRounds: scanRounds(options)})
 		r.runAutoReplyTask(ctx, position, options)
+		return
+	}
+	if hasTaskType(taskTypes, "re_greet") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "auto_reply") {
+		// 纯复打招呼独立编排：从云端拉复打名单，逐个发送后上报结果。
+		r.updateProgress(positionID, Progress{Stage: "running", Message: "复打招呼已开始执行", TotalRounds: scanRounds(options)})
+		r.runReGreetTask(ctx, position, options, snapshot)
 		return
 	}
 	r.initRestState(positionID, options)

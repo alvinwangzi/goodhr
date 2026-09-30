@@ -214,7 +214,7 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 	if client == nil {
 		return PositionRuntimeSnapshot{}, fmt.Errorf("云端客户端未初始化")
 	}
-	requiresAI := positionRequiresAI(position) || hasTaskType(parseTaskTypes(options.TaskType), "auto_reply")
+	requiresAI := positionRequiresAI(position) || hasTaskType(parseTaskTypes(options.TaskType), "auto_reply") || hasTaskType(parseTaskTypes(options.TaskType), "re_greet")
 	r.positionLog(positionID, "info", "岗位运行启动：正在校验会员状态")
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
@@ -257,9 +257,12 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 
 	var platformConfig cloudapi.PlatformConfig
 	taskTypes := parseTaskTypes(options.TaskType)
-	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") {
+	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "re_greet") {
 		// 纯自动回复模式不需要平台扫描配置，使用本地内嵌消息配置即可。
 		r.positionLog(positionID, "info", "岗位运行启动：纯自动回复模式，跳过平台扫描配置读取")
+	} else if hasTaskType(taskTypes, "re_greet") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "auto_reply") {
+		// 纯复打招呼模式不需要平台扫描配置，复打名单从云端拉取。
+		r.positionLog(positionID, "info", "岗位运行启动：纯复打招呼模式，跳过平台扫描配置读取")
 	} else {
 		r.updateProgress(positionID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
 		platformID := strings.ToLower(strings.TrimSpace(position.PlatformID))
@@ -355,6 +358,10 @@ func applyCloudPreferences(options StartOptions, preferences map[string]any) Sta
 	options.RestTimesMax = intFromMapOr(preferences, "rest_times_max", options.RestTimesMax)
 	options.RestDurationMin = floatFromMapOr(preferences, "rest_duration_min", options.RestDurationMin)
 	options.RestDurationMax = floatFromMapOr(preferences, "rest_duration_max", options.RestDurationMax)
+	options.ReGreetIntervalMin = intFromMapOr(preferences, "re_greet_interval_min", options.ReGreetIntervalMin)
+	options.ReGreetIntervalMax = intFromMapOr(preferences, "re_greet_interval_max", options.ReGreetIntervalMax)
+	options.ReGreetTimeRange = intFromMapOr(preferences, "re_greet_time_range", options.ReGreetTimeRange)
+	options.ReGreetMaxCount = intFromMapOr(preferences, "re_greet_max_count", options.ReGreetMaxCount)
 	return options
 }
 
