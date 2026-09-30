@@ -32,6 +32,10 @@ type UserPreferences struct {
 	RestTimesMax           int
 	RestDurationMin        float64
 	RestDurationMax        float64
+	ReGreetIntervalMin     int
+	ReGreetIntervalMax     int
+	ReGreetTimeRange       int
+	ReGreetMaxCount        int
 	UpdatedAt              time.Time
 }
 
@@ -60,6 +64,10 @@ func DefaultUserPreferences() UserPreferences {
 		RestTimesMax:           3,
 		RestDurationMin:        2,
 		RestDurationMax:        7,
+		ReGreetIntervalMin:     30,
+		ReGreetIntervalMax:     50,
+		ReGreetTimeRange:       7,
+		ReGreetMaxCount:        1,
 	}
 }
 
@@ -126,6 +134,8 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		       up.rest_after_candidates_min, up.rest_after_candidates_max,
 		       up.rest_times_min, up.rest_times_max,
 		       up.rest_duration_min, up.rest_duration_max,
+		       up.re_greet_interval_min, up.re_greet_interval_max,
+		       up.re_greet_time_range, up.re_greet_max_count,
 		       up.updated_at
 		FROM user_preferences up
 		INNER JOIN users u ON u.id = up.user_id
@@ -156,6 +166,10 @@ func (s *PostgresUserPreferencesStore) UserPreferences(userEmail string) (UserPr
 		&prefs.RestTimesMax,
 		&prefs.RestDurationMin,
 		&prefs.RestDurationMax,
+		&prefs.ReGreetIntervalMin,
+		&prefs.ReGreetIntervalMax,
+		&prefs.ReGreetTimeRange,
+		&prefs.ReGreetMaxCount,
 		&prefs.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -191,9 +205,11 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			greet_before_delay_min, greet_before_delay_max,
 			rest_after_candidates_min, rest_after_candidates_max,
 			rest_times_min, rest_times_max,
-			rest_duration_min, rest_duration_max
+			rest_duration_min, rest_duration_max,
+			re_greet_interval_min, re_greet_interval_max,
+			re_greet_time_range, re_greet_max_count
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
 		ON CONFLICT (user_id)
 		DO UPDATE SET
 			ai_model = EXCLUDED.ai_model,
@@ -219,6 +235,10 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 			rest_times_max = EXCLUDED.rest_times_max,
 			rest_duration_min = EXCLUDED.rest_duration_min,
 			rest_duration_max = EXCLUDED.rest_duration_max,
+			re_greet_interval_min = EXCLUDED.re_greet_interval_min,
+			re_greet_interval_max = EXCLUDED.re_greet_interval_max,
+			re_greet_time_range = EXCLUDED.re_greet_time_range,
+			re_greet_max_count = EXCLUDED.re_greet_max_count,
 			updated_at = now()
 		RETURNING ai_model, click_frequency, detail_open_probability,
 		          scroll_delay_min, scroll_delay_max,
@@ -231,6 +251,8 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		          rest_after_candidates_min, rest_after_candidates_max,
 		          rest_times_min, rest_times_max,
 		          rest_duration_min, rest_duration_max,
+		          re_greet_interval_min, re_greet_interval_max,
+		          re_greet_time_range, re_greet_max_count,
 		          updated_at
 		`,
 		userID,
@@ -257,6 +279,10 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		prefs.RestTimesMax,
 		prefs.RestDurationMin,
 		prefs.RestDurationMax,
+		prefs.ReGreetIntervalMin,
+		prefs.ReGreetIntervalMax,
+		prefs.ReGreetTimeRange,
+		prefs.ReGreetMaxCount,
 	).Scan(
 		&saved.AIModel,
 		&saved.ClickFrequency,
@@ -281,6 +307,10 @@ func (s *PostgresUserPreferencesStore) SaveUserPreferences(userEmail string, pre
 		&saved.RestTimesMax,
 		&saved.RestDurationMin,
 		&saved.RestDurationMax,
+		&saved.ReGreetIntervalMin,
+		&saved.ReGreetIntervalMax,
+		&saved.ReGreetTimeRange,
+		&saved.ReGreetMaxCount,
 		&saved.UpdatedAt,
 	)
 	if err != nil {

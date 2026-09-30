@@ -36,6 +36,10 @@ type userPreferencesRequest struct {
 	RestTimesMax           int     `json:"rest_times_max"`
 	RestDurationMin        float64 `json:"rest_duration_min"`
 	RestDurationMax        float64 `json:"rest_duration_max"`
+	ReGreetIntervalMin     int     `json:"re_greet_interval_min"`
+	ReGreetIntervalMax     int     `json:"re_greet_interval_max"`
+	ReGreetTimeRange       int     `json:"re_greet_time_range"`
+	ReGreetMaxCount        int     `json:"re_greet_max_count"`
 }
 
 func NewUserPreferencesService(auth *AuthService, store UserPreferencesStore) *UserPreferencesService {
@@ -140,6 +144,10 @@ func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPrefer
 	prefs.RestTimesMax = r.RestTimesMax
 	prefs.RestDurationMin = r.RestDurationMin
 	prefs.RestDurationMax = r.RestDurationMax
+	prefs.ReGreetIntervalMin = r.ReGreetIntervalMin
+	prefs.ReGreetIntervalMax = r.ReGreetIntervalMax
+	prefs.ReGreetTimeRange = r.ReGreetTimeRange
+	prefs.ReGreetMaxCount = r.ReGreetMaxCount
 	if prefs.ClickFrequency < 0 || prefs.ClickFrequency > 100 {
 		writeError(w, http.StatusBadRequest, "click_frequency must be between 0 and 100")
 		return UserPreferences{}, false
@@ -180,6 +188,18 @@ func (r userPreferencesRequest) toPreferences(w http.ResponseWriter) (UserPrefer
 		writeError(w, http.StatusBadRequest, "invalid rest duration range")
 		return UserPreferences{}, false
 	}
+	if prefs.ReGreetIntervalMin < 0 || prefs.ReGreetIntervalMax < prefs.ReGreetIntervalMin {
+		writeError(w, http.StatusBadRequest, "invalid re_greet interval range")
+		return UserPreferences{}, false
+	}
+	if prefs.ReGreetTimeRange < 0 {
+		writeError(w, http.StatusBadRequest, "re_greet_time_range must be non-negative")
+		return UserPreferences{}, false
+	}
+	if prefs.ReGreetMaxCount < 0 {
+		writeError(w, http.StatusBadRequest, "re_greet_max_count must be non-negative")
+		return UserPreferences{}, false
+	}
 	return prefs, true
 }
 
@@ -213,6 +233,10 @@ func publicUserPreferences(prefs UserPreferences) map[string]any {
 		"rest_times_max":            prefs.RestTimesMax,
 		"rest_duration_min":         prefs.RestDurationMin,
 		"rest_duration_max":         prefs.RestDurationMax,
+		"re_greet_interval_min":     prefs.ReGreetIntervalMin,
+		"re_greet_interval_max":     prefs.ReGreetIntervalMax,
+		"re_greet_time_range":       prefs.ReGreetTimeRange,
+		"re_greet_max_count":        prefs.ReGreetMaxCount,
 		"updated_at":                prefs.UpdatedAt,
 	}
 }
