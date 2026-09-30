@@ -169,7 +169,8 @@ func (s *ActivationCodeService) Redeem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "会员套餐配置读取失败，请刷新后重试")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "code": code, "subscription": publicSubscriptionAccess(access)})
+	// 键名用 activation_code，避免与状态码语义的 code 冲突（前端会把 code 当数字解析）。
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "activation_code": code, "subscription": publicSubscriptionAccess(access)})
 }
 
 // generateActivationCode 生成便于复制输入的激活码。

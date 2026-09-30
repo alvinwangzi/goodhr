@@ -97,8 +97,8 @@ export default function SubscriptionPage() {
     ? estimateSubscriptionQuote(subscription, plans, pendingPlan)
     : null;
 
-  /** loadSummary 读取会员套餐、支付记录和 AI 余额摘要。 */
-  async function loadSummary() {
+  /** loadSummary 读取会员套餐、支付记录和 AI 余额摘要。silent 为 true 时不弹错误提示。 */
+  async function loadSummary(silent = false) {
     setLoading(true);
     try {
       const [planData, orderData, walletData, aiConfigData] = await Promise.all(
@@ -116,19 +116,21 @@ export default function SubscriptionPage() {
       setAIConfig(config);
       setCurrentAIModel(config.model || "");
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "订阅信息读取失败，我再试也得先缓缓。",
-        "error",
-      );
+      if (!silent) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "订阅信息读取失败，我再试也得先缓缓。",
+          "error",
+        );
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  /** loadAIRecords 分页读取 AI 使用记录。 */
-  async function loadAIRecords() {
+  /** loadAIRecords 分页读取 AI 使用记录。silent 为 true 时不弹错误提示。 */
+  async function loadAIRecords(silent = false) {
     setAILoading(true);
     try {
       const params = new URLSearchParams({
@@ -141,12 +143,14 @@ export default function SubscriptionPage() {
       setAIRecords(Array.isArray(data.records) ? data.records : []);
       setAITotal(Number(data.total || 0));
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "AI 使用记录读取失败，请稍后重试。",
-        "error",
-      );
+      if (!silent) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "AI 使用记录读取失败，请稍后重试。",
+          "error",
+        );
+      }
     } finally {
       setAILoading(false);
     }
@@ -160,9 +164,9 @@ export default function SubscriptionPage() {
     void loadAIRecords();
   }, [aiPage]);
 
-  /** refreshAll 刷新订阅页全部信息。 */
-  async function refreshAll() {
-    await Promise.all([loadSummary(), loadAIRecords(), refreshSession()]);
+  /** refreshAll 刷新订阅页全部信息。silent 为 true 时子请求失败不弹提示。 */
+  async function refreshAll(silent = false) {
+    await Promise.all([loadSummary(silent), loadAIRecords(silent), refreshSession()]);
   }
 
   /** redeem 兑换会员激活码。 */
@@ -174,15 +178,17 @@ export default function SubscriptionPage() {
         method: "POST",
         body: { code: value },
       });
-      setCode("");
-      notify("激活成功，会员时间已到账。", "success");
-      await refreshAll();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "激活码没通过，我也有点尴尬。",
         "error",
       );
+      return;
     }
+    setCode("");
+    notify("激活成功，会员时间已到账。", "success");
+    // 静默刷新，失败不弹提示，避免覆盖激活成功的消息。
+    refreshAll(true).catch(() => {});
   }
 
   /** pay 创建会员套餐支付订单。 */
@@ -200,8 +206,6 @@ export default function SubscriptionPage() {
         setWechatPayment(wechatPaymentFromResponse(data, "会员订阅"));
         notify("微信支付二维码准备好了，扫一下就行。", "success");
       }
-      await loadSummary();
-      await refreshSession();
     } catch (error) {
       notify(
         error instanceof Error
@@ -209,9 +213,13 @@ export default function SubscriptionPage() {
           : "订单创建失败，请重试。",
         "error",
       );
+      return;
     } finally {
       setPayingPlanID("");
     }
+    // 支付成功后静默刷新，失败不弹提示。
+    loadSummary(true).catch(() => {});
+    refreshSession().catch(() => {});
   }
 
   /** requestPlanPayment 在创建会员订单前打开费用区别和退款政策确认框。 */
