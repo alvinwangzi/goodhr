@@ -266,6 +266,14 @@ func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/re-greet-candidates") {
+		s.positionExecution.ListReGreetCandidates(w, r)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/re-greet-report") {
+		s.positionExecution.ReportReGreet(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/counts") {
 		s.positionExecution.SyncPositionCounts(w, r)
 		return

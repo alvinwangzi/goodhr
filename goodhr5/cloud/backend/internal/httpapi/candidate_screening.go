@@ -59,6 +59,11 @@ func (s *PositionExecutionService) UpsertScreenings(w http.ResponseWriter, r *ht
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// 打招呼流程（source='greeting' 且 status='passed'）上报时自动标记 greeted_at，
+		// 其他流程（auto_reply / re_greet）不上报 greeted_at，避免覆盖原值。
+		if item.Source == "greeting" && item.Status == "passed" {
+			item.SetGreetedAt = true
+		}
 		result, err := s.screeningStore.UpsertScreening(r.Context(), item, position.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to upsert screening: "+err.Error())
@@ -184,4 +189,149 @@ func (s *PositionExecutionService) ListScreenings(w http.ResponseWriter, r *http
 		"limit":  limit,
 		"offset": offset,
 	})
+}
+
+// reGreetCandidatesRequest 表示查询复打招呼候选名单的请求体。
+type reGreetCandidatesRequest struct {
+	Platform           string `json:"platform"`
+	TimeRangeDays      int    `json:"time_range_days"`
+	IntervalMinMinutes int    `json:"interval_min_minutes"`
+	MaxCount           int    `json:"max_count"`
+}
+
+// ListReGreetCandidates 查询复打招呼候选名单。
+// 路径格式：/api/positions/{positionID}/re-greet-candidates
+func (s *PositionExecutionService) ListReGreetCandidates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	if s.screeningStore == nil {
+		writeError(w, http.StatusInternalServerError, "screening store is not ready")
+		return
+	}
+	positionID := positionSubresourceReGreetID(r.URL.Path)
+	if positionID == "" {
+		writeError(w, http.StatusBadRequest, "position id is required")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	position, err := s.store.PositionByID(tenantID, session.Email, positionID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "position not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load position")
+		return
+	}
+	var req reGreetCandidatesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	platform := strings.TrimSpace(req.Platform)
+	if platform == "" {
+		platform = "boss"
+	}
+	if req.TimeRangeDays <= 0 {
+		req.TimeRangeDays = 7
+	}
+	if req.IntervalMinMinutes <= 0 {
+		req.IntervalMinMinutes = 30
+	}
+	if req.MaxCount <= 0 {
+		req.MaxCount = 1
+	}
+	items, err := s.screeningStore.ListReGreetCandidates(r.Context(), position.ID, platform, req.TimeRangeDays, req.IntervalMinMinutes, req.MaxCount)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list re-greet candidates: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":    true,
+		"items": items,
+	})
+}
+
+// reportReGreetRequest 表示复打招呼结果上报的请求体。
+type reportReGreetRequest struct {
+	Platform            string   `json:"platform"`
+	PlatformCandidateID string   `json:"platform_candidate_id"`
+	CandidateName       string   `json:"candidate_name"`
+	Success             bool     `json:"success"`
+	Reason              string   `json:"reason,omitempty"`
+	SkippedIDs          []string `json:"skipped_ids,omitempty"`
+}
+
+// ReportReGreet 上报单个候选人的复打招呼结果。
+// 成功时云端将 last_re_greeted_at 更新为 now() 并对 re_greet_count +1；失败时仅记录日志不更新计数。
+// 路径格式：/api/positions/{positionID}/re-greet-report
+func (s *PositionExecutionService) ReportReGreet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	session, ok := s.currentSession(w, r)
+	if !ok {
+		return
+	}
+	if s.screeningStore == nil {
+		writeError(w, http.StatusInternalServerError, "screening store is not ready")
+		return
+	}
+	positionID := positionSubresourceReGreetID(r.URL.Path)
+	if positionID == "" {
+		writeError(w, http.StatusBadRequest, "position id is required")
+		return
+	}
+	tenantID, isAdmin := s.getTenantInfo(session.Email)
+	position, err := s.store.PositionByID(tenantID, session.Email, positionID, isAdmin)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "position not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load position")
+		return
+	}
+	var req reportReGreetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	platform := strings.TrimSpace(req.Platform)
+	if platform == "" {
+		platform = "boss"
+	}
+	candidateID := strings.TrimSpace(req.PlatformCandidateID)
+	if candidateID == "" {
+		writeError(w, http.StatusBadRequest, "platform_candidate_id 不能为空")
+		return
+	}
+	var affected int64
+	if req.Success {
+		affected, err = s.screeningStore.MarkReGreetDone(r.Context(), position.ID, platform, []string{candidateID})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to mark re-greet done: "+err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"affected": affected,
+	})
+}
+
+// positionSubresourceReGreetID 从复打招呼相关路径中提取岗位 ID。
+// 支持 /api/positions/{id}/re-greet-candidates 与 /api/positions/{id}/re-greet-report 两种形式。
+func positionSubresourceReGreetID(path string) string {
+	text := strings.Trim(strings.TrimPrefix(path, "/api/positions/"), "/")
+	parts := strings.Split(text, "/")
+	if len(parts) >= 2 && (parts[1] == "re-greet-candidates" || parts[1] == "re-greet-report") {
+		return strings.TrimSpace(parts[0])
+	}
+	return ""
 }
