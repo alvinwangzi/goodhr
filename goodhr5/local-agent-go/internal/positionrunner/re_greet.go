@@ -29,7 +29,12 @@ func (r *Runner) runReGreetTask(ctx context.Context, position localdb.Position, 
 		r.failStart(positionID, err.Error(), options)
 		return
 	}
-	runtime, ok := platformRuntime.(platformcore.AutoReplyRuntime)
+	runtime, ok := platformRuntime.(platformcore.ReGreetRuntime)
+	if !ok {
+		r.failStart(positionID, "当前平台暂不支持复打招呼", options)
+		return
+	}
+	pageRuntime, ok := platformRuntime.(platformcore.AutoReplyRuntime)
 	if !ok {
 		r.failStart(positionID, "当前平台暂不支持复打招呼", options)
 		return
@@ -39,11 +44,12 @@ func (r *Runner) runReGreetTask(ctx context.Context, position localdb.Position, 
 		r.failStart(positionID, err.Error(), options)
 		return
 	}
-	r.runReGreet(ctx, position, options, snapshot, runtime, generator)
+	r.runReGreet(ctx, position, options, snapshot, pageRuntime, runtime, generator)
 }
 
 // runReGreet 执行复打招呼任务：启动浏览器 → 拉云端名单 → 逐个 AI 生成并发送 → 上报结果。
-func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, options StartOptions, snapshot PositionRuntimeSnapshot, runtime platformcore.AutoReplyRuntime, generator replyGenerator) {
+// pageRuntime 承担消息页准备与岗位核对；runtime 承担复打定位、输入、发送与确认。
+func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, options StartOptions, snapshot PositionRuntimeSnapshot, pageRuntime platformcore.AutoReplyRuntime, runtime platformcore.ReGreetRuntime, generator replyGenerator) {
 	positionID := position.ID
 	totalRounds := scanRounds(options)
 	prefs := extractReGreetPrefs(options)
@@ -89,13 +95,13 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	}
 
 	r.positionLog(positionID, "info", "复打招呼启动：正在打开消息页并核对岗位")
-	if err := runtime.PrepareReplyPage(ctx, exec); err != nil {
+	if err := pageRuntime.PrepareReplyPage(ctx, exec); err != nil {
 		r.failStart(positionID, "消息页准备失败："+err.Error(), options)
 		return
 	}
 	name := positionPositionName(position)
 	r.positionLog(positionID, "info", "复打招呼核对岗位：岗位名="+name)
-	target, err := runtime.ResolveReplyTarget(ctx, exec, name)
+	target, err := pageRuntime.ResolveReplyTarget(ctx, exec, name)
 	if err != nil {
 		r.positionLog(positionID, "error", "复打招呼岗位核对失败：岗位名="+name+"，错误="+err.Error())
 		r.failStart(positionID, "页面岗位核对失败："+err.Error(), options)
@@ -140,47 +146,93 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			stopped("复打招呼已停止")
 			return
 		}
-		r.positionLog(positionID, "info", fmt.Sprintf("复打招呼进度 [%d/%d]：候选人=%s（%s）", i+1, len(candidates), candidate.CandidateName, candidate.PlatformCandidateID))
+		candidateName := candidate.CandidateName
+		r.positionLog(positionID, "info", fmt.Sprintf("复打招呼进度 [%d/%d]：候选人=%s（%s）", i+1, len(candidates), candidateName, candidate.PlatformCandidateID))
 
-		// TODO(平台适配)：当前 AutoReplyRuntime 没有"打开指定候选人会话"的方法，
-		// 复打招呼需要在平台层实现"按 platform_candidate_id 定位并打开会话"的能力。
-		// 在平台实现前，本循环仅完成 AI 生成与云端上报，不实际发送。
+		// 通过搜索框定位候选人会话
+		conversation, locateErr := runtime.LocateReplyConversation(ctx, exec, candidateName)
+		if locateErr != nil {
+			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼定位候选人失败（%s）：%v", candidateName, locateErr))
+			stats.failed++
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "locate_failed")
+			r.updateReGreetStats(positionID, stats)
+			continue
+		}
+
+		// 读取当前面板上下文（聊天历史），同时作为发送前基线用于成功确认。
+		beforeCtx, readErr := runtime.ReadOpenedReplyContext(ctx, exec, target, conversation)
+		if readErr != nil {
+			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼读取会话上下文失败（%s）：%v", candidateName, readErr))
+			stats.failed++
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "read_context_failed")
+			r.updateReGreetStats(positionID, stats)
+			continue
+		}
+
+		// 组装聊天历史文本
+		conversationHistory := buildConversationHistory(beforeCtx.Messages)
+
+		// AI 生成复打消息
 		decision, genErr := generator.GenerateReGreet(ctx, localai.ReGreetRequest{
 			ReGreetPrompt:       reGreetPrompt,
-			CandidateName:       candidate.CandidateName,
+			CandidateName:       candidateName,
 			PositionRequirement: positionRequirement(position),
-			// TODO(平台适配)：平台层实现后填入 GreetMessage 和 ConversationHistory
-			SkipRefusedCheck: false,
+			GreetMessage:        "", // TODO: 从云端获取首次打招呼消息
+			ConversationHistory: conversationHistory,
+			SkipRefusedCheck:    false,
 		})
 		if genErr != nil {
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼 AI 生成失败（%s）：%v", candidate.CandidateName, genErr))
+			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼 AI 生成失败（%s）：%v", candidateName, genErr))
 			stats.failed++
-			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidate.CandidateName, false, "ai_generate_failed")
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "ai_generate_failed")
 			r.updateReGreetStats(positionID, stats)
 			continue
 		}
 		if decision.IsRefused {
-			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼候选人已拒绝（%s）：%s", candidate.CandidateName, decision.RefuseReason))
+			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼候选人已拒绝（%s）：%s", candidateName, decision.RefuseReason))
 			stats.skipped++
-			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidate.CandidateName, false, "skipped_refused")
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "skipped_refused")
 			r.updateReGreetStats(positionID, stats)
 			continue
 		}
 		text := strings.TrimSpace(decision.Message)
 		if !decision.ShouldSend || text == "" {
-			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼 AI 决定跳过（%s）", candidate.CandidateName))
+			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼 AI 决定跳过（%s）", candidateName))
 			stats.skipped++
-			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidate.CandidateName, false, "ai_skip")
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "ai_skip")
 			r.updateReGreetStats(positionID, stats)
 			continue
 		}
-		// TODO(平台适配)：在此处调用 runtime.SendReGreet(ctx, exec, target, candidate, text)
-		// 当前平台层尚未实现该方法，暂按"成功发送"占位，待平台适配后替换为真实浏览器操作。
-		r.positionLog(positionID, "info", fmt.Sprintf("复打招呼（占位）已向 %s 发送：%s", candidate.CandidateName, text))
+
+		// 发送复打消息：输入 → 发送 → 面板新增出站文本确认
+		if stageErr := runtime.StageReGreet(ctx, exec, target, conversation, text); stageErr != nil {
+			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼输入消息失败（%s）：%v", candidateName, stageErr))
+			stats.failed++
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "stage_failed")
+			r.updateReGreetStats(positionID, stats)
+			continue
+		}
+		if sendErr := runtime.SendReGreet(ctx, exec, target, conversation, text); sendErr != nil {
+			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼发送失败（%s）：%v", candidateName, sendErr))
+			stats.failed++
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "send_failed")
+			r.updateReGreetStats(positionID, stats)
+			continue
+		}
+		confirmed, confirmErr := runtime.ConfirmReGreet(ctx, exec, target, conversation, beforeCtx, text)
+		if confirmErr != nil || !confirmed {
+			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼发送未确认（%s）：err=%v", candidateName, confirmErr))
+			stats.failed++
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, false, "send_unconfirmed")
+			r.updateReGreetStats(positionID, stats)
+			continue
+		}
+
+		r.positionLog(positionID, "info", fmt.Sprintf("复打招呼已发送：%s → %s", candidateName, text))
 		stats.sent++
-		reportErr := cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidate.CandidateName, true, "")
+		reportErr := cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidateName, true, "")
 		if reportErr != nil {
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼上报失败（%s）：%v", candidate.CandidateName, reportErr))
+			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼上报失败（%s）：%v", candidateName, reportErr))
 		}
 		r.updateReGreetStats(positionID, stats)
 
@@ -293,4 +345,22 @@ func positionReGreetPrompt(position localdb.Position, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// buildConversationHistory 将消息列表组装为聊天历史文本，供 AI 生成复打消息时参考。
+func buildConversationHistory(messages []platformcore.ReplyMessage) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, msg := range messages {
+		role := "候选人"
+		if msg.Direction == "outbound" {
+			role = "我"
+		}
+		if msg.Text != "" {
+			sb.WriteString(fmt.Sprintf("%s: %s\n", role, msg.Text))
+		}
+	}
+	return strings.TrimSpace(sb.String())
 }

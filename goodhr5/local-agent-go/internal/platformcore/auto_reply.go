@@ -112,6 +112,25 @@ type AutoReplyRuntime interface {
 	AcceptPendingResumeOffer(ctx context.Context, exec Executor) error
 }
 
+// ReGreetRuntime 是复打招呼的可选平台能力；未实现的平台不支持复打任务。
+// 复打是主动发起新消息，与自动回复的"回复入站消息"不同：
+// 会话内可能没有任何入站消息，不能复用 ReplyInboundFingerprint 校验链路。
+type ReGreetRuntime interface {
+	// LocateReplyConversation 通过平台搜索能力按姓名定位候选人并打开聊天面板。
+	// 实现内部须核对面板姓名与搜索姓名一致，未找到时返回错误。
+	LocateReplyConversation(ctx context.Context, exec Executor, name string) (ReplyConversation, error)
+	// ReadOpenedReplyContext 读取当前已打开面板的上下文（不点击会话项）。
+	// 复打场景面板已由搜索跳转打开，无会话项 data-id 可点。
+	ReadOpenedReplyContext(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation) (ReplyContext, error)
+	// StageReGreet 输入前核对身份与空草稿，再把复打文本输入聊天框。
+	StageReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, text string) error
+	// SendReGreet 核对草稿与复打文本一致后点击发送。
+	SendReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, text string) error
+	// ConfirmReGreet 发送后核对面板新增了本次出站文本。
+	// before 为发送前上下文，用于区分"本次新增"与"历史同文"。
+	ConfirmReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, before ReplyContext, text string) (bool, error)
+}
+
 // ReplyHash 返回正文或已规范化数据的摘要，不保留原文。
 func ReplyHash(text string) string {
 	sum := sha256.Sum256([]byte(text))

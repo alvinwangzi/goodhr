@@ -1784,6 +1784,88 @@ function bossChatRules(platformConfig) {
  * @param {Record<string, any>} payload - 查找参数。
  * @returns {Promise<Record<string, any>>} 查找结果。
  */
+/**
+ * 在 Boss 消息页通过搜索框按姓名定位候选人并打开聊天面板。
+ * 真实交互流程（2026-09-30 实测）：点击搜索按钮 → 输入框出现 → 输入姓名 →
+ * 输入框下方弹出 .geek-search-list 过滤弹层 → 点击弹层条目 → 跳转到对应聊天面板，
+ * 搜索框自动关闭并恢复岗位下拉。不会刷新左侧会话列表。
+ * @param {Record<string, any>} payload - 搜索参数。
+ * @returns {Promise<Record<string, any>>} 搜索结果，含面板姓名用于身份核对。
+ */
+async function searchBossChatSession(payload) {
+  const startedAt = Date.now();
+  const currentPage = await ensurePage();
+  const name = String(payload.candidate_name || payload.name || "").trim();
+  if (!name) throw new Error("候选人姓名不能为空");
+
+  // 已在搜索态则复用输入框，否则点击搜索按钮打开。
+  let searchInput = currentPage
+    .locator(".chat-job-search .search-input")
+    .first();
+  if (!(await searchInput.isVisible({ timeout: 1000 }).catch(() => false))) {
+    const searchBtn = currentPage.locator(".chat-search-btn").first();
+    await searchBtn.click({ timeout: 5000 });
+    searchInput = currentPage
+      .locator(".chat-job-search .search-input")
+      .first();
+    await searchInput.waitFor({ state: "visible", timeout: 5000 });
+  }
+
+  // 清空并输入候选人姓名，等待过滤弹层渲染。
+  await searchInput.click();
+  await searchInput.fill("");
+  await searchInput.type(name, { delay: 60 });
+
+  // 在弹层条目中按姓名匹配，点击后页面跳转到对应聊天面板。
+  const listItems = currentPage.locator(".geek-search-list ul li");
+  const deadline = Date.now() + 6000;
+  let matchedText = "";
+  while (Date.now() < deadline) {
+    const count = await listItems.count().catch(() => 0);
+    for (let i = 0; i < count; i++) {
+      const item = listItems.nth(i);
+      const text = String(
+        await item.innerText({ timeout: 800 }).catch(() => ""),
+      );
+      if (!text.includes(name)) continue;
+      matchedText = text;
+      await item.click({ timeout: 3000 });
+      break;
+    }
+    if (matchedText) break;
+    await currentPage.waitForTimeout(300);
+  }
+  if (!matchedText) {
+    return {
+      found: false,
+      text: "",
+      panel_name: "",
+      error: "搜索弹层中未找到该候选人",
+      elapsed_ms: Date.now() - startedAt,
+    };
+  }
+
+  // 等待聊天面板打开并读取面板姓名，供 Go 侧身份核对。
+  const panelName = currentPage
+    .locator(".chat-conversation .base-name")
+    .first();
+  const panelDeadline = Date.now() + 6000;
+  let panelText = "";
+  while (Date.now() < panelDeadline) {
+    panelText = String(
+      await panelName.innerText({ timeout: 1000 }).catch(() => ""),
+    );
+    if (panelText.trim()) break;
+    await currentPage.waitForTimeout(300);
+  }
+  return {
+    found: true,
+    text: matchedText,
+    panel_name: panelText.trim(),
+    elapsed_ms: Date.now() - startedAt,
+  };
+}
+
 async function findBossChatSession(payload) {
   const startedAt = Date.now();
   const currentPage = await ensurePage();
@@ -6885,6 +6967,7 @@ const routes = {
   "/api/v1/boss/candidates/open-chat": openBossConversation,
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
   "/api/v1/boss/candidates/detail/close": closeBossCandidateDetail,
+  "/api/v1/boss/chat/search-session": searchBossChatSession,
   "/api/v1/boss/chat/find-session": findBossChatSession,
   "/api/v1/boss/chat/scroll-list": scrollBossChatList,
   "/api/v1/boss/chat/request-resume": requestBossChatResume,

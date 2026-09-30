@@ -966,5 +966,106 @@ func (r *Runtime) DownloadResumeAttachment(ctx context.Context, exec platformcor
 	return record, nil
 }
 
+// LocateReplyConversation 通过搜索框按姓名定位候选人并打开聊天面板。
+// 真实交互：点击搜索按钮 → 输入姓名 → 点击 .geek-search-list 弹层条目 → 跳转聊天面板。
+// worker 返回的面板姓名用于身份核对，姓名不一致视为定位失败。
+func (r *Runtime) LocateReplyConversation(ctx context.Context, exec platformcore.Executor, name string) (platformcore.ReplyConversation, error) {
+	if err := r.AutoReplyAvailable(); err != nil {
+		return platformcore.ReplyConversation{}, err
+	}
+	if strings.TrimSpace(name) == "" {
+		return platformcore.ReplyConversation{}, errors.New("候选人姓名不能为空")
+	}
+	exec.Log("info", fmt.Sprintf("Boss复打定位：搜索候选人=%s", name))
+	result, err := r.searchChatSession(ctx, exec, name)
+	if err != nil {
+		return platformcore.ReplyConversation{}, fmt.Errorf("搜索候选人会话失败：%w", err)
+	}
+	if !boolFromMap(result, "found") {
+		return platformcore.ReplyConversation{}, fmt.Errorf("搜索弹层中未找到候选人=%s（%s）", name, stringFromMap(result, "error"))
+	}
+	panelName := strings.TrimSpace(stringFromMap(result, "panel_name"))
+	if panelName == "" {
+		return platformcore.ReplyConversation{}, fmt.Errorf("搜索跳转后未读到面板姓名，候选人=%s", name)
+	}
+	if panelName != strings.TrimSpace(name) {
+		return platformcore.ReplyConversation{}, fmt.Errorf("面板姓名不匹配：面板=%q，搜索=%q", panelName, name)
+	}
+	conversation := platformcore.ReplyConversation{Name: panelName}
+	exec.Log("info", fmt.Sprintf("Boss复打定位：已打开候选人面板=%s", panelName))
+	return conversation, nil
+}
+
+// ReadOpenedReplyContext 读取当前已打开面板的上下文，不点击会话项。
+// 复打场景面板由搜索跳转打开，无会话项 data-id 可点，不能走 ReadReplyContext。
+func (r *Runtime) ReadOpenedReplyContext(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation) (platformcore.ReplyContext, error) {
+	if err := r.AutoReplyAvailable(); err != nil {
+		return platformcore.ReplyContext{}, err
+	}
+	return r.readCurrentReply(ctx, exec, target, conversation)
+}
+
+// StageReGreet 输入前核对身份与空草稿，再把复打文本输入聊天框。
+// 复用 readCurrentReply 做面板身份与岗位核对，不复用 RecheckReplyContext（无入站指纹）。
+func (r *Runtime) StageReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, text string) error {
+	current, err := r.readCurrentReply(ctx, exec, target, conversation)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(current.Draft) != "" || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > 1000 {
+		return platformcore.ErrReplyUnsafe
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cfg := r.replyPageSettings()
+	_, err = exec.Post(ctx, "/api/v1/page/type", platformcore.LocatorRequest{Selector: replyChildSelector(cfg.Input, cfg.Active), Text: text})
+	return err
+}
+
+// SendReGreet 核对草稿与复打文本一致后点击发送。
+func (r *Runtime) SendReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, text string) error {
+	current, err := r.readCurrentReply(ctx, exec, target, conversation)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(text) == "" || strings.TrimSpace(current.Draft) != strings.TrimSpace(text) {
+		return platformcore.ErrReplyUnsafe
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cfg := r.replyPageSettings()
+	_, err = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: replyChildSelector(cfg.Send, cfg.Active)})
+	return err
+}
+
+// ConfirmReGreet 发送后核对面板新增了本次出站文本。
+// 锚点是发送前基线 before：末条必须为本次文本，且消息数增加或发送前末条不是同文，
+// 避免把历史同文误判为本次发送成功。
+func (r *Runtime) ConfirmReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string) (bool, error) {
+	current, err := r.readCurrentReply(ctx, exec, target, conversation)
+	if err != nil {
+		return false, err
+	}
+	if len(current.Messages) == 0 {
+		return false, nil
+	}
+	last := current.Messages[len(current.Messages)-1]
+	if last.Direction != "outbound" || last.Kind != "text" || strings.TrimSpace(last.Text) != strings.TrimSpace(text) {
+		return false, nil
+	}
+	if len(current.Messages) > len(before.Messages) {
+		return true, nil
+	}
+	// 消息数未增加时，仅当发送前末条与本次文本不同（如发送前末条为空）才认可。
+	if len(before.Messages) == 0 {
+		return true, nil
+	}
+	prevLast := before.Messages[len(before.Messages)-1]
+	return strings.TrimSpace(prevLast.Text) != strings.TrimSpace(text), nil
+}
+
 var _ platformcore.ResumeAttachmentDownloader = (*Runtime)(nil)
 var _ platformcore.AutoReplyRuntime = (*Runtime)(nil)
+var _ platformcore.ReGreetRuntime = (*Runtime)(nil)

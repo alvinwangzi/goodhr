@@ -101,11 +101,23 @@ func (r *Runtime) locateChatSession(ctx context.Context, exec platformcore.Execu
 	return "", "", false
 }
 
-// findChatSession 调用 worker 会话查找接口，返回候选人会话项文本与元素引用。
+// findChatSession 调用 worker 会话查找接口（滚动模式），返回候选人会话项文本与元素引用。
 func (r *Runtime) findChatSession(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, name string) (map[string]any, error) {
 	result, err := exec.Post(ctx, "/api/v1/boss/chat/find-session", map[string]any{
 		"candidate_name":  name,
 		"platform_config": cfg,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return workerDataMap(result), nil
+}
+
+// searchChatSession 调用 worker 搜索接口（搜索框模式），按姓名查找候选人会话。
+// 点击搜索按钮 → 输入姓名 → 返回匹配的会话项。
+func (r *Runtime) searchChatSession(ctx context.Context, exec platformcore.Executor, name string) (map[string]any, error) {
+	result, err := exec.Post(ctx, "/api/v1/boss/chat/search-session", map[string]any{
+		"candidate_name": name,
 	})
 	if err != nil {
 		return nil, err
