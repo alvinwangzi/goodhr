@@ -407,6 +407,8 @@ export default function PositionsPage() {
                   form.greet_score_threshold ??
                   70,
               ),
+              re_greet_prompt: normalizePrompt(form.re_greet_prompt),
+              re_greet_skip_refused: Boolean(form.re_greet_skip_refused),
             },
             form.reply_prompt,
             form.reply_faq,
@@ -2072,6 +2074,58 @@ export default function PositionsPage() {
               />
             </Stack>
           </Box>
+          <Divider />
+          <Box>
+            <Stack direction='row' spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
+              <Typography
+                component='h3'
+                sx={{ fontSize: 17, fontWeight: 780 }}
+              >
+                复打招呼
+              </Typography>
+              <Chip
+                size='small'
+                label='PRO 用户专享功能'
+                sx={{
+                  height: 22,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#fff',
+                  backgroundColor: 'primary.main',
+                  '& .MuiChip-label': { px: 1 },
+                }}
+              />
+            </Stack>
+            <Typography sx={{ mb: 1.5, color: "text.secondary", fontSize: 13 }}>
+              对之前打过招呼但没回复的候选人再发一次消息，提高转化率。
+            </Typography>
+            <Stack spacing={2} sx={{ opacity: canUseAutoReply(subscription) ? 1 : 0.55, pointerEvents: canUseAutoReply(subscription) ? 'auto' : 'none' }}>
+              <PromptField
+                label='复打招呼提示词（可选）'
+                value={form.re_greet_prompt}
+                defaultValue=''
+                defaultActionLabel='清空'
+                emptyPlaceholder='可留空，使用系统默认的复打规则'
+                description='告诉 AI 如何生成复打消息，比如语气、重点、禁忌；留空则按默认规则生成。'
+                onChange={(value) =>
+                  setForm({ ...form, re_greet_prompt: value })
+                }
+                disabled={!canUseAutoReply(subscription)}
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={form.re_greet_skip_refused}
+                    onChange={(e) =>
+                      setForm({ ...form, re_greet_skip_refused: e.target.checked })
+                    }
+                    disabled={!canUseAutoReply(subscription)}
+                  />
+                }
+                label='候选人明确拒绝时不再复打'
+              />
+            </Stack>
+          </Box>
           {!aiMembership &&
           (form.mode_default === "ai" ||
             (form.id && form.detail_mode === "ai")) ? (
@@ -2285,6 +2339,8 @@ function createEmptyForm() {
     reply_prompt: "",
     reply_faq: [] as { q: string; a: string }[],
     reply_reject_template: "",
+    re_greet_prompt: "",
+    re_greet_skip_refused: false,
     detail_score_threshold: 60,
     greet_score_threshold: 70,
     request_score_threshold: 70,
@@ -2347,6 +2403,8 @@ function formFromItem(
       reply_prompt: normalizePrompt(ai.reply_prompt),
       reply_faq: normalizeFAQList(ai.reply_faq),
       reply_reject_template: String(ai.reply_reject_template || ""),
+      re_greet_prompt: normalizePrompt(ai.re_greet_prompt),
+      re_greet_skip_refused: Boolean(ai.re_greet_skip_refused),
       detail_score_threshold: Number(ai.detail_score_threshold ?? 60),
       greet_score_threshold: Number(ai.greet_score_threshold ?? 70),
       request_score_threshold: Number(

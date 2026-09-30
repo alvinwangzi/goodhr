@@ -88,6 +88,11 @@ func (f *replyFixture) GenerateReply(ctx context.Context, request localai.ReplyR
 	return localai.ReplyDecision{Action: "reply", Text: text, Reason: "测试回答", RequestResume: request.AllowResumeRequest}, err
 }
 
+// GenerateReGreet 模拟复打招呼 AI 决策，测试用占位实现。
+func (f *replyFixture) GenerateReGreet(_ context.Context, _ localai.ReGreetRequest) (localai.ReGreetDecision, error) {
+	return localai.ReGreetDecision{ShouldSend: true, Message: "复打测试消息"}, nil
+}
+
 // RecheckReplyContext 模拟生成期间新消息或人工回复使旧答案失效。
 func (f *replyFixture) RecheckReplyContext(_ context.Context, _ platformcore.Executor, _ platformcore.ReplyTarget, c platformcore.ReplyContext) (platformcore.ReplyContext, error) {
 	if f.stale {

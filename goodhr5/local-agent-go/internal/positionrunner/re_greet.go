@@ -145,12 +145,12 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		// TODO(平台适配)：当前 AutoReplyRuntime 没有"打开指定候选人会话"的方法，
 		// 复打招呼需要在平台层实现"按 platform_candidate_id 定位并打开会话"的能力。
 		// 在平台实现前，本循环仅完成 AI 生成与云端上报，不实际发送。
-		decision, genErr := generator.GenerateReply(ctx, localai.ReplyRequest{
-			PositionName:        name,
-			PositionRequirement: positionRequirement(position),
-			ReplyPrompt:         reGreetPrompt,
-			ReplySystemPrompt:   options.AIConfig.ReplySystemPrompt,
+		decision, genErr := generator.GenerateReGreet(ctx, localai.ReGreetRequest{
+			ReGreetPrompt:       reGreetPrompt,
 			CandidateName:       candidate.CandidateName,
+			PositionRequirement: positionRequirement(position),
+			// TODO(平台适配)：平台层实现后填入 GreetMessage 和 ConversationHistory
+			SkipRefusedCheck: false,
 		})
 		if genErr != nil {
 			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼 AI 生成失败（%s）：%v", candidate.CandidateName, genErr))
@@ -159,9 +159,16 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			r.updateReGreetStats(positionID, stats)
 			continue
 		}
-		text := strings.TrimSpace(decision.Text)
-		if text == "" || decision.Action == "skip" {
-			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼 AI 决定跳过（%s）：%s", candidate.CandidateName, decision.Reason))
+		if decision.IsRefused {
+			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼候选人已拒绝（%s）：%s", candidate.CandidateName, decision.RefuseReason))
+			stats.skipped++
+			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidate.CandidateName, false, "skipped_refused")
+			r.updateReGreetStats(positionID, stats)
+			continue
+		}
+		text := strings.TrimSpace(decision.Message)
+		if !decision.ShouldSend || text == "" {
+			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼 AI 决定跳过（%s）", candidate.CandidateName))
 			stats.skipped++
 			_ = cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidate.CandidateName, false, "ai_skip")
 			r.updateReGreetStats(positionID, stats)

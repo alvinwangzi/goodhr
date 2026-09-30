@@ -31,6 +31,7 @@ var errReplyStorage = errors.New("自动回复记录保存失败，任务已停�
 // replyGenerator 复用当前 AI 客户端，返回是否回复及正文的结构化决策。
 type replyGenerator interface {
 	GenerateReply(context.Context, localai.ReplyRequest) (localai.ReplyDecision, error)
+	GenerateReGreet(context.Context, localai.ReGreetRequest) (localai.ReGreetDecision, error)
 }
 
 // replyFlow 保存本轮固定依赖，不在公共流程按平台名称分支。
