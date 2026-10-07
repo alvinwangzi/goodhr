@@ -20,14 +20,14 @@ const (
 	resumeCheckTimeout = 3 * time.Minute
 )
 
-// enqueueResumeRequest 在打招呼成功后把候选人写入待索要名单。
+// enqueueCandidateInfoRequest 保存本轮勾选快照，以稳定 ID 区分同名候选人，不把电话或微信改成简历。
 // position 为岗位运行记录，candidate 为候选人字段集合，写入失败时返回错误。
-func (r *Runner) enqueueResumeRequest(position localdb.Position, candidate map[string]any) error {
+func (r *Runner) enqueueCandidateInfoRequest(position localdb.Position, candidate map[string]any, request platformcore.CandidateInfoRequest) error {
 	name := strings.TrimSpace(stringFromMap(candidate, "candidate_name"))
 	if name == "" {
 		return fmt.Errorf("候选人姓名为空")
 	}
-	_, err := r.db.EnqueueResumeRequest(position.ID, position.PlatformID, name)
+	_, err := r.db.EnqueueCandidateInfoRequest(position.ID, position.PlatformID, stringFromMap(candidate, "id"), name, map[string]bool{"phone": request.RequestPhone, "wechat": request.RequestWechat, "resume": request.RequestResume})
 	return err
 }
 
@@ -68,6 +68,12 @@ func (r *Runner) checkResumeRequests(position localdb.Position, platformRuntime 
 // 检查耗时受传入上下文约束，岗位收尾与休息窗口两个入口共用。
 // ctx 为检查上下文，position 为岗位运行记录，platformRuntime 为平台能力，platformConfig 为云端平台配置，options 为启动参数。
 func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, platformConfig cloudapi.PlatformConfig, options StartOptions) {
+	r.performCandidateInfoChecks(ctx, position, platformRuntime, options)
+	// 历史仅按姓名的简历名单只在本轮确实勾选简历时继续，不因勾电话而误发简历请求。
+	common := mapValue(position.PositionSnapshot["common_config"])
+	if value, present := common["request_resume"]; present && value != true {
+		return
+	}
 	positionID := position.ID
 	items, err := r.db.ListResumeRequests(positionID, localdb.ResumeRequestStatusPending)
 	if err != nil {

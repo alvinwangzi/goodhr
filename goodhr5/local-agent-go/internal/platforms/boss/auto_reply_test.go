@@ -43,6 +43,8 @@ type replyPage struct {
 	resumeError      bool
 	resumeMalformed  string
 	onDelay          func()
+	contactOpen      string
+	contactClicks    int
 }
 
 // newReplyPage 返回两个同名候选人的独立会话。
@@ -89,6 +91,18 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 	switch path {
 	case "/api/v1/page/find-elements":
 		switch key {
+		case "phone-button", "wechat-button":
+			return pageItems(map[string]string{}), nil
+		case "all-popups", ".exchange-tooltip:visible":
+			if p.contactOpen != "" {
+				return pageItems(map[string]string{}), nil
+			}
+			return pageItems(), nil
+		case "phone-confirm", "phone-cancel", "wechat-confirm", "wechat-cancel":
+			if strings.HasPrefix(key, p.contactOpen+"-") && p.contactOpen != "" {
+				return pageItems(map[string]string{}), nil
+			}
+			return pageItems(), nil
 		case "jobs":
 			return pageItems(p.jobs...), nil
 		case "unread":
@@ -124,6 +138,16 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 			return pageItems(p.messages[p.active]...), nil
 		}
 	case "/api/v1/page/click":
+		if key == "phone-button" || key == "wechat-button" {
+			p.contactOpen = strings.TrimSuffix(key, "-button")
+			return map[string]any{"clicked": true}, nil
+		}
+		if key == "phone-confirm" || key == "wechat-confirm" {
+			p.contactClicks++
+			p.contactOpen = ""
+			p.messages[p.active] = append(p.messages[p.active], map[string]string{"direction": "out", "kind": "text", "text": "我想发起交换手机请求"})
+			return map[string]any{"clicked": true}, nil
+		}
 		if key == "unread_filter" {
 			return map[string]any{"clicked": true}, nil
 		}
@@ -149,6 +173,28 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 		return map[string]any{"verified": true}, nil
 	}
 	return nil, errors.New("未预期的浏览器请求")
+}
+
+// TestContactConfirmRejectsChangedCandidate 验证出现正确确认框后切换候选人，也不能点击确定。
+func TestContactConfirmRejectsChangedCandidate(t *testing.T) {
+	cfg := replyTestConfig()
+	settings := contactRequestConfig{Button: platformcore.SelectorSpec{Selectors: []string{"phone-button"}}, Confirm: platformcore.SelectorSpec{Selectors: []string{"phone-confirm"}}, Cancel: platformcore.SelectorSpec{Selectors: []string{"phone-cancel"}}}
+	cfg.ContactRequests = map[string]contactRequestConfig{"phone": settings}
+	runtime := &Runtime{replyConfig: &cfg}
+	page := newReplyPage()
+	page.active = "a"
+	conversation := platformcore.ReplyConversation{Name: "同名"}
+	target := platformcore.ReplyTarget{PositionName: "Go"}
+	// 测试已有模拟器将通用弹窗选择器视为没有弹窗，入口后打开电话确认。
+	prepared, err := runtime.PrepareCandidateInfoRequest(t.Context(), page, target, conversation, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.active = "b"
+	page.messages["b"] = append(page.messages["b"], map[string]string{"direction": "in", "kind": "text", "text": "另一个人的新消息"})
+	if state, err := runtime.SubmitCandidateInfoRequest(t.Context(), page, target, conversation, prepared); err == nil || state != "unknown" || page.contactClicks != 0 {
+		t.Fatalf("切换后仍确认：%s %v clicks=%d", state, err, page.contactClicks)
+	}
 }
 
 // Log 模拟不含聊天原文的日志出口。

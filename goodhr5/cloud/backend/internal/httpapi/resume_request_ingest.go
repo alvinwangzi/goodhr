@@ -15,9 +15,10 @@ import (
 
 // notifyResumeRequestsRequest 表示本地程序补报"求简历"结果的请求体。
 type notifyResumeRequestsRequest struct {
-	Candidate *ResumeTrackingInput `json:"candidate,omitempty"`
-	RunID string   `json:"run_id"` // 执行任务记录 ID，事件归组到本次岗位运行
-	Names []string `json:"names"`  // 本轮完成求简历的候选人姓名
+	InfoResults []CandidateInfoFeedback `json:"info_results,omitempty"`
+	Candidate   *ResumeTrackingInput    `json:"candidate,omitempty"`
+	RunID       string                  `json:"run_id"` // 执行任务记录 ID，事件归组到本次岗位运行
+	Names       []string                `json:"names"`  // 本轮完成求简历的候选人姓名
 }
 
 // NotifyResumeRequests 接收本地程序岗位收尾后的"求简历"补报。
@@ -67,6 +68,10 @@ func (s *PositionExecutionService) NotifyResumeRequests(w http.ResponseWriter, r
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	if len(req.InfoResults) > 0 {
+		s.saveCandidateInfoFeedback(w, r, position, tenantID, req.RunID, req.InfoResults)
 		return
 	}
 	names := make([]string, 0, len(req.Names))

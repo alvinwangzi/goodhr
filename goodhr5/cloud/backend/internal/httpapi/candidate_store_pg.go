@@ -240,15 +240,22 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		return CandidateEvent{}, err
 	}
 	var saved CandidateEvent
+	eventID := ""
+	if item.Metadata["source"] == "candidate_info_request" {
+		eventID = item.ID
+	}
 	err = s.db.QueryRowContext(
 		ctx,
 		`
 		INSERT INTO candidate_events (
+			id,
 			tenant_id, candidate_id, engagement_id, task_id, position_id, platform_account_id,
 			platform_id, event_type, score, reason, input_text, output_text,
 			message_text, model, token_usage, metadata
 		)
-		VALUES ($1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,NULLIF($6,'')::uuid,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+		VALUES (COALESCE(NULLIF($17,'')::uuid,gen_random_uuid()),$1,$2,NULLIF($3,'')::uuid,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,NULLIF($6,'')::uuid,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)
+		ON CONFLICT(id) DO UPDATE SET id=candidate_events.id
+		WHERE candidate_events.candidate_id=EXCLUDED.candidate_id AND candidate_events.position_id IS NOT DISTINCT FROM EXCLUDED.position_id AND candidate_events.event_type=EXCLUDED.event_type
 		RETURNING id, candidate_id, COALESCE(engagement_id::text,''), COALESCE(task_id::text,''), COALESCE(position_id::text,''), COALESCE(platform_account_id::text,''),
 			platform_id, event_type, score, reason, input_text, output_text, message_text, model, token_usage, metadata, created_at
 		`,
@@ -268,6 +275,7 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 		item.Model,
 		item.TokenUsage,
 		string(toJSONB(item.Metadata)),
+		eventID,
 	).Scan(
 		&saved.ID,
 		&saved.CandidateID,
@@ -376,10 +384,10 @@ func (s *PostgresCandidateStore) FindEngagementByPlatformCandidate(positionID, p
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var e CandidateEngagement
-	err := s.db.QueryRowContext(ctx, `SELECT ce.id::text, ce.candidate_id::text FROM candidate_engagements ce
+	err := s.db.QueryRowContext(ctx, `SELECT ce.id::text, ce.candidate_id::text, ce.resume_requested_at FROM candidate_engagements ce
 	 JOIN candidate_profiles cp ON cp.id=ce.candidate_id
 	 WHERE ce.position_id=$1::uuid AND cp.source_platform_id=$2 AND cp.source_platform_candidate_id=$3
-	 ORDER BY ce.created_at DESC LIMIT 1`, positionID, platform, candidateID).Scan(&e.ID, &e.CandidateID)
+	 ORDER BY ce.created_at DESC LIMIT 1`, positionID, platform, candidateID).Scan(&e.ID, &e.CandidateID, &e.ResumeRequestedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CandidateEngagement{}, ErrNotFound
 	}

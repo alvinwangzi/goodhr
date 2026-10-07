@@ -22,6 +22,7 @@ var replyConfigJSON []byte
 
 // replyPageConfig 保存经过页面验证的消息配置，不接受云端选择器覆盖。
 type replyPageConfig struct {
+	ContactRequests     map[string]contactRequestConfig       `json:"contact_requests"`
 	Jobs                platformcore.SelectorSpec             `json:"jobs"`
 	JobFields           map[string]platformcore.SelectorField `json:"job_fields"`
 	Verified            bool                                  `json:"verified"`
@@ -339,7 +340,12 @@ func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Execut
 
 	// 展开面板作为父元素，限定消息/输入/发送在面板内查找
 	parent := cfg.Active
-	fields, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: replyChildSelector(cfg.Messages, parent), Fields: cfg.MessageFields, MaxItems: 1000})
+	messageFields := make(map[string]platformcore.SelectorField, len(cfg.MessageFields)+1)
+	for key, value := range cfg.MessageFields {
+		messageFields[key] = value
+	}
+	messageFields["full_text"] = platformcore.SelectorField{}
+	fields, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: replyChildSelector(cfg.Messages, parent), Fields: messageFields, MaxItems: 1000})
 	if err != nil {
 		return platformcore.ReplyContext{}, err
 	}
@@ -352,6 +358,9 @@ func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Execut
 		direction := mapClassToValue(cfg.Directions, field["direction"])
 		if kind == "system" {
 			direction = "system"
+			if strings.TrimSpace(field["text"]) == "" {
+				field["text"] = field["full_text"]
+			}
 		}
 		// 日期分隔线等非消息元素不含任何消息子节点，方向与类型双双映射为空；
 		// 这类条目不能进入消息列表，否则下游方向白名单校验会把整个会话判为不安全。

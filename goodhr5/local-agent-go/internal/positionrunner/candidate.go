@@ -38,6 +38,16 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 			r.positionLog(position.ID, "warning", "页面事实已确认，跳过首次招呼，但状态同步失败："+err.Error())
 		}
 		r.positionLog(position.ID, "info", "跳过首次打招呼：页面或系统已有沟通/简历记录，候选人="+candidateLogName(candidate))
+		request := candidateInfoRequestFromPosition(position)
+		allowed, _, _, hasScore := candidateInfoScoreDecision(position, candidate)
+		if stringFromMap(candidate, "resume_status") == "received" {
+			request.RequestResume = false
+		}
+		if allowed && hasScore && (request.RequestPhone || request.RequestWechat || request.RequestResume) {
+			if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
+				r.positionLog(position.ID, "warning", "已有沟通候选人的索要意图未登记："+enqueueErr.Error())
+			}
+		}
 		return 0, 0, 1, nil
 	} else if err != nil {
 		return 0, 1, 0, &candidateOperationError{Operation: "核对候选人页面状态", Err: err}
@@ -88,7 +98,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		if hasRequestItems := request.RequestPhone || request.RequestWechat || request.RequestResume; hasRequestItems {
 			// Boss 等平台的索要按钮需要候选人先回复才会解锁，打招呼后立即索要必然失败，
 			// 因此改为把候选人记入待索要名单，岗位收尾时统一检查回复后再执行索要。
-			if enqueueErr := r.enqueueResumeRequest(position, candidate); enqueueErr != nil {
+			if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
 				r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：写入待索要名单失败，本轮跳过索要，候选人=%s，错误=%s", candidateLogName(candidate), enqueueErr.Error()))
 			} else {
 				r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：已记入待索要名单，候选人=%s，岗位结束后自动检查回复并索要%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))

@@ -26,9 +26,9 @@ func main() {
 		os.Exit(1)
 	}
 	encoded := base64.StdEncoding.EncodeToString(data)
-	// 注意：不加 -H windowsgui，保留终端窗口；版本号用 0.1.3 通过前端版本检查
+	// 注意：不加 -H windowsgui，保留终端窗口；版本号用 0.1.4 通过前端版本检查
 	ldflags := "-X goodhr5/local-agent-go/internal/config.EmbeddedBuildConfig=" + encoded +
-		" -X goodhr5/local-agent-go/internal/version.Value=0.1.3"
+		" -X goodhr5/local-agent-go/internal/version.Value=0.1.4"
 	output := filepath.Join("dist", "bin", "dev-console", "hrplus-agent-dev-console.exe")
 	os.MkdirAll(filepath.Dir(output), 0o755)
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags="+ldflags, "-o", output, "./cmd/goodhr-local-agent")

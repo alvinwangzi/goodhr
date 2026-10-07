@@ -58,3 +58,52 @@ func TestCandidatePageObservationPostgres(t *testing.T) {
 		t.Fatalf("未确定实际招呼时间的记录进入复打：%+v %v", items, err)
 	}
 }
+
+// TestCandidateInfoEventPostgres 验证实际 SQL 的确定事件 ID 去重和同名档案隔离。
+func TestCandidateInfoEventPostgres(t *testing.T) {
+	dsn := os.Getenv("GOODHR_SCREENING_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("未配置独立反馈测试数据库")
+	}
+	t.Chdir("../..")
+	db, err := (Config{PostgresDSN: dsn}).PostgresDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	email := "contact-" + time.Now().Format("150405.000000000") + "@example.com"
+	tenant, err := NewPostgresTenantStore(db).GetOrCreateTenant(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	position, err := NewPostgresPositionStore(db).SavePosition(Position{UserEmail: email, PlatformID: "boss", Name: "Go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewPostgresCandidateStore(db)
+	p, err := store.SaveCandidateProfile(CandidateProfileInput{UserEmail: email, PlatformID: "boss", PlatformCandidateID: "stable", CandidateName: "同名"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := store.UpsertCandidateEngagement(CandidateEngagement{CandidateID: p.ID, PositionID: position.ID, PlatformID: "boss", UserEmail: email})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := CandidateInfoFeedback{RequestID: "request-one", CandidateID: "stable", Action: "phone", State: "requested"}
+	event := CandidateEvent{ID: candidateInfoEventID(position.ID, p.ID, info), CandidateID: p.ID, EngagementID: e.ID, PositionID: position.ID, PlatformID: "boss", EventType: "phone_requested", Metadata: map[string]any{"source": "candidate_info_request", "request_id": info.RequestID}}
+	for i := 0; i < 2; i++ {
+		if _, err := store.SaveCandidateEvent(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	profile, err := store.GetPositionCandidate(tenant.ID, p.ID, e.ID, email, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.Events) != 1 || profile.ResumeRequestedAt != nil {
+		t.Fatalf("重复事件或把电话当作简历：%+v", profile)
+	}
+	if _, err := store.FindEngagementByPlatformCandidate(position.ID, "boss", "stable"); err != nil {
+		t.Fatal(err)
+	}
+}

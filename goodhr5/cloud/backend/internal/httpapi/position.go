@@ -185,7 +185,7 @@ func (s *PositionService) Save(w http.ResponseWriter, r *http.Request) {
 	if positionUsesAI(position) && !s.requireAIMembership(w, session.Email) {
 		return
 	}
-	if positionRequestsResume(position) && !s.requireAutoReplyMembership(w, session.Email) {
+	if positionRequestsCandidateInfo(position) && !s.requireAutoReplyMembership(w, session.Email) {
 		return
 	}
 
@@ -248,19 +248,23 @@ func (s *PositionService) requireAutoReplyMembership(w http.ResponseWriter, emai
 		return false
 	}
 	if !access.AllowAutoReply {
-		writeError(w, http.StatusForbidden, "索要简历属于 Pro会员，当前套餐暂时不能使用")
+		writeError(w, http.StatusForbidden, "索要简历、电话和微信属于 Pro会员，当前套餐暂时不能使用")
 		return false
 	}
 	return true
 }
 
-// positionRequestsResume 判断岗位是否配置了索要简历。
-func positionRequestsResume(position Position) bool {
+// positionRequestsCandidateInfo 判断岗位是否配置了任一索要项，三项共享同一会员权限。
+func positionRequestsCandidateInfo(position Position) bool {
 	if position.CommonConfig == nil {
 		return false
 	}
-	v, ok := position.CommonConfig["request_resume"]
-	return ok && v == true
+	for _, key := range []string{"request_resume", "request_phone", "request_wechat"} {
+		if position.CommonConfig[key] == true {
+			return true
+		}
+	}
+	return false
 }
 
 // Delete 删除当前登录用户的岗位配置。

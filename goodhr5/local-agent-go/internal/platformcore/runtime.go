@@ -62,6 +62,35 @@ type CandidateInfoRequest struct {
 	GreetMessage  string
 }
 
+// CandidateInfoActionLabel 将协议动作转换为面向用户的中文名称。
+func CandidateInfoActionLabel(action string) string {
+	switch action {
+	case "phone":
+		return "电话"
+	case "wechat":
+		return "微信"
+	case "resume":
+		return "简历"
+	default:
+		return action
+	}
+}
+
+// CandidateInfoPreparation 保存一个已经核对的确认框及发送前上下文，不包含 DOM 操作代码。
+type CandidateInfoPreparation struct {
+	Action      string
+	Before      ReplyContext
+	AlreadyDone bool
+}
+
+// CandidateInfoRequestOperator 提供可选的分阶段索要能力，公共流程在点击确认前持久化发送意图。
+type CandidateInfoRequestOperator interface {
+	PrepareCandidateInfoRequest(context.Context, Executor, ReplyTarget, ReplyConversation, string) (CandidateInfoPreparation, error)
+	SubmitCandidateInfoRequest(context.Context, Executor, ReplyTarget, ReplyConversation, CandidateInfoPreparation) (string, error)
+	CancelCandidateInfoRequest(context.Context, Executor, ReplyTarget, ReplyConversation, CandidateInfoPreparation) error
+	InspectCandidateInfoRequest(context.Context, Executor, ReplyTarget, ReplyConversation, string) (bool, error)
+}
+
 // ResumeRequestOutcome 表示单个候选人回复检查与索要执行的结果。
 type ResumeRequestOutcome struct {
 	// Status 为处理结果：requested 已完成索要；pending 候选人尚未回复；not_found 会话列表中未找到；failed 执行失败。

@@ -97,5 +97,47 @@
   },
   "panel_info": {
     "selectors": [".base-info-single-detial"]
+  },
+  "contact_requests": {
+    "phone": {
+      "button": {
+        "selectors": [
+          ".toolbar-box-right .operate-exchange-left .operate-icon-item:visible:not(.disabled):not([disabled]) > span.operate-btn:visible"
+        ],
+        "text": "换电话"
+      },
+      "confirm": {
+        "selectors": [
+          ".exchange-tooltip:visible:has(> .text:has-text(\"确定与对方交换手机吗？\")) > .btn-box > .boss-btn-primary.boss-btn:visible"
+        ],
+        "text": "确定"
+      },
+      "cancel": {
+        "selectors": [
+          ".exchange-tooltip:visible:has(> .text:has-text(\"确定与对方交换手机吗？\")) > .btn-box > .boss-btn-outline.boss-btn:visible"
+        ],
+        "text": "取消"
+      }
+    },
+    "wechat": {
+      "button": {
+        "selectors": [
+          ".toolbar-box-right .operate-exchange-left .operate-icon-item:visible:not(.disabled):not([disabled]) > span.operate-btn:visible"
+        ],
+        "text": "换微信"
+      },
+      "confirm": {
+        "selectors": [
+          ".exchange-tooltip:visible:has(> .text:has-text(\"确定与对方交换微信吗？\")) > .btn-box > .boss-btn-primary.boss-btn:visible"
+        ],
+        "text": "确定"
+      },
+      "cancel": {
+        "selectors": [
+          ".exchange-tooltip:visible:has(> .text:has-text(\"确定与对方交换微信吗？\")) > .btn-box > .boss-btn-outline.boss-btn:visible"
+        ],
+        "text": "取消"
+      }
+    }
   }
 }

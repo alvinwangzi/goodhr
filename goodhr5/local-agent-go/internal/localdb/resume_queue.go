@@ -88,7 +88,7 @@ INSERT INTO resume_request_queue (
 func (db *DB) ListResumeRequests(positionID string, status string) ([]ResumeRequest, error) {
 	query := `SELECT id, position_id, platform_id, candidate_name, status, fail_reason, created_at, updated_at, requested_at FROM resume_request_queue`
 	args := []any{}
-	clauses := []string{}
+	clauses := []string{"candidate_id=''"} // 旧名单只包含历史简历请求，新三项意图由稳定 ID 接口读取。
 	if strings.TrimSpace(positionID) != "" {
 		clauses = append(clauses, "position_id=?")
 		args = append(args, positionID)
@@ -150,7 +150,7 @@ func (db *DB) findResumeRequest(positionID string, candidateName string) (Resume
 	rows, err := db.conn.Query(`
 SELECT id, position_id, platform_id, candidate_name, status, fail_reason, created_at, updated_at, requested_at
 FROM resume_request_queue
-WHERE position_id=? AND candidate_name=?
+WHERE position_id=? AND candidate_name=? AND candidate_id=''
 LIMIT 1`, positionID, candidateName)
 	if err != nil {
 		return ResumeRequest{}, fmt.Errorf("查询待索要名单失败：%w", err)

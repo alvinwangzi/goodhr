@@ -6,6 +6,42 @@ import (
 	"testing"
 )
 
+// TestCandidateInfoSelectionAndDedup 验证电话、微信、简历意图按稳定 ID 保存，同名不混用，未知结果不重发。
+func TestCandidateInfoSelectionAndDedup(t *testing.T) {
+	db := openTestDB(t)
+	_, err := db.UpsertPositionSnapshot(map[string]any{"id": "p", "name": "岗位", "platform_id": "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := db.EnqueueCandidateInfoRequest("p", "boss", "a", "同名", map[string]bool{"phone": true, "wechat": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := db.EnqueueCandidateInfoRequest("p", "boss", "b", "同名", map[string]bool{"resume": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.ID == two.ID || one.Actions["resume"] || !one.Actions["phone"] {
+		t.Fatalf("意图丢失或同名错绑：%+v %+v", one, two)
+	}
+	if err := db.ClaimCandidateInfoAction(one.ID, "phone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SaveCandidateInfoResult(one.ID, "phone", "unknown"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ClaimCandidateInfoAction(one.ID, "phone"); err == nil {
+		t.Fatal("未知结果允许再次发送")
+	}
+	reused, err := db.EnqueueCandidateInfoRequest("p", "boss", "a", "同名", map[string]bool{"phone": true, "wechat": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused.ID != one.ID || reused.Results["phone"] != "unknown" {
+		t.Fatalf("重入队覆盖了发送状态：%+v", reused)
+	}
+}
+
 // TestEnqueueResumeRequestDedupesByName 验证同岗位同名候选人只保留一条名单记录。
 func TestEnqueueResumeRequestDedupesByName(t *testing.T) {
 	db := openTestDB(t)

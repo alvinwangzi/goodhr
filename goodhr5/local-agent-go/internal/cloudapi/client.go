@@ -645,6 +645,30 @@ type ReGreetReportDetails struct {
 	RunID       string
 }
 
+// CandidateInfoFeedback 上报独立索要结果，只有身份摘要、动作和状态，不包含电话或微信号。
+type CandidateInfoFeedback struct {
+	RequestID     string `json:"request_id"`
+	CandidateID   string `json:"candidate_id"`
+	CandidateName string `json:"candidate_name"`
+	Action        string `json:"action"`
+	State         string `json:"state"`
+}
+
+// NotifyCandidateInfoResults 复用索要结果接口，未匹配档案时保持本地待同步，不重新执行页面动作。
+func (c *Client) NotifyCandidateInfoResults(ctx context.Context, token, positionID, runID string, items []CandidateInfoFeedback) error {
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/resume-requests", map[string]any{"run_id": runID, "info_results": items})
+	if err != nil {
+		return err
+	}
+	if code >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "索要结果暂未同步"))
+	}
+	if ok, _ := payload["ok"].(bool); !ok || intFromMap(payload, "saved") != len(items) {
+		return fmt.Errorf("索要结果的候选人档案尚未匹配，保留待补报")
+	}
+	return nil
+}
+
 // getAuthed 使用 Bearer Token 请求云端接口。
 // ctx 为请求上下文，token 为登录令牌，path 为以 / 开头的云端路径。
 func (c *Client) getAuthed(ctx context.Context, token string, path string) (map[string]any, int, error) {

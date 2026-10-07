@@ -220,6 +220,11 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 	if err != nil {
 		return PositionRuntimeSnapshot{}, fmt.Errorf("会员校验失败：%w", err)
 	}
+	if request := candidateInfoRequestFromPosition(position); request.RequestPhone || request.RequestWechat || request.RequestResume {
+		if !boolFromMap(subscription, "allow_auto_reply") {
+			return PositionRuntimeSnapshot{}, fmt.Errorf("索要简历、电话和微信需要有效的 Pro会员")
+		}
+	}
 	if !boolFromMap(subscription, "active") {
 		if requiresAI {
 			return PositionRuntimeSnapshot{}, fmt.Errorf("会员已到期，当前岗位运行使用了 AI 筛选或 AI 详情识别，请先订阅后再开始岗位运行")

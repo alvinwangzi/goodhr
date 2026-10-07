@@ -209,7 +209,7 @@ func TestCandidateInfoEnqueueKeepsGreetSuccess(t *testing.T) {
 	if _, err := db.UpsertPositionSnapshot(map[string]any{"id": position.ID, "name": "测试岗位", "platform_id": "boss"}); err != nil {
 		t.Fatal(err)
 	}
-	candidate := map[string]any{"candidate_name": "张三", "status": "passed", "ai_greet_score": 80.0}
+	candidate := map[string]any{"id": "candidate-existing", "candidate_name": "张三", "status": "passed", "ai_greet_score": 80.0}
 	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
 		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
 	)
@@ -228,7 +228,7 @@ func TestCandidateInfoEnqueueKeepsGreetSuccess(t *testing.T) {
 	if _, exists := candidate["_candidate_info_after_greet"]; exists {
 		t.Fatal("temporary candidate info hint should be removed after greet")
 	}
-	items, err := db.ListResumeRequests(position.ID, localdb.ResumeRequestStatusPending)
+	items, err := db.ListCandidateInfoRequests(position.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestCandidateInfoEnqueueWritesResumeQueue(t *testing.T) {
 	if _, err := db.UpsertPositionSnapshot(map[string]any{"id": position.ID, "name": "测试岗位", "platform_id": "boss"}); err != nil {
 		t.Fatal(err)
 	}
-	candidate := map[string]any{"candidate_name": "王五", "status": "passed", "ai_greet_score": 80.0}
+	candidate := map[string]any{"id": "candidate-wangwu", "candidate_name": "王五", "status": "passed", "ai_greet_score": 80.0}
 	greeted, failed, skipped, err := runner.consumeCandidateForGreet(
 		context.Background(), position, runtime, platformExecutor{runner: runner, positionID: position.ID}, nil, candidate, 0, StartOptions{},
 	)
@@ -320,7 +320,7 @@ func TestCandidateInfoEnqueueWritesResumeQueue(t *testing.T) {
 			t.Fatalf("入队阶段不应写入 %s", key)
 		}
 	}
-	items, err := db.ListResumeRequests(position.ID, localdb.ResumeRequestStatusPending)
+	items, err := db.ListCandidateInfoRequests(position.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

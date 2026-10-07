@@ -303,8 +303,9 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		task = strings.TrimSpace(task)
 		autoReply = autoReply || strings.EqualFold(task, "auto_reply") || strings.EqualFold(task, "re_greet")
 	}
+	needsInfo := positionRequestsCandidateInfo(position)
 	usesAI := positionUsesAI(position) || autoReply
-	if usesAI {
+	if usesAI || needsInfo {
 		subscription, err := s.subscriptions.UserSubscription(email)
 		if err != nil {
 			return &positionStartError{status: http.StatusServiceUnavailable, code: "SUBSCRIPTION_CHECK_FAILED", message: "会员状态查询失败，请稍后重试"}
@@ -316,21 +317,23 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 		if !access.AllowAI {
 			return &positionStartError{status: http.StatusForbidden, code: "SUBSCRIPTION_REQUIRED", message: "这个岗位用了 AI 功能，会员到期后暂时不能启动，请先续费"}
 		}
-		if autoReply && !access.AllowAutoReply {
-			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "复打招呼和自动回复属于 Pro会员，当前套餐暂时不能使用"}
+		if (autoReply || needsInfo) && !access.AllowAutoReply {
+			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "复打、自动回复和索要信息属于 Pro会员，当前套餐暂时不能使用"}
 		}
-		if s.aiWallet == nil {
-			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
-		}
-		// 用户配置了自己的 AI API Key 时，不检查系统余额。
-		hasCustomAI := s.hasCustomAIConfig(email)
-		if !hasCustomAI {
-			balance, err := s.aiWallet.BalanceUnits(email)
-			if err != nil {
+		if usesAI {
+			if s.aiWallet == nil {
 				return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
 			}
-			if balance < minimumPositionAIBalanceUnits {
-				return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
+			// 用户配置了自己的 AI API Key 时，不检查系统余额。
+			hasCustomAI := s.hasCustomAIConfig(email)
+			if !hasCustomAI {
+				balance, err := s.aiWallet.BalanceUnits(email)
+				if err != nil {
+					return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}
+				}
+				if balance < minimumPositionAIBalanceUnits {
+					return &positionStartError{status: http.StatusPaymentRequired, code: "AI_BALANCE_INSUFFICIENT", message: "AI 余额不足 0.10 元，岗位这次没有启动，请先充值"}
+				}
 			}
 		}
 	}

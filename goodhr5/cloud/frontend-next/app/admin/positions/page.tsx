@@ -1885,38 +1885,30 @@ export default function PositionsPage() {
                   spacing={1.5}
                   sx={{ flexWrap: "wrap", columnGap: 1.5 }}
                 >
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size='small'
-                        checked={form.request_resume}
-                        disabled={!canUseAutoReply(subscription)}
-                        onChange={(event) =>
-                          setForm({ ...form, request_resume: event.target.checked })
-                        }
-                      />
-                    }
-                    label={
-                      <Stack direction='row' spacing={0.75} sx={{ alignItems: 'center' }}>
-                        <span>索要简历</span>
-                        <Chip
+                  {([
+                    ["request_resume", "索要简历"],
+                    ["request_phone", "索要电话"],
+                    ["request_wechat", "索要微信"],
+                  ] as const).map(([key, label]) => (
+                    <FormControlLabel
+                      key={key}
+                      control={
+                        <Checkbox
                           size='small'
-                          label='PRO 用户专享功能'
-                          sx={{
-                            height: 20,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: '#fff',
-                            backgroundColor: 'primary.main',
-                            '& .MuiChip-label': { px: 0.75 },
-                          }}
+                          checked={form[key]}
+                          disabled={!canUseAutoReply(subscription)}
+                          onChange={(event) => setForm({ ...form, [key]: event.target.checked })}
                         />
-                      </Stack>
-                    }
-                  />
+                      }
+                      label={<Stack direction='row' spacing={0.75} sx={{ alignItems: 'center' }}>
+                        <span>{label}</span>
+                        <Chip size='small' label='PRO 用户专享功能' sx={{ height: 20, fontSize: 11, fontWeight: 600, color: '#fff', backgroundColor: 'primary.main', '& .MuiChip-label': { px: 0.75 } }} />
+                      </Stack>}
+                    />
+                  ))}
                 </Stack>
                 <Typography sx={{ color: "text.secondary", fontSize: 12.5 }}>
-                  当前智联招聘和猎聘猎头端已实现；只有最终 AI
+                  按勾选项执行，BOSS 会在候选人回复且按钮可用后处理；只有最终 AI
                   评分严格大于索要分数时，才会执行已勾选的索要项。
                 </Typography>
                 <TextField

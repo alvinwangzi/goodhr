@@ -298,7 +298,15 @@ func (s *MemoryCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candidat
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	item.ID = s.nextID("event")
+	if item.Metadata["source"] == "candidate_info_request" && item.ID != "" {
+		for _, existing := range s.events[item.CandidateID] {
+			if existing.ID == item.ID {
+				return existing, nil
+			}
+		}
+	} else {
+		item.ID = s.nextID("event")
+	}
 	item.CreatedAt = s.now()
 	s.events[item.CandidateID] = append(s.events[item.CandidateID], item)
 	return item, nil

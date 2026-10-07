@@ -1,0 +1,202 @@
+// 本文件编排三项独立索要：勾选过滤、身份核对、发送意图、结果保存和云端补报；平台仅执行确认控件操作。
+package positionrunner
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/platformcore"
+)
+
+// syncCandidateInfoFeedback 只重试结果记录，不重新发送请求；结果有新修订时才再次补报。
+func (r *Runner) syncCandidateInfoFeedback(ctx context.Context, position localdb.Position, options StartOptions, item localdb.CandidateInfoRequest, action, state string) {
+	if state == "" || state == "sending" || item.Synced[action] == state {
+		return
+	}
+	base := strings.TrimSpace(options.CloudAPIBase)
+	if base == "" {
+		base = strings.TrimSpace(r.cloudAPIBase)
+	}
+	if base == "" || options.Token == "" {
+		return
+	}
+	syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err := cloudapi.New(base).NotifyCandidateInfoResults(syncCtx, options.Token, position.ID, options.CloudRunID, []cloudapi.CandidateInfoFeedback{{RequestID: item.ID, CandidateID: item.CandidateID, CandidateName: item.CandidateName, Action: action, State: state}})
+	if err != nil {
+		r.positionLog(position.ID, "warning", "索要结果保留待补报："+item.CandidateName+"，"+action+"，"+err.Error())
+		return
+	}
+	if err := r.db.MarkCandidateInfoSynced(item.ID, action, state); err != nil {
+		r.positionLog(position.ID, "warning", "索要同步确认保存失败："+err.Error())
+	}
+}
+
+// performCandidateInfoChecks 处理稳定 ID 名单，只执行本轮和入队时共同勾选的动作，成功和未知均不重发。
+func (r *Runner) performCandidateInfoChecks(ctx context.Context, position localdb.Position, runtime platformcore.Runtime, options StartOptions) {
+	items, err := r.db.ListCandidateInfoRequests(position.ID)
+	if err != nil {
+		r.positionLog(position.ID, "warning", "读取索要意图失败："+err.Error())
+		return
+	}
+	if len(items) == 0 {
+		return
+	}
+	selected := candidateInfoRequestFromPosition(position)
+	wanted := map[string]bool{"phone": selected.RequestPhone, "wechat": selected.RequestWechat, "resume": selected.RequestResume}
+	for _, item := range items {
+		for action, state := range item.Results {
+			r.syncCandidateInfoFeedback(ctx, position, options, item, action, state)
+		}
+	}
+	operator, ok := runtime.(platformcore.CandidateInfoRequestOperator)
+	if !ok {
+		r.positionLog(position.ID, "info", "当前平台未提供分项确认能力，三项名单保留，不改成求简历")
+		return
+	}
+	pageRuntime, ok := runtime.(platformcore.AutoReplyRuntime)
+	if !ok {
+		return
+	}
+	locator, ok := runtime.(platformcore.ReGreetRuntime)
+	if !ok {
+		return
+	}
+	base := strings.TrimSpace(options.CloudAPIBase)
+	if base == "" {
+		base = strings.TrimSpace(r.cloudAPIBase)
+	}
+	if base == "" || options.Token == "" {
+		r.positionLog(position.ID, "warning", "索要缺少会员校验凭证，未执行")
+		return
+	}
+	subscription, err := cloudapi.New(base).FetchSubscription(ctx, options.Token)
+	if err != nil || !boolFromMap(subscription, "allow_auto_reply") {
+		r.positionLog(position.ID, "warning", "当前没有 Pro 索要权限，名单保留，未执行")
+		return
+	}
+	hasWork := false
+	names := map[string]int{}
+	for _, item := range items {
+		names[item.CandidateName]++
+		for action, enabled := range item.Actions {
+			if enabled && wanted[action] && item.Results[action] != "requested" && item.Results[action] != "satisfied" {
+				hasWork = true
+			}
+		}
+	}
+	if !hasWork {
+		return
+	}
+	exec := platformExecutor{runner: r, positionID: position.ID, once: true}
+	if err := pageRuntime.PrepareReplyPage(ctx, exec); err != nil {
+		r.positionLog(position.ID, "warning", "索要消息页准备失败："+err.Error())
+		return
+	}
+	target, err := pageRuntime.ResolveReplyTarget(ctx, exec, positionPositionName(position))
+	if err != nil {
+		r.positionLog(position.ID, "warning", "索要岗位核对失败："+err.Error())
+		return
+	}
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return
+		}
+		if names[item.CandidateName] > 1 {
+			r.positionLog(position.ID, "warning", "索要名单有多个同名 ID，未自动交换："+item.CandidateName)
+			continue
+		}
+		active := false
+		for action, enabled := range item.Actions {
+			if enabled && wanted[action] && item.Results[action] != "requested" && item.Results[action] != "satisfied" {
+				active = true
+			}
+		}
+		if !active {
+			continue
+		}
+		conversation, err := locator.LocateReplyConversation(ctx, exec, item.CandidateName)
+		if err != nil {
+			r.positionLog(position.ID, "warning", "索要候选人定位失败："+err.Error())
+			continue
+		}
+		current, err := locator.ReadOpenedReplyContext(ctx, exec, target, conversation)
+		if err != nil {
+			r.positionLog(position.ID, "warning", "索要会话核对失败："+err.Error())
+			continue
+		}
+		if err := r.reconcileCandidatePageState(ctx, position, options, item.CandidateID, item.CandidateName, candidateStateFromReply(current)); err != nil {
+			r.positionLog(position.ID, "warning", "索要前页面状态暂未同步："+err.Error())
+		}
+		replied := false
+		for _, message := range current.Messages {
+			if message.Direction == "inbound" {
+				replied = true
+			}
+		}
+		for _, action := range []string{"phone", "wechat", "resume"} {
+			if !item.Actions[action] || !wanted[action] || item.Results[action] == "requested" || item.Results[action] == "satisfied" {
+				continue
+			}
+			if item.Results[action] == "unknown" || item.Results[action] == "sending" {
+				confirmed, err := operator.InspectCandidateInfoRequest(ctx, exec, target, conversation, action)
+				if err == nil && confirmed {
+					if err := r.db.SaveCandidateInfoResult(item.ID, action, "satisfied"); err == nil {
+						r.syncCandidateInfoFeedback(ctx, position, options, item, action, "satisfied")
+					}
+				}
+				continue // 未确认的历史发送只检查证据，不再点击。
+			}
+			if !replied {
+				r.positionLog(position.ID, "info", "索要继续等待候选人回复："+item.CandidateName)
+				continue
+			}
+			prepared, err := operator.PrepareCandidateInfoRequest(ctx, exec, target, conversation, action)
+			if err != nil {
+				r.positionLog(position.ID, "warning", fmt.Sprintf("索要%s保留待处理：%s，%v", platformcore.CandidateInfoActionLabel(action), item.CandidateName, err))
+				continue
+			}
+			if prepared.AlreadyDone {
+				if err := r.db.SaveCandidateInfoResult(item.ID, action, "satisfied"); err == nil {
+					r.syncCandidateInfoFeedback(ctx, position, options, item, action, "satisfied")
+				}
+				continue
+			}
+			if err := r.db.ClaimCandidateInfoAction(item.ID, action); err != nil {
+				_ = operator.CancelCandidateInfoRequest(ctx, exec, target, conversation, prepared)
+				continue
+			}
+			submitState, sendErr := operator.SubmitCandidateInfoRequest(ctx, exec, target, conversation, prepared)
+			state := "unknown"
+			if sendErr == nil && (submitState == "requested" || submitState == "satisfied") {
+				state = submitState
+			}
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			_ = operator.CancelCandidateInfoRequest(cleanup, exec, target, conversation, prepared)
+			if err := r.db.SaveCandidateInfoResult(item.ID, action, state); err != nil {
+				r.positionLog(position.ID, "warning", "索要发送状态保存失败，停止后续索要："+err.Error())
+				cancel()
+				return
+			}
+			r.syncCandidateInfoFeedback(cleanup, position, options, item, action, state)
+			cancel()
+			r.positionLog(position.ID, "info", fmt.Sprintf("索要%s结果：候选人=%s，状态=%s，错误=%v", platformcore.CandidateInfoActionLabel(action), item.CandidateName, candidateInfoStateLabel(state), sendErr))
+		}
+	}
+}
+
+// candidateInfoStateLabel 展示确认结果，不把未知发送当成成功。
+func candidateInfoStateLabel(state string) string {
+	switch state {
+	case "requested":
+		return "已确认请求发出"
+	case "satisfied":
+		return "已有请求或已获取，已跳过"
+	default:
+		return "结果未确认，不会自动重发"
+	}
+}
