@@ -27,18 +27,20 @@ type PageMetadataOptions = {
   description: string;
   path: string;
   keywords?: string[];
+  includeCoreKeywords?: boolean;
+  absoluteTitle?: boolean;
 };
 
 /** createPageMetadata 生成公开页面统一的搜索和分享元数据。 */
-export function createPageMetadata({ title, description, path, keywords = [] }: PageMetadataOptions): Metadata {
+export function createPageMetadata({ title, description, path, keywords = [], includeCoreKeywords = true, absoluteTitle = false }: PageMetadataOptions): Metadata {
   const canonical = path === "/" ? SITE_URL : `${SITE_URL}${path}`;
-  const mergedKeywords = [...new Set([...keywords, ...CORE_SEO_KEYWORDS])];
+  const mergedKeywords = [...new Set([...keywords, ...(includeCoreKeywords ? CORE_SEO_KEYWORDS : [])])];
   return {
-    title,
+    title: absoluteTitle ? { absolute: title } : title,
     description,
     keywords: mergedKeywords,
     alternates: { canonical },
-    openGraph: { type: "website", locale: "zh_CN", siteName: "HR Plus", url: canonical, title, description },
+    openGraph: { type: "website", locale: "zh_CN", siteName: "HRPlus", url: canonical, title, description },
     twitter: { card: "summary_large_image", title, description },
     robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
   };
