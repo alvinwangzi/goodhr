@@ -1,4 +1,4 @@
-﻿# 云端REST API
+# 云端REST API
 
 <cite>
 **本文引用的文件**
@@ -27,7 +27,7 @@
 10. [附录：版本、兼容性与速率限制](#附录版本兼容性与速率限制)
 
 ## 简介
-本文件为 HRPlus 云端后端 RESTful API 的完整接口文档。内容覆盖认证与会话、租户隔离与管理、岗位与候选人、AI 配置与钱包、订阅与支付、系统配置、本地 Agent 连接等全部 HTTP 端点，包含请求方法、URL 模式、参数校验、请求体与响应结构、状态码与错误码、示例以及最佳实践。
+本文件为 GoodHR 5 云端后端 RESTful API 的完整接口文档。内容覆盖认证与会话、租户隔离与管理、岗位与候选人、AI 配置与钱包、订阅与支付、系统配置、本地 Agent 连接等全部 HTTP 端点，包含请求方法、URL 模式、参数校验、请求体与响应结构、状态码与错误码、示例以及最佳实践。
 
 ## 项目结构
 云端后端采用 Go 语言实现，入口在 main 中启动 HTTP 服务，路由集中在 server.go 中注册，各业务模块按功能拆分到独立文件中（如认证、租户、岗位、候选人、订阅、支付、Agent、系统配置等）。所有响应统一通过 writeJSON/writeError 输出标准 JSON 格式，并启用 CORS。
@@ -107,7 +107,7 @@ end
   - 成功：{ ok: true, ... }
   - 失败：{ ok: false, error: "错误描述" }
 - 统一错误响应使用 writeError，返回 4xx/5xx 状态码。
-- 跨域：允许 GET/POST/PUT/DELETE/OPTIONS，允许 Origin 为 *，允许 Header 包含 Content-Type、Authorization、X-HRPlus-Agent-BaseURL。
+- 跨域：允许 GET/POST/PUT/DELETE/OPTIONS，允许 Origin 为 *，允许 Header 包含 Content-Type、Authorization、X-GoodHR-Agent-BaseURL。
 - 缓存：响应头设置 no-store、must-revalidate。
 
 **章节来源**

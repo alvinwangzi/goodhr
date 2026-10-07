@@ -1,4 +1,4 @@
-﻿---
+---
 kind: error_handling
 name: Go 后端与本地 Agent 的错误处理体系：哨兵错误、自定义错误类型与岗位运行级容错策略
 category: error_handling
@@ -24,7 +24,7 @@ source_files:
 
 ## 1. 总体方案
 
-HRPlus 仓库包含两个 Go 子系统（`goodhr5/cloud/backend` HTTP API 服务、`goodhr5/local-agent-go` 本地 Agent），两者均使用 Go 标准库 `errors`/`fmt` 进行错误处理，没有引入第三方错误库。错误处理分为三层：
+GoodHR 5 仓库包含两个 Go 子系统（`goodhr5/cloud/backend` HTTP API 服务、`goodhr5/local-agent-go` 本地 Agent），两者均使用 Go 标准库 `errors`/`fmt` 进行错误处理，没有引入第三方错误库。错误处理分为三层：
 
 - **HTTP API 层**：通过包级哨兵错误（如 `ErrNotFound`）和少量自定义 error 结构体表达业务语义；调用方用 `errors.Is` / `errors.As` 判断。
 - **本地 Agent 平台执行层**：在 `internal/positionrunner` 中定义候选人级错误包装器 `candidateOperationError` 与连续错误跟踪器 `consecutiveOperationErrorTracker`，实现“同一平台环节连续三次相同错误自动停止整个岗位运行”的策略。

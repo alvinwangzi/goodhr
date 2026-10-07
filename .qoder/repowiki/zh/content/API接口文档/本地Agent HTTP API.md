@@ -1,4 +1,4 @@
-﻿# 本地Agent HTTP API
+# 本地Agent HTTP API
 
 <cite>
 **本文引用的文件**
@@ -29,7 +29,7 @@
 10. [附录：配置与环境变量](#附录：配置与环境变量)
 
 ## 简介
-本文件为 HRPlus 新本地 Agent 的 HTTP API 完整参考，覆盖本地服务暴露的所有端点、请求参数校验、响应数据结构、错误处理机制、安全与跨域策略、端口与路径约定，以及浏览器 Worker 进程与主程序之间的 IPC 协议。文档同时涵盖本地存储访问、文件操作、系统资源监控等底层能力，便于本地执行器开发与系统集成。
+本文件为 GoodHR 新本地 Agent 的 HTTP API 完整参考，覆盖本地服务暴露的所有端点、请求参数校验、响应数据结构、错误处理机制、安全与跨域策略、端口与路径约定，以及浏览器 Worker 进程与主程序之间的 IPC 协议。文档同时涵盖本地存储访问、文件操作、系统资源监控等底层能力，便于本地执行器开发与系统集成。
 
 ## 项目结构
 新本地程序由 Go 主进程提供 HTTP 服务，内部通过路由将请求分发到任务编排、运行时管理、浏览器控制、下载管理、更新、诊断等子系统；Node.js Worker 作为浏览器自动化子进程，仅监听本机地址并提供稳定的内部 HTTP 协议。
@@ -109,7 +109,7 @@ S-->>C : {ok : true, data : ...}
   - 成功：{ ok: true, data: ... }
   - 失败：{ ok: false, error: { code, message }, trace_id? }
 - 安全头：X-Content-Type-Options=nosniff；Cache-Control=no-store。
-- 跨域：仅允许空 Origin、http://127.0.0.1、http://localhost 及特定 https www.xx.com。
+- 跨域：仅允许空 Origin、http://127.0.0.1、http://localhost 及特定 https goodhr5.58it.cn。
 
 章节来源
 - [config.go:15-28](file://goodhr5/local-agent-go-new/internal/config/config.go#L15-L28)

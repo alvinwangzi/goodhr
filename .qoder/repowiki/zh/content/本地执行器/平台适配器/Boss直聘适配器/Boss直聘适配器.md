@@ -11,10 +11,20 @@
 - [greet.go](file://goodhr5/local-agent-go/internal/platforms/boss/greet.go)
 - [helpers.go](file://goodhr5/local-agent-go/internal/platforms/boss/helpers.go)
 - [followup.go](file://goodhr5/local-agent-go/internal/platforms/boss/followup.go)
-- [screenshot.go](file://goodhr5/local-agent-go/internal/platforms/boss/screenshot.go)
+- [auto_reply.go](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go)
+- [reply.go](file://goodhr5/local-agent-go/internal/platforms/boss/reply.go)
+- [re_greet.go](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go)
+- [index.js](file://goodhr5/local-agent-go/worker-node/src/index.js)
 - [boss-scroll-anchor.js](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-anchor.js)
 - [boss-scroll-diagnostic.js](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-diagnostic.js)
 </cite>
+
+## 更新摘要
+**变更内容**   
+- 新增ReGreet复打招呼功能模块，包含LocateReplyConversation、StageReGreet、SendReGreet、ConfirmReGreet四个核心方法
+- 增强候选人后续跟进工作流，支持自动化候选人的二次沟通
+- 集成云端候选名单拉取与AI生成复打消息功能
+- 完善Boss平台聊天会话搜索与定位能力
 
 ## 目录
 1. [简介](#简介)
@@ -22,17 +32,18 @@
 3. [核心组件](#核心组件)
 4. [架构总览](#架构总览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能与反爬策略](#性能与反爬策略)
-8. [故障排查指南](#故障排查指南)
-9. [结论](#结论)
-10. [附录：配置项与调试建议](#附录配置项与调试建议)
+6. [ReGreet复打招呼系统](#regreet复打招呼系统)
+7. [依赖关系分析](#依赖关系分析)
+8. [性能与反爬策略](#性能与反爬策略)
+9. [故障排查指南](#故障排查指南)
+10. [结论](#结论)
+11. [附录：配置项与调试建议](#附录配置项与调试建议)
 
 ## 简介
-本文件面向Boss直聘平台适配器的实现，系统性解析其页面结构特点、DOM元素定位策略、用户交互模拟方法，以及岗位搜索、候选人列表获取、简历详情解析、自动问候、聊天框信息索要等核心流程。文档同时覆盖Boss直聘特有的反爬虫应对、页面加载等待策略、异常处理方案、特殊配置选项、性能优化技巧、调试方法与数据同步要点。
+本文件面向Boss直聘平台适配器的实现，系统性解析其页面结构特点、DOM元素定位策略、用户交互模拟方法，以及岗位搜索、候选人列表获取、简历详情解析、自动问候、聊天框信息索要等核心流程。**最新更新**增加了ReGreet复打招呼功能，支持对之前打过招呼但未回复的候选人进行自动化二次沟通。文档同时覆盖Boss直聘特有的反爬虫应对、页面加载等待策略、异常处理方案、特殊配置选项、性能优化技巧、调试方法与数据同步要点。
 
 ## 项目结构
-Boss直聘适配器位于本地Agent的“平台实现”模块中，Go侧负责编排业务逻辑与Worker通信，Node侧提供浏览器端滚动安全判断与诊断能力。关键文件职责如下：
+Boss直聘适配器位于本地Agent的"平台实现"模块中，Go侧负责编排业务逻辑与Worker通信，Node侧提供浏览器端滚动安全判断与诊断能力。关键文件职责如下：
 - entry.go：入口页打开、确认弹框处理、入口页判定
 - runtime.go：运行时基础能力、候选人可见性通用参数、年龄提取与ID规范化
 - navigation.go：入口页匹配、岗位名称规范化、搜索关键词生成、列表项选择器合并
@@ -41,6 +52,9 @@ Boss直聘适配器位于本地Agent的“平台实现”模块中，Go侧负责
 - detail.go：候选人详情提取、截图拼接、详情关闭与文本清洗
 - greet.go：打招呼流程
 - followup.go：打招呼后聊天框复用与信息索要流程
+- auto_reply.go：**新增** ReGreet复打招呼核心方法、聊天会话搜索、面板上下文读取
+- reply.go：**新增** Worker端Boss聊天搜索接口封装
+- re_greet.go：**新增** 复打招呼任务编排、云端候选名单处理、AI消息生成
 - helpers.go：云端配置到Worker协议转换、通用工具函数
 - screenshot.go：分段截图拼接为长图、临时文件清理
 - boss-scroll-anchor.js：滚动锚点安全区判断、自适应滚轮距离、滚动预算扩展
@@ -57,12 +71,18 @@ C["candidate.go<br/>候选人操作"]
 D["detail.go<br/>详情与截图"]
 G["greet.go<br/>打招呼"]
 F["followup.go<br/>聊天框与信息索要"]
+A["auto_reply.go<br/>复打招呼核心"]
+Y["reply.go<br/>聊天搜索封装"]
 H["helpers.go<br/>配置与工具"]
 S["screenshot.go<br/>截图拼接"]
 end
+subgraph "任务编排层"
+RG["re_greet.go<br/>复打任务编排"]
+end
 subgraph "Node Worker脚本"
-A["boss-scroll-anchor.js<br/>滚动安全与预算"]
-B["boss-scroll-diagnostic.js<br/>滚动诊断"]
+I["index.js<br/>聊天搜索实现"]
+AJS["boss-scroll-anchor.js<br/>滚动安全与预算"]
+BJS["boss-scroll-diagnostic.js<br/>滚动诊断"]
 end
 E --> H
 P --> N
@@ -72,39 +92,28 @@ D --> H
 D --> S
 G --> H
 F --> H
-C --> A
-C --> B
-D --> A
-D --> B
+A --> Y
+A --> H
+RG --> A
+Y --> I
+C --> AJS
+C --> BJS
+D --> AJS
+D --> BJS
 ```
 
 **图表来源** 
 - [entry.go:12-72](file://goodhr5/local-agent-go/internal/platforms/boss/entry.go#L12-L72)
-- [runtime.go:11-63](file://goodhr5/local-agent-go/internal/platforms/boss/runtime.go#L11-L63)
-- [navigation.go:12-161](file://goodhr5/local-agent-go/internal/platforms/boss/navigation.go#L12-L161)
-- [position.go:12-199](file://goodhr5/local-agent-go/internal/platforms/boss/position.go#L12-L199)
-- [candidate.go:13-86](file://goodhr5/local-agent-go/internal/platforms/boss/candidate.go#L13-L86)
-- [detail.go:14-107](file://goodhr5/local-agent-go/internal/platforms/boss/detail.go#L14-L107)
-- [greet.go:11-23](file://goodhr5/local-agent-go/internal/platforms/boss/greet.go#L11-L23)
-- [followup.go:16-116](file://goodhr5/local-agent-go/internal/platforms/boss/followup.go#L16-L116)
-- [helpers.go:112-180](file://goodhr5/local-agent-go/internal/platforms/boss/helpers.go#L112-L180)
-- [screenshot.go:19-167](file://goodhr5/local-agent-go/internal/platforms/boss/screenshot.go#L19-L167)
-- [boss-scroll-anchor.js:14-170](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-anchor.js#L14-L170)
-- [boss-scroll-diagnostic.js:86-250](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-diagnostic.js#L86-L250)
+- [auto_reply.go:969-1072](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L969-L1072)
+- [reply.go:116-126](file://goodhr5/local-agent-go/internal/platforms/boss/reply.go#L116-L126)
+- [re_greet.go:23-48](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L23-L48)
+- [index.js:1795-1867](file://goodhr5/local-agent-go/worker-node/src/index.js#L1795-L1867)
 
 **章节来源**
 - [entry.go:12-72](file://goodhr5/local-agent-go/internal/platforms/boss/entry.go#L12-L72)
-- [runtime.go:11-63](file://goodhr5/local-agent-go/internal/platforms/boss/runtime.go#L11-L63)
-- [navigation.go:12-161](file://goodhr5/local-agent-go/internal/platforms/boss/navigation.go#L12-L161)
-- [position.go:12-199](file://goodhr5/local-agent-go/internal/platforms/boss/position.go#L12-L199)
-- [candidate.go:13-86](file://goodhr5/local-agent-go/internal/platforms/boss/candidate.go#L13-L86)
-- [detail.go:14-107](file://goodhr5/local-agent-go/internal/platforms/boss/detail.go#L14-L107)
-- [greet.go:11-23](file://goodhr5/local-agent-go/internal/platforms/boss/greet.go#L11-L23)
-- [followup.go:16-116](file://goodhr5/local-agent-go/internal/platforms/boss/followup.go#L16-L116)
-- [helpers.go:112-180](file://goodhr5/local-agent-go/internal/platforms/boss/helpers.go#L112-L180)
-- [screenshot.go:19-167](file://goodhr5/local-agent-go/internal/platforms/boss/screenshot.go#L19-L167)
-- [boss-scroll-anchor.js:14-170](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-anchor.js#L14-L170)
-- [boss-scroll-diagnostic.js:86-250](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-diagnostic.js#L86-L250)
+- [auto_reply.go:969-1072](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L969-L1072)
+- [reply.go:116-126](file://goodhr5/local-agent-go/internal/platforms/boss/reply.go#L116-L126)
+- [re_greet.go:23-48](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L23-L48)
 
 ## 核心组件
 - 入口与导航
@@ -125,44 +134,57 @@ D --> B
 - 打招呼与信息索要
   - 打招呼：先确保候选人可见，再调用打招呼接口。
   - 聊天框复用与信息索要：打招呼后优先复用已打开聊天框，否则主动打开；支持手机号、微信、简历三类动作与追加问候语发送。
+- **新增** ReGreet复打招呼
+  - 候选人会话定位：通过搜索框按姓名定位候选人并打开聊天面板。
+  - 复打消息输入：核对身份与空草稿后输入复打文本。
+  - 复打消息发送：核对草稿一致性后点击发送。
+  - 发送结果确认：验证面板新增了本次出站文本。
 
 **章节来源**
 - [entry.go:12-72](file://goodhr5/local-agent-go/internal/platforms/boss/entry.go#L12-L72)
-- [navigation.go:12-161](file://goodhr5/local-agent-go/internal/platforms/boss/navigation.go#L12-L161)
-- [position.go:12-199](file://goodhr5/local-agent-go/internal/platforms/boss/position.go#L12-L199)
-- [candidate.go:13-86](file://goodhr5/local-agent-go/internal/platforms/boss/candidate.go#L13-L86)
-- [detail.go:14-107](file://goodhr5/local-agent-go/internal/platforms/boss/detail.go#L14-L107)
-- [greet.go:11-23](file://goodhr5/local-agent-go/internal/platforms/boss/greet.go#L11-L23)
-- [followup.go:16-116](file://goodhr5/local-agent-go/internal/platforms/boss/followup.go#L16-L116)
+- [auto_reply.go:969-1072](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L969-L1072)
+- [re_greet.go:152-237](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L152-L237)
 
 ## 架构总览
-Boss直聘适配器采用“Go编排 + Node Worker执行”的分层架构。Go侧负责业务编排、配置解析与日志记录；Node侧在浏览器环境中执行DOM查询、滚动、截图与诊断。两者通过统一的Worker API进行通信。
+Boss直聘适配器采用"Go编排 + Node Worker执行"的分层架构。Go侧负责业务编排、配置解析与日志记录；Node侧在浏览器环境中执行DOM查询、滚动、截图与诊断。两者通过统一的Worker API进行通信。**新增的ReGreet功能**通过云端候选名单拉取、AI消息生成、平台页面操作的完整流水线，实现对未回复候选人的自动化二次沟通。
 
 ```mermaid
 sequenceDiagram
 participant Runner as "岗位运行器"
 participant Boss as "Boss适配器(Go)"
+participant Cloud as "云端API"
 participant Worker as "浏览器Worker(Node)"
 participant Page as "Boss页面"
+Note over Runner,Page : 常规候选人扫描流程
 Runner->>Boss : 请求候选人列表
 Boss->>Worker : POST /api/v1/boss/candidates/extract
 Worker->>Page : 查询候选人卡片DOM
 Page-->>Worker : 返回候选数据结构
 Worker-->>Boss : 返回候选人数组与耗时
 Boss-->>Runner : 返回候选人列表
-Runner->>Boss : 请求候选人详情(OCR/AI)
-Boss->>Worker : POST /api/v1/boss/candidates/detail
-Worker->>Page : 滚动至详情容器并截图
-Page-->>Worker : 返回详情文本与分段截图
-Worker-->>Boss : 返回详情结果
-Boss->>Boss : 拼接分段截图为长图
-Boss-->>Runner : 返回详情文本与长图路径
+Note over Runner,Page : ReGreet复打招呼流程
+Runner->>Cloud : 拉取复打候选名单
+Cloud-->>Runner : 返回候选人名册
+Runner->>Boss : LocateReplyConversation(按姓名定位)
+Boss->>Worker : POST /api/v1/boss/chat/search-session
+Worker->>Page : 搜索候选人会话
+Page-->>Worker : 返回搜索结果
+Worker-->>Boss : 返回面板姓名与状态
+Boss-->>Runner : 返回聊天会话对象
+Runner->>Boss : StageReGreet/SendReGreet(输入发送)
+Boss->>Worker : 操作聊天框与发送按钮
+Worker->>Page : 输入文本并点击发送
+Page-->>Worker : 返回操作结果
+Worker-->>Boss : 返回发送状态
+Boss-->>Runner : 返回复打结果
+Runner->>Cloud : 上报复打结果
 ```
 
 **图表来源**
 - [candidate.go:15-48](file://goodhr5/local-agent-go/internal/platforms/boss/candidate.go#L15-L48)
-- [detail.go:16-63](file://goodhr5/local-agent-go/internal/platforms/boss/detail.go#L16-L63)
-- [screenshot.go:19-167](file://goodhr5/local-agent-go/internal/platforms/boss/screenshot.go#L19-L167)
+- [re_greet.go:125-237](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L125-L237)
+- [auto_reply.go:972-1067](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L972-L1067)
+- [index.js:1795-1867](file://goodhr5/local-agent-go/worker-node/src/index.js#L1795-L1867)
 
 ## 详细组件分析
 
@@ -332,15 +354,134 @@ ChatFlow->>Worker : 关闭聊天框(兜底)
 - [greet.go:13-22](file://goodhr5/local-agent-go/internal/platforms/boss/greet.go#L13-L22)
 - [followup.go:45-116](file://goodhr5/local-agent-go/internal/platforms/boss/followup.go#L45-L116)
 
+## ReGreet复打招呼系统
+
+### 概述
+ReGreet复打招呼系统是Boss直聘适配器的核心新功能，专门针对之前打过招呼但未回复的候选人进行自动化二次沟通。该系统通过云端候选名单拉取、AI消息生成、平台页面操作的完整流水线，实现了智能化的候选人跟进工作流。
+
+### 核心方法
+
+#### LocateReplyConversation - 候选人会话定位
+通过Boss平台的搜索框功能，按候选人姓名定位并打开聊天面板。该方法实现了完整的身份验证机制，确保定位到的确实是目标候选人。
+
+**工作流程**：
+1. 调用Worker端的`/api/v1/boss/chat/search-session`接口
+2. 在搜索框中输入候选人姓名
+3. 从搜索结果列表中匹配目标候选人
+4. 点击对应条目跳转到聊天面板
+5. 验证面板显示的候选人姓名与搜索姓名一致
+
+```mermaid
+flowchart TD
+Start(["开始"]) --> ValidateName["验证候选人姓名"]
+ValidateName --> CallSearch["调用搜索接口"]
+CallSearch --> InputName["输入候选人姓名"]
+InputName --> FindMatch["匹配搜索结果"]
+FindMatch --> ClickItem["点击匹配条目"]
+ClickItem --> VerifyPanel["验证面板姓名"]
+VerifyPanel --> NameMatch{"姓名匹配？"}
+NameMatch --> |是| ReturnConv["返回聊天会话对象"]
+NameMatch --> |否| Error["返回错误"]
+ReturnConv --> End(["结束"])
+Error --> End
+```
+
+**图表来源**
+- [auto_reply.go:972-997](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L972-L997)
+- [index.js:1795-1867](file://goodhr5/local-agent-go/worker-node/src/index.js#L1795-L1867)
+
+#### StageReGreet - 复打消息输入
+在执行发送前进行严格的安全检查，确保面板身份正确且草稿为空，然后将AI生成的复打消息输入到聊天框。
+
+**安全检查**：
+- 验证当前面板身份与目标候选人一致
+- 确保聊天框草稿为空
+- 验证复打消息长度不超过1000字符
+- 检查上下文是否有效
+
+#### SendReGreet - 复打消息发送
+在确认草稿内容与预期文本完全一致后，点击发送按钮完成消息发送。
+
+**发送验证**：
+- 验证复打消息不为空
+- 比对草稿内容与预期文本的一致性
+- 点击发送按钮
+
+#### ConfirmReGreet - 发送结果确认
+发送后进行最终验证，确认面板中确实新增了本次出站消息，避免将历史同文误判为本次发送成功。
+
+**确认逻辑**：
+- 检查最后一条消息是否为出站文本
+- 验证消息内容与发送文本一致
+- 对比发送前后的消息数量变化
+- 处理边界情况（如发送前末条为空）
+
+### 任务编排流程
+
+```mermaid
+sequenceDiagram
+participant Runner as "任务运行器"
+participant Cloud as "云端API"
+participant Boss as "Boss适配器"
+participant AI as "AI生成器"
+participant Worker as "浏览器Worker"
+Note over Runner,Worker : ReGreet任务完整流程
+Runner->>Cloud : 拉取复打候选名单
+Cloud-->>Runner : 返回候选人名册
+loop 遍历每个候选人
+Runner->>Boss : LocateReplyConversation(定位候选人)
+Boss->>Worker : 搜索候选人会话
+Worker-->>Boss : 返回会话对象
+Boss-->>Runner : 返回定位结果
+Runner->>Boss : ReadOpenedReplyContext(读取上下文)
+Boss->>Worker : 读取聊天历史
+Worker-->>Boss : 返回消息列表
+Boss-->>Runner : 返回上下文
+Runner->>AI : GenerateReGreet(生成复打消息)
+AI-->>Runner : 返回决策与消息
+alt AI决定发送
+Runner->>Boss : StageReGreet(输入消息)
+Boss->>Worker : 输入复打文本
+Worker-->>Boss : 返回输入结果
+Runner->>Boss : SendReGreet(发送消息)
+Boss->>Worker : 点击发送按钮
+Worker-->>Boss : 返回发送结果
+Runner->>Boss : ConfirmReGreet(确认发送)
+Boss->>Worker : 验证面板状态
+Worker-->>Boss : 返回确认结果
+Boss-->>Runner : 返回确认结果
+alt 发送成功
+Runner->>Cloud : 上报成功结果
+else 发送失败
+Runner->>Cloud : 上报失败原因
+end
+else AI决定跳过
+Runner->>Cloud : 上报跳过原因
+end
+end
+```
+
+**图表来源**
+- [re_greet.go:144-249](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L144-L249)
+
+**章节来源**
+- [auto_reply.go:969-1072](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L969-L1072)
+- [reply.go:116-126](file://goodhr5/local-agent-go/internal/platforms/boss/reply.go#L116-L126)
+- [re_greet.go:23-367](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L23-L367)
+- [index.js:1795-1867](file://goodhr5/local-agent-go/worker-node/src/index.js#L1795-L1867)
+
 ## 依赖关系分析
 - Go层内部依赖
   - helpers.go提供配置分区读取、元素定位转换与通用工具函数，被其他模块广泛复用。
   - runtime.go提供候选人可见性通用参数与年龄提取逻辑，供candidate.go与greet.go复用。
   - navigation.go提供入口页匹配与岗位名称规范化，被position.go与entry.go复用。
   - screenshot.go依赖文件系统与图像库，被detail.go调用。
+  - **新增** auto_reply.go依赖reply.go提供的聊天搜索封装，被re_greet.go任务编排调用。
+  - **新增** re_greet.go依赖platformcore.ReGreetRuntime接口，协调云端API、AI生成器与平台操作。
 - Node层依赖
   - boss-scroll-anchor.js提供滚动安全判断、自适应步长与滚动预算扩展，被Go层通过Worker接口间接使用。
   - boss-scroll-diagnostic.js汇总滚动轨迹并生成诊断结论，辅助定位滚动失败原因。
+  - **新增** index.js中的searchBossChatSession函数实现Boss平台聊天搜索的具体逻辑。
 
 ```mermaid
 graph LR
@@ -353,32 +494,32 @@ R["runtime.go"] --> C
 R --> G
 N["navigation.go"] --> P
 D --> S["screenshot.go"]
-C --> A["boss-scroll-anchor.js"]
-C --> B["boss-scroll-diagnostic.js"]
-D --> A
-D --> B
+A["auto_reply.go"] --> Y["reply.go"]
+RG["re_greet.go"] --> A
+C --> AJS["boss-scroll-anchor.js"]
+C --> BJS["boss-scroll-diagnostic.js"]
+D --> AJS
+D --> BJS
+Y --> I["index.js"]
 ```
 
 **图表来源**
 - [helpers.go:112-180](file://goodhr5/local-agent-go/internal/platforms/boss/helpers.go#L112-L180)
-- [runtime.go:21-63](file://goodhr5/local-agent-go/internal/platforms/boss/runtime.go#L21-L63)
-- [navigation.go:12-161](file://goodhr5/local-agent-go/internal/platforms/boss/navigation.go#L12-L161)
-- [screenshot.go:19-167](file://goodhr5/local-agent-go/internal/platforms/boss/screenshot.go#L19-L167)
-- [boss-scroll-anchor.js:14-170](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-anchor.js#L14-L170)
-- [boss-scroll-diagnostic.js:86-250](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-diagnostic.js#L86-L250)
+- [auto_reply.go:969-1072](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L969-L1072)
+- [re_greet.go:23-48](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L23-L48)
+- [index.js:1795-1867](file://goodhr5/local-agent-go/worker-node/src/index.js#L1795-L1867)
 
 **章节来源**
 - [helpers.go:112-180](file://goodhr5/local-agent-go/internal/platforms/boss/helpers.go#L112-L180)
-- [runtime.go:21-63](file://goodhr5/local-agent-go/internal/platforms/boss/runtime.go#L21-L63)
-- [navigation.go:12-161](file://goodhr5/local-agent-go/internal/platforms/boss/navigation.go#L12-L161)
-- [screenshot.go:19-167](file://goodhr5/local-agent-go/internal/platforms/boss/screenshot.go#L19-L167)
-- [boss-scroll-anchor.js:14-170](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-anchor.js#L14-L170)
-- [boss-scroll-diagnostic.js:86-250](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-diagnostic.js#L86-L250)
+- [auto_reply.go:969-1072](file://goodhr5/local-agent-go/internal/platforms/boss/auto_reply.go#L969-L1072)
+- [re_greet.go:23-48](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L23-L48)
+- [index.js:1795-1867](file://goodhr5/local-agent-go/worker-node/src/index.js#L1795-L1867)
 
 ## 性能与反爬策略
 - 页面加载等待策略
   - 入口弹框确认后延迟等待关闭，避免后续操作误触。
   - 岗位搜索结果刷新采用多次轮询与短暂延迟，提升匹配成功率。
+  - **新增** ReGreet任务间随机间隔（30-50分钟），模拟人工节奏避免检测。
 - 滚动与可见性优化
   - 小步滚轮滚动，结合安全边距与自适应步长，减少无效滚动与越界抖动。
   - 滚动预算根据初始剩余距离动态扩展，避免远距离目标提前耗尽重试。
@@ -386,15 +527,18 @@ D --> B
   - 通过Worker接口执行DOM操作与截图，降低直接HTTP请求风险。
   - 使用稳定的选择器与父类/目标类组合，增强抗变更能力。
   - 详情文本清洗移除平台附加内容，避免干扰下游AI处理。
+  - **新增** ReGreet复打招呼通过真实浏览器交互，避免API调用检测。
+  - **新增** 候选人搜索使用平台内置搜索功能，而非直接DOM遍历。
 - 性能特性
   - 候选人列表提取返回耗时统计，便于监控与调优。
   - 截图拼接过程记录内存与耗时，便于定位瓶颈。
+  - **新增** ReGreet任务统计（总数、发送数、跳过数、失败数），支持进度跟踪。
 
 [本节为通用指导，不直接分析具体文件]
 
 ## 故障排查指南
 - 候选人滚动定位失败
-  - 查看滚动诊断结论代码与中文解释，重点关注“滚轮无效”“方向振荡”“目标未接近”“目标不可测”。
+  - 查看滚动诊断结论代码与中文解释，重点关注"滚轮无效""方向振荡""目标未接近""目标不可测"。
   - 核对视口来源、DPR、可视缩放、滚动容器与滚轮落点。
   - 调整滚动距离、最大尝试次数与安全边距，必要时扩大滚动预算。
 - 详情截图缺失或拼接失败
@@ -406,15 +550,21 @@ D --> B
 - 聊天框未打开或信息索要失败
   - 确认打招呼后聊天框是否自动打开，必要时主动打开。
   - 核对三类动作的选择器与确认浮层选择器是否匹配。
+- **新增** ReGreet复打招呼问题
+  - 候选人定位失败：检查候选人姓名是否正确，确认Boss平台搜索功能是否正常。
+  - 消息输入失败：验证聊天框是否处于激活状态，检查文本长度限制。
+  - 发送确认失败：核对发送前后消息列表变化，确认面板状态同步正常。
+  - 云端同步失败：检查网络连接、Token有效性及云端API响应。
 
 **章节来源**
 - [boss-scroll-diagnostic.js:86-250](file://goodhr5/local-agent-go/worker-node/src/boss-scroll-diagnostic.js#L86-L250)
 - [screenshot.go:19-167](file://goodhr5/local-agent-go/internal/platforms/boss/screenshot.go#L19-L167)
 - [position.go:121-199](file://goodhr5/local-agent-go/internal/platforms/boss/position.go#L121-L199)
 - [followup.go:45-116](file://goodhr5/local-agent-go/internal/platforms/boss/followup.go#L45-L116)
+- [re_greet.go:152-237](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L152-L237)
 
 ## 结论
-Boss直聘适配器通过Go编排与Node Worker执行的协作，实现了从入口页处理、岗位搜索与切换、候选人列表提取与可见性保证、详情解析与截图拼接，到打招呼与信息索要的完整自动化流程。其设计强调稳定性与可观测性：通过稳定的选择器组合、滚动安全判断与诊断、详细的日志与耗时统计，有效应对Boss直聘的反爬机制与页面变化。在实际使用中，建议结合配置项与调试方法持续优化滚动参数与选择器，以提升成功率与性能。
+Boss直聘适配器通过Go编排与Node Worker执行的协作，实现了从入口页处理、岗位搜索与切换、候选人列表提取与可见性保证、详情解析与截图拼接，到打招呼与信息索要的完整自动化流程。**最新增强的ReGreet复打招呼系统**进一步扩展了平台能力，支持对未回复候选人的智能化二次沟通。该系统通过云端候选名单拉取、AI消息生成、平台页面操作的完整流水线，配合严格的身份验证与安全检查，有效提升了招聘效率与用户体验。其设计强调稳定性与可观测性：通过稳定的选择器组合、滚动安全判断与诊断、详细的日志与耗时统计，有效应对Boss直聘的反爬机制与页面变化。在实际使用中，建议结合配置项与调试方法持续优化滚动参数与选择器，以提升成功率与性能。
 
 [本节为总结性内容，不直接分析具体文件]
 
@@ -425,12 +575,15 @@ Boss直聘适配器通过Go编排与Node Worker执行的协作，实现了从入
   - 候选人配置：包含卡片字段定位、可见性参数（距离、等待时间、尝试次数、最大距离、视口边距）。
   - 详情配置：包含截图开关、滚动参数、截图目录与文件名。
   - 聊天框配置：包含全局聊天框、姓名、关闭按钮、输入框、发送按钮与三类动作的选择器。
+  - **新增** ReGreet配置：包含复打提示词、时间范围、间隔设置、最大数量等。
 - 调试建议
   - 启用Worker日志与岗位运行日志，关注耗时统计与诊断结论。
   - 针对滚动问题，优先检查视口来源、DPR、可视缩放与滚动容器。
   - 针对截图问题，检查分段截图路径、文件大小与解码日志。
   - 针对岗位搜索问题，检查岗位名称规范化与搜索关键词生成。
   - 针对聊天框问题，核对选择器与确认浮层选择器，必要时主动打开聊天框。
+  - **新增** ReGreet调试：检查候选人搜索功能、聊天面板状态、消息输入输出、云端API连接。
+  - **新增** 性能监控：关注ReGreet任务执行时间、成功率统计、云端同步状态。
 
 **章节来源**
 - [navigation.go:14-38](file://goodhr5/local-agent-go/internal/platforms/boss/navigation.go#L14-L38)
@@ -438,3 +591,4 @@ Boss直聘适配器通过Go编排与Node Worker执行的协作，实现了从入
 - [candidate.go:15-48](file://goodhr5/local-agent-go/internal/platforms/boss/candidate.go#L15-L48)
 - [detail.go:16-63](file://goodhr5/local-agent-go/internal/platforms/boss/detail.go#L16-L63)
 - [followup.go:16-31](file://goodhr5/local-agent-go/internal/platforms/boss/followup.go#L16-L31)
+- [re_greet.go:255-288](file://goodhr5/local-agent-go/internal/positionrunner/re_greet.go#L255-L288)
