@@ -46,6 +46,7 @@ import {
   estimateSubscriptionQuote,
   membershipName,
   normalizeSubscriptionPlans,
+  planPriceCents,
   type SubscriptionPlan,
   type SubscriptionUpgradeQuote,
 } from "@/lib/subscription";
@@ -1114,7 +1115,7 @@ function PlanCard({
   quote: SubscriptionUpgradeQuote;
   onPay: () => void;
 }) {
-  const price = quote.amountCents / 100;
+  const price = planPriceCents(plan) / 100;
   const originalPrice = Number(plan.original_price || 0);
   return (
     <Box
@@ -1152,6 +1153,11 @@ function PlanCard({
       >
         {plan.name || "会员套餐"}
       </Typography>
+      {plan.duration_days > 0 ? (
+        <Typography sx={{ mt: 1, fontSize: 15, fontWeight: 700 }}>
+          有效期：{plan.duration_days} 天
+        </Typography>
+      ) : null}
       <Stack direction='row' spacing={1} sx={{ mt: 2, alignItems: "baseline" }}>
         <Typography
           sx={{
@@ -1183,7 +1189,7 @@ function PlanCard({
       </Typography>
       {quote.upgrade ? (
         <Typography sx={{ mt: 1, color: "#80621f", fontSize: 13, fontWeight: 700 }}>
-          已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}
+          已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}，预计应付 ￥{(quote.amountCents / 100).toFixed(2)}
         </Typography>
       ) : null}
       {quote.sourceMemberType === "pro" ? (

@@ -7,7 +7,22 @@ import {
   estimateSubscriptionQuote,
   normalizeSubscription,
   normalizeSubscriptionPlans,
+  planPriceCents,
 } from "./subscription.ts";
+
+test("新套餐标价、有效期和实付计算一致", () => {
+  const updated = normalizeSubscriptionPlans([
+    { id: "monthly", member_type: "plus", duration_days: 30, original_price: 199, discount_amount: 100 },
+    { id: "yearly", member_type: "pro", duration_days: 365, original_price: 2388, discount_amount: 400 },
+  ]);
+  assert.equal(planPriceCents(updated[0]), 9900);
+  assert.equal(planPriceCents(updated[1]), 198800);
+  assert.equal(updated[0].duration_days, 30);
+  assert.equal(updated[1].duration_days, 365);
+  const free = normalizeSubscription({ active: false, member_type: "free" });
+  assert.equal(estimateSubscriptionQuote(free, updated, updated[0]).amountCents, 9900);
+  assert.equal(estimateSubscriptionQuote(free, updated, updated[1]).amountCents, 198800);
+});
 
 const plans = normalizeSubscriptionPlans([
   {

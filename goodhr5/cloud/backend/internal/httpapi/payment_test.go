@@ -12,6 +12,54 @@ import (
 	"time"
 )
 
+// TestUpdatedSubscriptionOrderPrices 验证月度和年度的新订单金额、划线金额、有效期及未付款时的会员状态。
+func TestUpdatedSubscriptionOrderPrices(t *testing.T) {
+	for _, tc := range []struct {
+		plan, amount   string
+		original, days int
+	}{{"monthly", "99.00", 19900, 30}, {"yearly", "1988.00", 238800, 365}} {
+		t.Run(tc.plan, func(t *testing.T) {
+			server := mustNewServer(t)
+			provider := &fakeWechatPaymentProvider{}
+			server.payments.providers = map[string]PaymentProvider{provider.Name(): provider}
+			routes := server.Routes()
+			email := "new-price@example.com"
+			token := loginForTest(t, routes, email)
+			before, err := server.payments.subscriptions.UserSubscription(email)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/payment/orders", bytes.NewBufferString(`{"plan_id":"`+tc.plan+`"}`))
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp := httptest.NewRecorder()
+			routes.ServeHTTP(resp, req)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("创建测试订单失败：%s", resp.Body.String())
+			}
+			var payload struct {
+				Order struct {
+					Amount   string `json:"amount"`
+					Original int    `json:"original_amount_cents"`
+					Days     int    `json:"duration_days"`
+				} `json:"order"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Order.Amount != tc.amount || payload.Order.Original != tc.original || payload.Order.Days != tc.days {
+				t.Fatalf("报价与套餐不一致：%+v", payload.Order)
+			}
+			after, err := server.payments.subscriptions.UserSubscription(email)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before.MemberType != after.MemberType || !before.ExpiresAt.Equal(after.ExpiresAt) {
+				t.Fatal("仅创建订单却改变了已有会员状态")
+			}
+		})
+	}
+}
+
 // TestPaymentOrderAndNotify 验证创建微信支付订单后，支付结果会标记订单已支付且重复处理不重复到账。
 func TestPaymentOrderAndNotify(t *testing.T) {
 	server := mustNewServer(t)
@@ -44,14 +92,14 @@ func TestPaymentOrderAndNotify(t *testing.T) {
 	if err := json.NewDecoder(createResp.Body).Decode(&createPayload); err != nil {
 		t.Fatal(err)
 	}
-	if createPayload.Order.OrderNo == "" || createPayload.Order.Amount != "19.90" || createPayload.Payment.CodeURL == "" {
+	if createPayload.Order.OrderNo == "" || createPayload.Order.Amount != "99.00" || createPayload.Payment.CodeURL == "" {
 		t.Fatalf("unexpected order payload: %+v", createPayload.Order)
 	}
 
 	result := PaymentProviderTransactionResult{
 		OrderNo:     createPayload.Order.OrderNo,
 		TradeNo:     "trade-test",
-		AmountCents: 1990,
+		AmountCents: 9900,
 		Paid:        true,
 		Raw:         map[string]string{"trade_state": "SUCCESS"},
 	}
@@ -184,7 +232,7 @@ func TestBuildSubscriptionPaymentQuoteProratesPlusUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.UpgradeFromType != memberTypePlus || quote.UpgradeCreditCents != 995 || quote.AmountCents != 98905 {
+	if quote.UpgradeFromType != memberTypePlus || quote.UpgradeCreditCents != 4950 || quote.AmountCents != 193850 {
 		t.Fatalf("unexpected upgrade quote: %+v", quote)
 	}
 }
@@ -240,7 +288,7 @@ func TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote.UpgradeFromType != memberTypePro || quote.UpgradeCreditCents != 0 || quote.AmountCents != 1990 {
+	if quote.UpgradeFromType != memberTypePro || quote.UpgradeCreditCents != 0 || quote.AmountCents != 9900 {
 		t.Fatalf("Pro 切换 Plus 报价不正确: %+v", quote)
 	}
 }
