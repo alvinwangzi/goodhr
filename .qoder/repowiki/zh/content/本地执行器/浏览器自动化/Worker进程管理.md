@@ -23,7 +23,7 @@
 10. [结论](#结论)
 
 ## 引言
-本文围绕 GoodHR 本地代理中的 Node.js Worker 进程管理机制展开，重点说明：
+本文围绕 HRPlus 本地代理中的 Node.js Worker 进程管理机制展开，重点说明：
 - Node.js Worker 的作用：作为浏览器自动化控制子进程，提供稳定的 HTTP API。
 - 启动流程：Go 主进程负责发现、清理旧进程、启动 Node 进程、等待就绪并复用已有实例。
 - 生命周期管理：健康检查、端口探测、优雅停止、强制终止、进程树清理。
@@ -34,7 +34,7 @@
 - 性能调优与错误隔离：浏览器上下文复用、页面 Token 管理、诊断日志、异常捕获。
 
 ## 项目结构
-GoodHR 本地代理将“控制面”放在 Go 主进程中，“执行面”放在独立的 Node.js Worker 中。关键路径如下：
+HRPlus 本地代理将“控制面”放在 Go 主进程中，“执行面”放在独立的 Node.js Worker 中。关键路径如下：
 - Go 侧 Worker 管理器：`goodhr5/local-agent-go/internal/browser/worker.go`
 - Node 侧 Worker HTTP 服务：`goodhr5/local-agent-go/worker-node/src/index.js`
 - Go 侧对外暴露的 Worker 控制接口：`goodhr5/local-agent-go/internal/app/server.go`
@@ -247,7 +247,7 @@ NodeWorker --> Modules["内置与自定义模块"]
 ## 跨平台兼容性
 - **Windows**：
   - 使用 `taskkill`、Go 原生 `Kill`、PowerShell `Stop-Process` 多级终止进程。
-  - 通过 `netstat` 查找端口占用进程，验证是否为旧 GoodHR 实例。
+  - 通过 `netstat` 查找端口占用进程，验证是否为旧 HRPlus 实例。
   - 隐藏命令行窗口，避免弹出终端。
 - **非 Windows**：
   - 使用 `pgrep` 获取子进程 ID，递归终止进程树。
@@ -294,4 +294,4 @@ VerifyExit --> Done["完成"]
 - [index.js:605-622](file://goodhr5/local-agent-go/worker-node/src/index.js#L605-L622)
 
 ## 结论
-GoodHR 的 Node.js Worker 进程管理采用 Go 主进程控制、Node 子进程执行的分离架构。Go 侧负责进程生命周期、端口管理、健康检查和自动重启；Node 侧专注浏览器自动化操作，提供稳定 HTTP API。通过端口回退、版本校验、诊断日志和跨平台进程清理，系统在复杂环境下具备较高鲁棒性。当前实现为单 Worker 模型，适合单机场景；如需多 Worker 负载均衡，可在现有基础上扩展任务分发与进程池管理。
+HRPlus 的 Node.js Worker 进程管理采用 Go 主进程控制、Node 子进程执行的分离架构。Go 侧负责进程生命周期、端口管理、健康检查和自动重启；Node 侧专注浏览器自动化操作，提供稳定 HTTP API。通过端口回退、版本校验、诊断日志和跨平台进程清理，系统在复杂环境下具备较高鲁棒性。当前实现为单 Worker 模型，适合单机场景；如需多 Worker 负载均衡，可在现有基础上扩展任务分发与进程池管理。

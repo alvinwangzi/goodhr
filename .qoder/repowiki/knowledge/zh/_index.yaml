@@ -6,8 +6,8 @@ nodes_managed: true
 exported_at: "2026-10-07T10:08:19Z"
 modules:
     "":
-        dir_name: GoodHR 5 招聘自动化项目根目录
-        title: GoodHR 5 招聘自动化项目根目录
+        dir_name: HRPlus 招聘自动化项目根目录
+        title: HRPlus 招聘自动化项目根目录
         scope:
             - AGENTS.md
             - .gitignore

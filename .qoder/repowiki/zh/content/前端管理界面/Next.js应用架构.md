@@ -136,7 +136,7 @@ P-->>U : 返回HTML
 
 ### 主题与全局状态（React Context）
 - 职责：提供 MUI 缓存与主题；通过 Context 暴露会员主题类型与切换方法；根据订阅状态动态切换主题。
-- 关键点：MembershipTheme 枚举 free/plus/max；createGoodHRTheme 生成主题对象；useMembershipTheme 供子树消费。
+- 关键点：MembershipTheme 枚举 free/plus/max；createHRPlusTheme 生成主题对象；useMembershipTheme 供子树消费。
 
 ```mermaid
 classDiagram
@@ -146,7 +146,7 @@ class Providers {
 +setMembershipTheme()
 }
 class Theme {
-+createGoodHRTheme(membershipTheme)
++createHRPlusTheme(membershipTheme)
 +resolveMembershipTheme(active, memberType)
 }
 Providers --> Theme : "创建并注入主题"
@@ -313,7 +313,7 @@ N --> R["重定向: .html -> 无后缀"]
   - 参考路径：[api.ts:20-57](file://goodhr5/cloud/frontend-next/lib/api.ts#L20-L57)、[public-data.ts:36-92](file://goodhr5/cloud/frontend-next/lib/public-data.ts#L36-L92)
 
 - 如何扩展主题
-  - 在 theme.ts 中增加 MembershipTheme 配色与 createGoodHRTheme 分支。
+  - 在 theme.ts 中增加 MembershipTheme 配色与 createHRPlusTheme 分支。
   - 在 providers.tsx 中通过 Context 暴露 setMembershipTheme，并在后台订阅状态变化时更新。
   - 参考路径：[theme.ts:20-64](file://goodhr5/cloud/frontend-next/app/theme.ts#L20-L64)、[providers.tsx:18-40](file://goodhr5/cloud/frontend-next/app/providers.tsx#L18-L40)
 

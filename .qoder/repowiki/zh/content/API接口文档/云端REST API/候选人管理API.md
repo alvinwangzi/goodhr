@@ -23,7 +23,7 @@
 11. [结论](#结论)
 
 ## 简介
-本文件面向调用方，系统化说明 GoodHR 云端后端的候选人管理 API。重点覆盖：
+本文件面向调用方，系统化说明 HRPlus 云端后端的候选人管理 API。重点覆盖：
 - 候选人列表查询：/api/candidates
 - 候选人详情查看：/api/candidates/{id}
 - 候选人备注管理：/api/candidates/{id}/notes
@@ -416,4 +416,4 @@ E --> F["ORDER BY latest_engagement.created_at DESC"]
 - [candidate_service.go:97-111](file://goodhr5/cloud/backend/internal/httpapi/candidate_service.go#L97-L111)
 
 ## 结论
-GoodHR 候选人管理 API 提供了清晰的候选人列表、详情与备注管理能力，并通过岗位运行与本地程序入库形成完整的数据闭环。调用方可以基于 position_id、status、keyword 进行灵活筛选，结合分页与排序规则高效检索候选人。简历解析结果以结构化字段暴露，便于前端展示与分析。建议在集成时严格遵循认证、团队隔离与参数校验要求，并在批量操作中注意管理员权限与性能边界。
+HRPlus 候选人管理 API 提供了清晰的候选人列表、详情与备注管理能力，并通过岗位运行与本地程序入库形成完整的数据闭环。调用方可以基于 position_id、status、keyword 进行灵活筛选，结合分页与排序规则高效检索候选人。简历解析结果以结构化字段暴露，便于前端展示与分析。建议在集成时严格遵循认证、团队隔离与参数校验要求，并在批量操作中注意管理员权限与性能边界。

@@ -29,7 +29,7 @@
 16. [结论](#结论)
 
 ## 简介
-本文件面向 GoodHR 本地 Agent 中的 OCR 识别引擎，系统性说明其实现原理、调用方式、配置项、错误处理、性能特征与部署注意事项。OCR 引擎通过启动本机 RapidOCR-json 常驻进程，以 JSON 行协议进行图片文字识别，并将结构化文本结果返回给上层业务模块，用于岗位详情信息抽取等场景。
+本文件面向 HRPlus 本地 Agent 中的 OCR 识别引擎，系统性说明其实现原理、调用方式、配置项、错误处理、性能特征与部署注意事项。OCR 引擎通过启动本机 RapidOCR-json 常驻进程，以 JSON 行协议进行图片文字识别，并将结构化文本结果返回给上层业务模块，用于岗位详情信息抽取等场景。
 
 ## 项目结构
 OCR 相关代码主要位于 Go 版本本地 Agent 的 `internal/ocr` 包中，并通过 HTTP API 暴露状态查询与识别接口；同时被岗位运行流程在“OCR 模式”下调用，结合截图拼接逻辑完成长图识别。
@@ -170,10 +170,10 @@ Engine --> Config : "使用"
 ### HTTP 服务集成
 - 接口
   - 状态查询：返回 OCR 是否安装、模型是否就绪、工作目录与工作模式。
-  - 图片识别：接收 file_path/path/screenshot_path 任一字段，校验绝对路径且必须位于 GoodHR 数据目录或截图目录内，然后调用 OCR 引擎识别。
+  - 图片识别：接收 file_path/path/screenshot_path 任一字段，校验绝对路径且必须位于 HRPlus 数据目录或截图目录内，然后调用 OCR 引擎识别。
 - 安全限制
   - 仅允许绝对路径。
-  - 仅允许 GoodHR 数据目录与截图目录下的图片，防止任意文件读取。
+  - 仅允许 HRPlus 数据目录与截图目录下的图片，防止任意文件读取。
 - 错误处理
   - 方法不支持返回 405。
   - 参数缺失或非法返回 400。
@@ -185,7 +185,7 @@ Start(["收到识别请求"]) --> ValidateMethod{"方法为POST?"}
 ValidateMethod --> |否| MethodNotAllowed["返回405"]
 ValidateMethod --> |是| ParsePayload["解析JSON负载"]
 ParsePayload --> ExtractPath["提取file_path/path/screenshot_path"]
-ExtractPath --> ValidatePath{"路径合法且在GoodHR目录内?"}
+ExtractPath --> ValidatePath{"路径合法且在HRPlus目录内?"}
 ValidatePath --> |否| BadRequest["返回400"]
 ValidatePath --> |是| CallOCR["调用Engine.Recognize"]
 CallOCR --> OCRResult{"识别成功?"}
@@ -310,7 +310,7 @@ Engine --> RapidOCR["RapidOCR-json"]
 - 输入校验
   - 图片路径为空或非绝对路径直接报错。
   - 图片文件不存在时报错。
-  - HTTP 层仅允许 GoodHR 数据目录与截图目录内的图片。
+  - HTTP 层仅允许 HRPlus 数据目录与截图目录内的图片。
 - 进程管理
   - 进程启动失败、管道创建失败、读取失败均返回明确错误。
   - 进程退出时通过 done 通道捕获退出码，并提示查看日志。
@@ -429,7 +429,7 @@ Engine --> RapidOCR["RapidOCR-json"]
 - 诊断步骤
   - 调用 /local/ocr/status 检查 installed、path、dir、mode、models_ok。
   - 检查运行时目录 logs/ocr.log 是否有崩溃堆栈或异常输出。
-  - 验证图片路径是否在 GoodHR 数据目录或截图目录内。
+  - 验证图片路径是否在 HRPlus 数据目录或截图目录内。
   - 调整 GOODHR_OCR_ARGS 传入额外参数，观察是否改善识别效果。
 
 **章节来源**
@@ -439,4 +439,4 @@ Engine --> RapidOCR["RapidOCR-json"]
 - [server.go:590-637](file://goodhr5/local-agent-go/internal/app/server.go#L590-L637)
 
 ## 结论
-GoodHR 本地 Agent 的 OCR 识别引擎通过进程外 RapidOCR-json 组件实现稳定、可扩展的文字识别能力。其设计强调安全性（路径白名单）、可观测性（日志与诊断）、可维护性（进程隔离与自动重启）。在实际使用中，建议结合 Boss 平台的长图拼接、岗位运行器的多模式策略，以及合理的配置与环境变量，以获得更高的识别准确率与系统稳定性。
+HRPlus 本地 Agent 的 OCR 识别引擎通过进程外 RapidOCR-json 组件实现稳定、可扩展的文字识别能力。其设计强调安全性（路径白名单）、可观测性（日志与诊断）、可维护性（进程隔离与自动重启）。在实际使用中，建议结合 Boss 平台的长图拼接、岗位运行器的多模式策略，以及合理的配置与环境变量，以获得更高的识别准确率与系统稳定性。

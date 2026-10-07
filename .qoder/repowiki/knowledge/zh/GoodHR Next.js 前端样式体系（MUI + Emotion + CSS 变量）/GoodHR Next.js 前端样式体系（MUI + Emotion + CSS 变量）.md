@@ -1,6 +1,6 @@
 ---
 kind: frontend_style
-name: GoodHR Next.js 前端样式体系（MUI + Emotion + CSS 变量）
+name: HRPlus Next.js 前端样式体系（MUI + Emotion + CSS 变量）
 category: frontend_style
 scope:
     - '**'
@@ -31,7 +31,7 @@ source_files:
 
 ### 3.1 主题系统（单一明亮蓝色主题）
 
-`createGoodHRTheme()` 在 `app/theme.ts` 中通过 `createTheme` 生成统一主题，全站只使用这一套浅色蓝色主题（`mode: "light"`）：
+`createHRPlusTheme()` 在 `app/theme.ts` 中通过 `createTheme` 生成统一主题，全站只使用这一套浅色蓝色主题（`mode: "light"`）：
 
 - 品牌主色 `#0052CC`，深色 `#003D99`，浅背景 `#EBF0FF`。
 - 文字色 `#1A1F36`，辅助色 `#5E6580`，分割线 `#D6DCF0`。
@@ -77,7 +77,7 @@ source_files:
 
 ## 4. 约定与约束
 
-- **主题来源唯一**：全站视觉通过 `app/theme.ts` 中的 `createGoodHRTheme()` 产出，`providers.tsx` 是唯一注入点；新增颜色应优先修改该函数而非在组件内硬编码。
+- **主题来源唯一**：全站视觉通过 `app/theme.ts` 中的 `createHRPlusTheme()` 产出，`providers.tsx` 是唯一注入点；新增颜色应优先修改该函数而非在组件内硬编码。
 - **颜色一致性**：CSS 变量 `--goodhr-brand` 与 MUI `primary.main` 同为 `#0052CC`，二者应保持同步（当前已一致）。
 - **按钮形态**：MUI Button 被全局覆盖为胶囊形（`borderRadius: 999`）、最小高度 44px、无阴影，这是通过 `components.MuiButton.styleOverrides.root` 实现的站点级约定。
 - **输入框形态**：所有 `TextField` 默认使用 `outlined` 变体，`OutlinedInput` 根节点最小高度 56px、圆角 18px。
