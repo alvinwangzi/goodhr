@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -1007,12 +1008,12 @@ func (r *Runtime) ReadOpenedReplyContext(ctx context.Context, exec platformcore.
 
 // StageReGreet 输入前核对身份与空草稿，再把复打文本输入聊天框。
 // 复用 readCurrentReply 做面板身份与岗位核对，不复用 RecheckReplyContext（无入站指纹）。
-func (r *Runtime) StageReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, text string) error {
+func (r *Runtime) StageReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string) error {
 	current, err := r.readCurrentReply(ctx, exec, target, conversation)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(current.Draft) != "" || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > 1000 {
+	if !reflect.DeepEqual(current.Messages, before.Messages) || current.ResumeStatus != before.ResumeStatus || strings.TrimSpace(current.Draft) != "" || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > 200 {
 		return platformcore.ErrReplyUnsafe
 	}
 	if err := ctx.Err(); err != nil {
@@ -1024,12 +1025,12 @@ func (r *Runtime) StageReGreet(ctx context.Context, exec platformcore.Executor, 
 }
 
 // SendReGreet 核对草稿与复打文本一致后点击发送。
-func (r *Runtime) SendReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, text string) error {
+func (r *Runtime) SendReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string) error {
 	current, err := r.readCurrentReply(ctx, exec, target, conversation)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(text) == "" || strings.TrimSpace(current.Draft) != strings.TrimSpace(text) {
+	if !reflect.DeepEqual(current.Messages, before.Messages) || current.ResumeStatus != before.ResumeStatus || strings.TrimSpace(text) == "" || strings.TrimSpace(current.Draft) != strings.TrimSpace(text) {
 		return platformcore.ErrReplyUnsafe
 	}
 	if err := ctx.Err(); err != nil {
@@ -1044,6 +1045,20 @@ func (r *Runtime) SendReGreet(ctx context.Context, exec platformcore.Executor, t
 // 锚点是发送前基线 before：末条必须为本次文本，且消息数增加或发送前末条不是同文，
 // 避免把历史同文误判为本次发送成功。
 func (r *Runtime) ConfirmReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string) (bool, error) {
+	for attempt := 0; attempt < 20; attempt++ {
+		confirmed, err := r.confirmReGreetOnce(ctx, exec, target, conversation, before, text)
+		if err != nil || confirmed {
+			return confirmed, err
+		}
+		if err := exec.Delay(ctx, "等待复打消息发送结果", 0.25); err != nil {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+// confirmReGreetOnce 只读取一次页面证据，历史同文不能作为本次发送的确认。
+func (r *Runtime) confirmReGreetOnce(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string) (bool, error) {
 	current, err := r.readCurrentReply(ctx, exec, target, conversation)
 	if err != nil {
 		return false, err

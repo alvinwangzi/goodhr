@@ -13,6 +13,27 @@ import (
 
 const positionTestMachineID = "goodhr-device-v1-position-test"
 
+// TestReGreetAndCombinedTasksRequireMembership 验证关键词岗位不能绕过复打与组合任务的 Pro 权限。
+func TestReGreetAndCombinedTasksRequireMembership(t *testing.T) {
+	for _, task := range []string{"re_greet", "greeting,re_greet", "auto_reply,re_greet"} {
+		t.Run(task, func(t *testing.T) {
+			server := mustNewServer(t)
+			routes := server.Routes()
+			email := "regreet-membership@example.com"
+			token := loginForTest(t, routes, email)
+			bindPositionDeviceForTest(t, routes, token)
+			id := createPositionWithConfigForTest(t, routes, token, "复打岗位", `{"mode_default":"keyword"}`)
+			if _, err := server.positionExecution.subscriptions.AdjustSubscriptionDays(email, memberTypePlus, 30); err != nil {
+				t.Fatal(err)
+			}
+			resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+id+"/start", `{"task_type":`+strconv.Quote(task)+`,"machine_id":"`+positionTestMachineID+`"}`)
+			if resp.Code != http.StatusForbidden || positionStartErrorCodeForTest(t, resp) != "AUTO_REPLY_MAX_REQUIRED" {
+				t.Fatalf("缺少权限的消息任务被放行：%s", resp.Body.String())
+			}
+		})
+	}
+}
+
 // bindPositionDeviceForTest 为岗位启动测试绑定一台稳定设备。
 func bindPositionDeviceForTest(t *testing.T, routes http.Handler, token string) {
 	t.Helper()

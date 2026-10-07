@@ -42,6 +42,7 @@ type replyPage struct {
 	resumeRequested  bool
 	resumeError      bool
 	resumeMalformed  string
+	onDelay          func()
 }
 
 // newReplyPage 返回两个同名候选人的独立会话。
@@ -154,7 +155,62 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 func (*replyPage) Log(string, string) {}
 
 // Delay 测试中不引入轮询等待。
-func (*replyPage) Delay(context.Context, string, float64) error { return nil }
+func (p *replyPage) Delay(ctx context.Context, _ string, _ float64) error {
+	if p.onDelay != nil {
+		p.onDelay()
+	}
+	return ctx.Err()
+}
+
+// TestReGreetRechecksMessages 验证输入和发送之间出现新消息时不会点击发送。
+func TestReGreetRechecksMessages(t *testing.T) {
+	cfg := replyTestConfig()
+	runtime := &Runtime{replyConfig: &cfg}
+	page := newReplyPage()
+	page.active = "a"
+	page.messages["a"] = []map[string]string{{"id": "first", "direction": "out", "kind": "text", "text": "首次招呼"}}
+	conversation := platformcore.ReplyConversation{Name: "同名"}
+	target := platformcore.ReplyTarget{PositionName: "Go"}
+	before, err := runtime.ReadOpenedReplyContext(t.Context(), page, target, conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.StageReGreet(t.Context(), page, target, conversation, before, "复打消息"); err != nil {
+		t.Fatal(err)
+	}
+	page.messages["a"] = append(page.messages["a"], map[string]string{"id": "new", "direction": "in", "kind": "text", "text": "刚刚回复"})
+	if err := runtime.SendReGreet(t.Context(), page, target, conversation, before, "复打消息"); err == nil || len(page.sent) != 0 {
+		t.Fatalf("上下文已变化仍发送：%v", err)
+	}
+}
+
+// TestReGreetWaitsForConfirmation 验证发送结果延迟出现时只等待证据，不重发；历史同文不算成功。
+func TestReGreetWaitsForConfirmation(t *testing.T) {
+	cfg := replyTestConfig()
+	runtime := &Runtime{replyConfig: &cfg}
+	page := newReplyPage()
+	page.active = "a"
+	page.messages["a"] = []map[string]string{{"id": "old", "direction": "out", "kind": "text", "text": "复打消息"}}
+	conversation := platformcore.ReplyConversation{Name: "同名"}
+	target := platformcore.ReplyTarget{PositionName: "Go"}
+	before, err := runtime.ReadOpenedReplyContext(t.Context(), page, target, conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := runtime.ConfirmReGreet(t.Context(), page, target, conversation, before, "复打消息"); ok || err != nil {
+		t.Fatalf("历史同文被误确认：%v %v", ok, err)
+	}
+	page.onDelay = func() {
+		page.messages["a"] = append(page.messages["a"], map[string]string{"id": "new", "direction": "out", "kind": "text", "text": "复打消息"})
+		page.onDelay = nil
+	}
+	if ok, err := runtime.ConfirmReGreet(t.Context(), page, target, conversation, before, "复打消息"); !ok || err != nil {
+		t.Fatalf("延迟发送未确认：%v %v", ok, err)
+	}
+	if len(page.sent) != 0 {
+		t.Fatal("确认过程中重复点击发送")
+	}
+}
 
 // TestAutoReplyUnverifiedBlocked 验证未取得 Boss 页面证据时不执行任何浏览器动作。
 func TestAutoReplyUnverifiedBlocked(t *testing.T) {

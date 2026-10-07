@@ -257,12 +257,9 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 
 	var platformConfig cloudapi.PlatformConfig
 	taskTypes := parseTaskTypes(options.TaskType)
-	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "re_greet") {
-		// 纯自动回复模式不需要平台扫描配置，使用本地内嵌消息配置即可。
-		r.positionLog(positionID, "info", "岗位运行启动：纯自动回复模式，跳过平台扫描配置读取")
-	} else if hasTaskType(taskTypes, "re_greet") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "auto_reply") {
-		// 纯复打招呼模式不需要平台扫描配置，复打名单从云端拉取。
-		r.positionLog(positionID, "info", "岗位运行启动：纯复打招呼模式，跳过平台扫描配置读取")
+	if !hasTaskType(taskTypes, "greeting") {
+		// 消息任务使用本地内嵌会话配置，不需要推荐列表扫描配置。
+		r.positionLog(positionID, "info", "岗位运行启动：仅执行消息任务，跳过平台扫描配置读取")
 	} else {
 		r.updateProgress(positionID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
 		platformID := strings.ToLower(strings.TrimSpace(position.PlatformID))
@@ -370,13 +367,13 @@ func applyCloudPreferences(options StartOptions, preferences map[string]any) Sta
 func aiConfigFromCloud(config map[string]any) localdb.AIConfig {
 	return localdb.AIConfig{
 		ReplySystemPrompt: stringFromMap(config, "reply_system_prompt"),
-		ID:          "cloud",
-		BaseURL:     stringFromMap(config, "base_url"),
-		APIKey:      stringFromMap(config, "api_key"),
-		Model:       stringFromMap(config, "model"),
-		Temperature: floatFromMapOr(config, "temperature", 0.2),
-		Timeout:     intFromMapOr(config, "timeout", localai.DefaultRequestTimeoutSeconds),
-		Extra:       mapValue(config["extra"]),
+		ID:                "cloud",
+		BaseURL:           stringFromMap(config, "base_url"),
+		APIKey:            stringFromMap(config, "api_key"),
+		Model:             stringFromMap(config, "model"),
+		Temperature:       floatFromMapOr(config, "temperature", 0.2),
+		Timeout:           intFromMapOr(config, "timeout", localai.DefaultRequestTimeoutSeconds),
+		Extra:             mapValue(config["extra"]),
 	}
 }
 

@@ -584,38 +584,23 @@ export default function PositionsPage() {
         setStartError(message);
         return;
       }
-      if (startTaskType.includes("auto_reply") && !startTaskType.includes("greeting") && !startTaskType.includes("re_greet")) {
-        // 仅自动回复：由本地程序准备消息页，前端只做能力和权限检查。
-        if (!agentSupportsAutoReply(health)) {
-          const message = "当前本地程序版本还不支持 AI 自动回复，请更新本地程序后重试。";
-          setStartStatus(message);
-          setStartError(message);
-          return;
-        }
-        if (!canUseAutoReply(currentSubscription)) {
-          const message = "AI 自动回复是会员功能，请订阅后重试。";
-          setStartStatus(message);
-          setStartError(message);
-          await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
-          return;
-        }
-        setStartStatus("正在启动 AI 自动回复，本地程序会自动打开消息页...");
-      } else if (startTaskType.includes("re_greet") && !startTaskType.includes("greeting") && !startTaskType.includes("auto_reply")) {
-        // 仅复打招呼：由本地程序准备消息页并从云端拉复打名单。
-        if (!agentSupportsReGreet(health)) {
-          const message = "当前本地程序版本还不支持复打招呼，请更新本地程序后重试。";
-          setStartStatus(message);
-          setStartError(message);
-          return;
-        }
-        if (!canUseAutoReply(currentSubscription)) {
-          const message = "复打招呼是会员功能，请订阅后重试。";
-          setStartStatus(message);
-          setStartError(message);
-          await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
-          return;
-        }
-        setStartStatus("正在启动复打招呼，本地程序会自动打开消息页...");
+      // 任意组合只要包含消息任务，都检查本地能力和会员权限。
+      if (startTaskType.includes("auto_reply") && !agentSupportsAutoReply(health)) {
+        const message = "当前本地程序版本还不支持 AI 自动回复，请更新本地程序后重试。";
+        setStartStatus(message); setStartError(message); return;
+      }
+      if (startTaskType.includes("re_greet") && !agentSupportsReGreet(health)) {
+        const message = "当前本地程序版本还不支持复打招呼，请更新本地程序后重试。";
+        setStartStatus(message); setStartError(message); return;
+      }
+      if ((startTaskType.includes("auto_reply") || startTaskType.includes("re_greet")) && !canUseAutoReply(currentSubscription)) {
+        const message = "复打招呼和 AI 自动回复是会员功能，请订阅后重试。";
+        setStartStatus(message); setStartError(message);
+        await reportUserFlow({ step: "position_started", status: "blocked", reason_code: "subscription_expired", message, source: "position_start", position_id: item.id }).catch(() => undefined);
+        return;
+      }
+      if (!startTaskType.includes("greeting")) {
+        setStartStatus("正在启动消息任务，本地程序会自动打开消息页...");
       } else {
         const auth = pickPlatformAuthConfig(platformConfigs, item.platform_id);
         setStartStatus("正在打开招聘平台，请确认账号已登录。");

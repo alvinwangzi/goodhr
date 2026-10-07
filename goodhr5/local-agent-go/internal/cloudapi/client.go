@@ -322,12 +322,12 @@ func (c *Client) SyncPositionStatusWithCounts(ctx context.Context, token string,
 
 // TaskStatusRequest 只上传任务类型、所有权和统计，不包含聊天或回复正文。
 type TaskStatusRequest struct {
-	Status string `json:"status"`
-	TaskType string `json:"task_type,omitempty"`
-	RunID string `json:"run_id,omitempty"`
+	Status    string `json:"status"`
+	TaskType  string `json:"task_type,omitempty"`
+	RunID     string `json:"run_id,omitempty"`
 	MachineID string `json:"machine_id"`
-	Greeted int `json:"run_greeted_count"`
-	Skipped int `json:"run_skipped_count"`
+	Greeted   int    `json:"run_greeted_count"`
+	Skipped   int    `json:"run_skipped_count"`
 }
 
 // SyncTaskStatus 复用现有状态接口，自动回复要求云端明确许可和本次运行 ID。
@@ -346,7 +346,15 @@ func (c *Client) SyncTaskStatus(ctx context.Context, token, positionID string, r
 	request.MachineID = strings.TrimSpace(request.MachineID)
 	request.Greeted = max(0, request.Greeted)
 	request.Skipped = max(0, request.Skipped)
-	if request.TaskType == "auto_reply" || request.TaskType == "re_greet" { request.Greeted = 0 }
+	messageTask, greetingTask := false, false
+	for _, task := range strings.Split(request.TaskType, ",") {
+		task = strings.TrimSpace(task)
+		messageTask = messageTask || task == "auto_reply" || task == "re_greet"
+		greetingTask = greetingTask || task == "greeting"
+	}
+	if messageTask && !greetingTask {
+		request.Greeted = 0
+	}
 	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/status", request)
 	if err != nil {
 		return PositionStatusSyncResult{}, fmt.Errorf("同步云端岗位运行状态失败：%w", err)
@@ -354,7 +362,7 @@ func (c *Client) SyncTaskStatus(ctx context.Context, token, positionID string, r
 	if code >= 400 {
 		return PositionStatusSyncResult{}, fmt.Errorf("%s", cloudMessage(payload, "同步云端岗位运行状态失败"))
 	}
-	if request.TaskType == "auto_reply" || request.TaskType == "re_greet" {
+	if messageTask {
 		allowed, _ := payload["ok"].(bool)
 		runID := strings.TrimSpace(stringFromMap(payload, "run_id"))
 		if !allowed || stringFromMap(payload, "status") != status || runID == "" || (request.RunID != "" && runID != request.RunID) {
@@ -404,11 +412,19 @@ func (c *Client) NotifyResumeRequested(ctx context.Context, token string, positi
 
 // SyncResumeTracking 复用简历补报入口同步单个意向候选人的进度，不累加岗位统计。
 func (c *Client) SyncResumeTracking(ctx context.Context, token, positionID string, candidate map[string]any) error {
-	if strings.TrimSpace(positionID) == "" { return fmt.Errorf("岗位 ID 不能为空") }
-	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/resume-requests", map[string]any{"candidate":candidate})
-	if err != nil { return err }
-	if code >= 400 { return fmt.Errorf("%s", cloudMessage(payload,"简历进度同步失败")) }
-	if ok, _ := payload["ok"].(bool); !ok { return fmt.Errorf("云端尚未确认简历进度") }
+	if strings.TrimSpace(positionID) == "" {
+		return fmt.Errorf("岗位 ID 不能为空")
+	}
+	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/resume-requests", map[string]any{"candidate": candidate})
+	if err != nil {
+		return err
+	}
+	if code >= 400 {
+		return fmt.Errorf("%s", cloudMessage(payload, "简历进度同步失败"))
+	}
+	if ok, _ := payload["ok"].(bool); !ok {
+		return fmt.Errorf("云端尚未确认简历进度")
+	}
 	return nil
 }
 
@@ -578,7 +594,7 @@ func (c *Client) FetchReGreetCandidates(ctx context.Context, token string, posit
 
 // ReportReGreetResult 上报单个候选人的复打招呼结果。
 // success 为 true 时云端会将 last_re_greeted_at 更新为 now() 并对 re_greet_count +1。
-func (c *Client) ReportReGreetResult(ctx context.Context, token string, positionID string, platform string, candidateID string, candidateName string, success bool, reason string) error {
+func (c *Client) ReportReGreetResult(ctx context.Context, token string, positionID string, platform string, candidateID string, candidateName string, success bool, reason string, details ...ReGreetReportDetails) error {
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
 		return fmt.Errorf("岗位 ID 不能为空")
@@ -599,6 +615,10 @@ func (c *Client) ReportReGreetResult(ctx context.Context, token string, position
 	if reason != "" {
 		body["reason"] = reason
 	}
+	if len(details) > 0 {
+		body["message_text"] = details[0].MessageText
+		body["run_id"] = details[0].RunID
+	}
 	payload, code, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/re-greet-report", body)
 	if err != nil {
 		return fmt.Errorf("上报复打结果失败：%w", err)
@@ -607,6 +627,12 @@ func (c *Client) ReportReGreetResult(ctx context.Context, token string, position
 		return fmt.Errorf("%s", cloudMessage(payload, "上报复打结果失败"))
 	}
 	return nil
+}
+
+// ReGreetReportDetails 保存复打发送内容与本次云端许可记录，兼容旧客户端的简要上报。
+type ReGreetReportDetails struct {
+	MessageText string
+	RunID       string
 }
 
 // getAuthed 使用 Bearer Token 请求云端接口。

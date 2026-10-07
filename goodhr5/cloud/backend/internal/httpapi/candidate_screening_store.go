@@ -15,20 +15,20 @@ import (
 
 // CandidateScreening 表示一条候选人扫描记录。
 type CandidateScreening struct {
-	ID                  string    `json:"id"`
-	PositionID          string    `json:"position_id"`
-	Platform            string    `json:"platform"`
-	PlatformCandidateID string    `json:"platform_candidate_id"`
-	CandidateName       string    `json:"candidate_name"`
-	Score               int       `json:"score"`
-	Status              string    `json:"status"`        // passed / screened
-	ResumeStatus        string    `json:"resume_status"` // none / requested / received
-	Source              string    `json:"source"`        // greeting / auto_reply
-	GreetedAt           *time.Time `json:"greeted_at,omitempty"`           // 首次打招呼成功时间，upsert 永不覆盖
-	LastReGreetedAt     *time.Time `json:"last_re_greeted_at,omitempty"`   // 上次复打时间
-	ReGreetCount        int        `json:"re_greet_count"`                // 累计复打次数
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	ID                  string     `json:"id"`
+	PositionID          string     `json:"position_id"`
+	Platform            string     `json:"platform"`
+	PlatformCandidateID string     `json:"platform_candidate_id"`
+	CandidateName       string     `json:"candidate_name"`
+	Score               int        `json:"score"`
+	Status              string     `json:"status"`                       // passed / screened
+	ResumeStatus        string     `json:"resume_status"`                // none / requested / received
+	Source              string     `json:"source"`                       // greeting / auto_reply
+	GreetedAt           *time.Time `json:"greeted_at,omitempty"`         // 首次打招呼成功时间，upsert 永不覆盖
+	LastReGreetedAt     *time.Time `json:"last_re_greeted_at,omitempty"` // 上次复打时间
+	ReGreetCount        int        `json:"re_greet_count"`               // 累计复打次数
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // CandidateScreeningUpsert 表示上报扫描记录时的输入字段。
@@ -42,7 +42,7 @@ type CandidateScreeningUpsert struct {
 	Source              string `json:"source"`
 	// SetGreetedAt 为 true 时写入 greeted_at = now()；为 false 时不写（upsert 冲突时保留原值）。
 	// 打招呼流程（source='greeting' 且 status='passed'）上报时设为 true，其他流程保持 false。
-	SetGreetedAt        bool   `json:"-"`
+	SetGreetedAt bool `json:"-"`
 }
 
 // CandidateScreeningStore 定义候选人扫描记录的读写能力。
@@ -242,6 +242,7 @@ func (s *PostgresCandidateScreeningStore) ListReGreetCandidates(ctx context.Cont
 		 WHERE position_id = $1 AND platform = $2
 		   AND greeted_at IS NOT NULL
 		   AND greeted_at >= $3
+		   AND COALESCE(resume_status, 'none') <> 'received'
 		   AND COALESCE(re_greet_count, 0) < $4
 		   AND COALESCE(last_re_greeted_at, greeted_at) <= $5
 		 ORDER BY greeted_at ASC`,
@@ -456,6 +457,9 @@ func (s *MemoryCandidateScreeningStore) ListReGreetCandidates(_ context.Context,
 			continue
 		}
 		if item.GreetedAt == nil {
+			continue
+		}
+		if item.ResumeStatus == "received" {
 			continue
 		}
 		if item.GreetedAt.Before(timeRangeStart) {

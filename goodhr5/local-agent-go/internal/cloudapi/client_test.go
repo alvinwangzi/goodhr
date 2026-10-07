@@ -5,24 +5,54 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
+// TestReGreetCombinedPermission 验证组合任务也必须有云端许可，普通打招呼数量不被复打清零。
+func TestReGreetCombinedPermission(t *testing.T) {
+	for _, task := range []string{"re_greet", "auto_reply,re_greet", "greeting,re_greet,auto_reply"} {
+		for _, allowed := range []bool{false, true} {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body TaskStatusRequest
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				want := 0
+				if strings.Contains(task, "greeting") {
+					want = 3
+				}
+				if body.TaskType != task || body.Greeted != want {
+					t.Errorf("组合任务信息错误：%+v", body)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": allowed, "status": "running", "run_id": "run1"})
+			}))
+			_, err := New(server.URL).SyncTaskStatus(t.Context(), "token", "p", TaskStatusRequest{Status: "running", TaskType: task, RunID: "run1", Greeted: 3})
+			server.Close()
+			if (err == nil) != allowed {
+				t.Fatalf("许可校验错误：task=%s allowed=%v err=%v", task, allowed, err)
+			}
+		}
+	}
+}
+
 // TestSyncTaskStatus 验证任务类型和运行所有权透传，自动回复必须得到明确许可。
 func TestSyncTaskStatus(t *testing.T) {
- for _, body := range []string{`{"ok":true,"status":"running","run_id":"run-1"}`, `{"ok":true,"status":"running"}`, `{"ok":false,"status":"running","run_id":"run-1"}`, `{"ok":true,"status":"stopped","run_id":"run-1"}`} {
-  t.Run(body, func(t *testing.T) {
-   server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    var got map[string]any
-    _ = json.NewDecoder(r.Body).Decode(&got)
-    if got["task_type"] != "auto_reply" || got["run_id"] != "run-1" || got["run_greeted_count"] != float64(0) { t.Errorf("任务参数错误：%v", got) }
-    _, _ = w.Write([]byte(body))
-   }))
-   defer server.Close()
-   _, err := New(server.URL).SyncTaskStatus(t.Context(), "token", "position", TaskStatusRequest{Status:"running", TaskType:"auto_reply", RunID:"run-1", Greeted:99})
-   if (err == nil) != (body == `{"ok":true,"status":"running","run_id":"run-1"}`) { t.Fatalf("许可判定错误：%v", err) }
-  })
- }
+	for _, body := range []string{`{"ok":true,"status":"running","run_id":"run-1"}`, `{"ok":true,"status":"running"}`, `{"ok":false,"status":"running","run_id":"run-1"}`, `{"ok":true,"status":"stopped","run_id":"run-1"}`} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var got map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&got)
+				if got["task_type"] != "auto_reply" || got["run_id"] != "run-1" || got["run_greeted_count"] != float64(0) {
+					t.Errorf("任务参数错误：%v", got)
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			_, err := New(server.URL).SyncTaskStatus(t.Context(), "token", "position", TaskStatusRequest{Status: "running", TaskType: "auto_reply", RunID: "run-1", Greeted: 99})
+			if (err == nil) != (body == `{"ok":true,"status":"running","run_id":"run-1"}`) {
+				t.Fatalf("许可判定错误：%v", err)
+			}
+		})
+	}
 }
 
 // TestFetchPlatformConfig 验证公开平台配置读取和 JSON 字符串解码。

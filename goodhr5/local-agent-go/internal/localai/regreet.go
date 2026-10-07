@@ -22,10 +22,10 @@ type ReGreetRequest struct {
 
 // ReGreetDecision 区分是否发送、复打内容和是否被拒绝。
 type ReGreetDecision struct {
-	ShouldSend     bool   `json:"should_send"`
-	Message        string `json:"message"`
-	IsRefused      bool   `json:"is_refused"`
-	RefuseReason   string `json:"refuse_reason"`
+	ShouldSend   bool   `json:"should_send"`
+	Message      string `json:"message"`
+	IsRefused    bool   `json:"is_refused"`
+	RefuseReason string `json:"refuse_reason"`
 }
 
 // GenerateReGreet 基于岗位复打提示词和聊天上下文生成复打内容，同时判断候选人是否明确拒绝过。
@@ -78,6 +78,10 @@ func (c *Client) GenerateReGreet(ctx context.Context, request ReGreetRequest) (R
 		IsRefused:    raw.IsRefused,
 		RefuseReason: strings.TrimSpace(raw.RefuseReason),
 	}
+	if request.SkipRefusedCheck {
+		decision.IsRefused = false
+		decision.RefuseReason = ""
+	}
 	// 校验：发送时消息必须非空且不超过 200 字。
 	if decision.ShouldSend {
 		if decision.Message == "" || utf8.RuneCountInString(decision.Message) > 200 {
@@ -117,7 +121,7 @@ should_send=false 时 message 必须为空。refuse_reason 不超过 50 字。`
 // buildReGreetUserMessage 组装发给模型的复打用户消息。
 func buildReGreetUserMessage(request ReGreetRequest) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "岗位：%s\n", request.CandidateName)
+	fmt.Fprintf(&b, "候选人：%s\n", request.CandidateName)
 	if request.PositionRequirement != "" {
 		fmt.Fprintf(&b, "岗位要求：%s\n", request.PositionRequirement)
 	}

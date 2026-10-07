@@ -32,8 +32,8 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	// 保留原始多选值供 runPosition 解析，只用 normalized 做启动阶段的即时判断。
 	_ = taskType
 	taskTypes := parseTaskTypes(options.TaskType)
-	onlyAutoReply := hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "re_greet")
-	onlyReGreet := hasTaskType(taskTypes, "re_greet") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "auto_reply")
+	needsAutoReply := hasTaskType(taskTypes, "auto_reply")
+	needsReGreet := hasTaskType(taskTypes, "re_greet")
 	client := cloudapi.New(options.CloudAPIBase)
 	cloudPosition, err := client.FetchPosition(ctx, options.Token, positionID)
 	if err != nil {
@@ -43,7 +43,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	if err != nil {
 		return nil, err
 	}
-	if onlyAutoReply {
+	if needsAutoReply {
 		// 自动回复在取得任何浏览器动作前检查平台能力与本地内嵌配置。
 		platformRuntime, err := platforms.RuntimeFor(position.PlatformID)
 		if err != nil {
@@ -57,7 +57,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 			return nil, fmt.Errorf("AI 自动回复暂未开放：%w", err)
 		}
 	}
-	if onlyReGreet {
+	if needsReGreet {
 		// 复打招呼同样需要平台支持会话操作（Boss 直聘复用消息会话能力）。
 		platformRuntime, err := platforms.RuntimeFor(position.PlatformID)
 		if err != nil {
@@ -65,6 +65,9 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		}
 		runtime, ok := platformRuntime.(platformcore.AutoReplyRuntime)
 		if !ok {
+			return nil, fmt.Errorf("当前平台暂不支持复打招呼")
+		}
+		if _, ok := platformRuntime.(platformcore.ReGreetRuntime); !ok {
 			return nil, fmt.Errorf("当前平台暂不支持复打招呼")
 		}
 		if err := runtime.AutoReplyAvailable(); err != nil {
@@ -109,12 +112,11 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		return nil, err
 	}
 	syncCtx, syncCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if onlyAutoReply || onlyReGreet {
-		// 纯自动回复 / 纯复打招呼必须得到云端明确许可和非空执行任务记录 ID，失败不沿用只记警告继续运行的行为。
-		taskTypeForSync := "auto_reply"
+	if needsAutoReply || needsReGreet {
+		// 包含消息任务的任何组合都必须得到云端许可和执行记录 ID，失败时不继续运行。
+		taskTypeForSync := options.TaskType
 		taskLabel := "自动回复"
-		if onlyReGreet {
-			taskTypeForSync = "re_greet"
+		if needsReGreet {
 			taskLabel = "复打招呼"
 		}
 		syncResult, syncErr := client.SyncTaskStatus(syncCtx, options.Token, positionID, cloudapi.TaskStatusRequest{Status: "running", TaskType: taskTypeForSync, MachineID: options.MachineID})
@@ -155,16 +157,9 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	options.EnableSound = position.EnableSound
 	r.updateRunOptions(positionID, options)
 	taskTypes := parseTaskTypes(options.TaskType)
-	if hasTaskType(taskTypes, "auto_reply") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "re_greet") {
-		// 纯自动回复独立编排：不进入候选人扫描、休息和收尾求简历流程。
-		r.updateProgress(positionID, Progress{Stage: "running", Message: "自动回复已开始执行", TotalRounds: scanRounds(options)})
-		r.runAutoReplyTask(ctx, position, options)
-		return
-	}
-	if hasTaskType(taskTypes, "re_greet") && !hasTaskType(taskTypes, "greeting") && !hasTaskType(taskTypes, "auto_reply") {
-		// 纯复打招呼独立编排：从云端拉复打名单，逐个发送后上报结果。
-		r.updateProgress(positionID, Progress{Stage: "running", Message: "复打招呼已开始执行", TotalRounds: scanRounds(options)})
-		r.runReGreetTask(ctx, position, options, snapshot)
+	if !hasTaskType(taskTypes, "greeting") {
+		// 只选择消息任务时跳过推荐列表扫描，按复打、自动回复的顺序执行。
+		r.runMessageTasks(ctx, position, options, snapshot)
 		return
 	}
 	r.initRestState(positionID, options)
@@ -208,11 +203,9 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 		r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
 		return
 	}
-	// 多选场景：打招呼完成后，如果同时选择了自动回复，则接着执行自动回复。
-	if hasTaskType(taskTypes, "auto_reply") {
-		r.positionLog(positionID, "info", "岗位运行：打招呼已完成，开始执行自动回复")
-		r.updateProgress(positionID, Progress{Stage: "running", Message: "打招呼已完成，自动回复已开始执行", TotalRounds: scanRounds(options)})
-		r.runAutoReplyTask(ctx, position, options)
+	// 推荐列表处理完成后执行消息阶段，包含复打的组合不会再漏掉复打。
+	if hasTaskType(taskTypes, "re_greet") || hasTaskType(taskTypes, "auto_reply") {
+		r.runMessageTasks(ctx, position, options, snapshot)
 		return
 	}
 	r.updateProgress(positionID, Progress{Stage: "completed", Message: "岗位运行已完成", Round: totalRounds, TotalRounds: totalRounds})
@@ -229,6 +222,49 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
 }
 
+// runMessageTasks 在主流程按固定顺序执行复打和自动回复；停止或失败不进入下一阶段。
+func (r *Runner) runMessageTasks(ctx context.Context, position localdb.Position, options StartOptions, snapshot PositionRuntimeSnapshot) {
+	types := parseTaskTypes(options.TaskType)
+	// 顺序由主流程统一管理，各平台只提供具体动作。
+	completed := executeMessageTasks(types, func(task string) bool {
+		if ctx.Err() != nil || r.isUserStopped(position.ID) {
+			return false
+		}
+		if task == "re_greet" {
+			return r.runReGreetTask(ctx, position, options, snapshot)
+		}
+		r.updateProgress(position.ID, Progress{Stage: "running", Message: "自动回复已开始执行", TotalRounds: scanRounds(options)})
+		r.runAutoReplyTask(ctx, position, options)
+		return true
+	})
+	if !completed || hasTaskType(types, "auto_reply") || ctx.Err() != nil || r.isUserStopped(position.ID) {
+		return
+	}
+	r.updateProgress(position.ID, Progress{Stage: "completed", Message: "复打招呼已完成", TotalRounds: scanRounds(options)})
+	_, _ = r.db.UpdatePositionStatus(position.ID, "completed")
+	if hasTaskType(types, "greeting") {
+		r.notifyCloudPositionCompleted(position.ID, options)
+	} else {
+		r.mu.Lock()
+		stats := reGreetStats{}
+		if state := r.running[position.ID]; state != nil {
+			stats = state.reGreetStats
+		}
+		r.mu.Unlock()
+		r.notifyCloudReGreetStatus(position.ID, options, "completed", stats)
+	}
+}
+
+// executeMessageTasks 按复打、自动回复的顺序执行已选阶段；失败或停止立即结束串行流程。
+func executeMessageTasks(types []string, run func(string) bool) bool {
+	for _, task := range []string{"re_greet", "auto_reply"} {
+		if hasTaskType(types, task) && !run(task) {
+			return false
+		}
+	}
+	return true
+}
+
 // Stop 停止本地岗位运行运行器。
 // positionID 为岗位运行 ID。
 func (r *Runner) Stop(positionID string) (map[string]any, error) {
@@ -242,11 +278,11 @@ func (r *Runner) Stop(positionID string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if r.autoReplyRunning(positionID) {
+	if r.autoReplyRunning(positionID) || r.reGreetRunning(positionID) {
 		// 自动回复收到停止信号立即取消尚未发送的 AI 请求；已开始发送只做必要结果确认。
 		r.markUserStoppedAndCancel(positionID)
-		r.updateProgress(positionID, Progress{Stage: "stopped", Message: "自动回复已停止"})
-		r.positionLog(positionID, "info", "岗位运行停止：自动回复已立即停止，不再生成新回复")
+		r.updateProgress(positionID, Progress{Stage: "stopped", Message: "消息任务已停止"})
+		r.positionLog(positionID, "info", "岗位运行停止：消息任务已停止，不再生成新消息")
 	} else if r.hasRunningLock(positionID) {
 		r.updateProgress(positionID, Progress{Stage: "running", Message: "正在处理当前候选人，处理完会停止"})
 		r.positionLog(positionID, "info", "岗位运行停止：正在等待当前候选人处理完成")
@@ -324,6 +360,9 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 	if stats, ok := r.currentReplyStats(positionID); ok {
 		positionMap["task_type"] = "auto_reply"
 		positionMap["reply_stats"] = stats
+	}
+	if stats, ok := r.currentReGreetStats(positionID); ok {
+		positionMap["re_greet_stats"] = stats
 	}
 	return map[string]any{
 		"position":      positionMap,
@@ -747,8 +786,12 @@ func (r *Runner) isUserStopped(positionID string) bool {
 func (r *Runner) clear(positionID string) {
 	r.mu.Lock()
 	if state := r.running[positionID]; state != nil {
-		if state.cancel != nil { state.cancel() }
-		if state.done != nil { close(state.done) }
+		if state.cancel != nil {
+			state.cancel()
+		}
+		if state.done != nil {
+			close(state.done)
+		}
 		r.releaseBrowserLocked(state.lease)
 		delete(r.running, positionID)
 		delete(r.userStopped, positionID)
@@ -759,9 +802,13 @@ func (r *Runner) clear(positionID string) {
 
 // releaseBrowserLocked 在持有状态锁时减少当前浏览器占用引用。
 func (r *Runner) releaseBrowserLocked(lease *browserLease) {
-	if lease == nil || r.browserLease != lease { return }
+	if lease == nil || r.browserLease != lease {
+		return
+	}
 	lease.refs--
-	if lease.refs == 0 { r.browserLease = nil }
+	if lease.refs == 0 {
+		r.browserLease = nil
+	}
 }
 
 // reserveResumeBrowser 在启动收尾协程前取得占用；继承时等待主任务全部页面清理结束。

@@ -371,6 +371,22 @@ func (s *PostgresCandidateStore) FindEngagementsByPositionAndNames(positionID st
 	return result, rows.Err()
 }
 
+// FindEngagementByPlatformCandidate 按岗位及平台候选人 ID 查找事件归属，调用前须校验岗位访问权限。
+func (s *PostgresCandidateStore) FindEngagementByPlatformCandidate(positionID, platform, candidateID string) (CandidateEngagement, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var e CandidateEngagement
+	err := s.db.QueryRowContext(ctx, `SELECT ce.id::text, ce.candidate_id::text FROM candidate_engagements ce
+	 JOIN candidate_profiles cp ON cp.id=ce.candidate_id
+	 WHERE ce.position_id=$1::uuid AND cp.source_platform_id=$2 AND cp.source_platform_candidate_id=$3
+	 ORDER BY ce.created_at DESC LIMIT 1`, positionID, platform, candidateID).Scan(&e.ID, &e.CandidateID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CandidateEngagement{}, ErrNotFound
+	}
+	e.PositionID, e.PlatformID = positionID, platform
+	return e, err
+}
+
 // ListPositionCandidates 按团队和筛选条件分页读取候选人记录。
 // tenantID 为当前用户团队 ID，query 可传搜索词、岗位 ID、岗位 ID 和分页条件。
 func (s *PostgresCandidateStore) ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error) {
@@ -695,7 +711,9 @@ func buildCandidateWhere(tenantID string, query PositionCandidateQuery) (string,
 	}
 	if query.Status != "" {
 		resumeScope := ""
-		if query.PositionID != "" { resumeScope = fmt.Sprintf(" AND ce_filter.position_id::text = $%d", len(args)) }
+		if query.PositionID != "" {
+			resumeScope = fmt.Sprintf(" AND ce_filter.position_id::text = $%d", len(args))
+		}
 		switch query.Status {
 		case "resume_pending", "resume_requested", "resume_received", "resume_downloaded":
 			args = append(args, strings.TrimPrefix(query.Status, "resume_"))

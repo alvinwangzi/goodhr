@@ -3,9 +3,83 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"testing"
 	"time"
 )
+
+// TestReGreetReportUsesStableIdentity 验证同名候选人结果归属准确，成功有正文、跳过不累加次数。
+func TestReGreetReportUsesStableIdentity(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "regreet-report@example.com"
+	token := loginForTest(t, routes, email)
+	positionID := createPositionWithConfigForTest(t, routes, token, "复打岗位", `{"mode_default":"keyword"}`)
+	s := server.positionExecution
+	var profiles []PositionCandidate
+	for _, id := range []string{"candidate1", "candidate2"} {
+		_, err := s.screeningStore.UpsertScreening(t.Context(), CandidateScreeningUpsert{Platform: "boss", PlatformCandidateID: id, CandidateName: "同名", SetGreetedAt: true}, positionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := s.candidateStore.SaveCandidateProfile(CandidateProfileInput{UserEmail: email, PlatformID: "boss", PlatformCandidateID: id, CandidateName: "同名"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.candidateStore.UpsertCandidateEngagement(CandidateEngagement{CandidateID: p.ID, UserEmail: email, PositionID: positionID, PlatformID: "boss"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		profiles = append(profiles, p)
+	}
+	for _, body := range []string{
+		`{"platform":"boss","platform_candidate_id":"candidate1","success":true,"message_text":"再次沟通岗位"}`,
+		`{"platform":"boss","platform_candidate_id":"candidate1","success":false,"reason":"skipped_refused"}`,
+	} {
+		response := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/re-greet-report", body)
+		if response.Code != http.StatusOK {
+			t.Fatalf("上报失败：%s", response.Body.String())
+		}
+	}
+	item, err := s.screeningStore.FindScreening(t.Context(), positionID, "boss", "candidate1")
+	if err != nil || item.ReGreetCount != 1 {
+		t.Fatalf("跳过仍累加次数：%+v %v", item, err)
+	}
+	tenantID, _ := s.getTenantInfo(email)
+	for index, p := range profiles {
+		value, err := s.candidateStore.GetPositionCandidate(tenantID, p.ID, "", email, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if index == 0 {
+			if len(value.Events) != 2 || value.Events[0].MessageText != "再次沟通岗位" || value.Events[1].EventType != "re_greet_skipped_refused" {
+				t.Fatalf("结果事件不完整：%+v", value.Events)
+			}
+		} else if len(value.Events) != 0 {
+			t.Fatalf("同名候选人事件错绑：%+v", value.Events)
+		}
+	}
+	response := postPositionExecutionForTest(t, routes, token, "/api/positions/"+positionID+"/re-greet-report", fmt.Sprintf(`{"platform_candidate_id":"missing","success":true}`))
+	if response.Code != http.StatusNotFound {
+		t.Fatal("未拒绝不存在的候选人")
+	}
+}
+
+// TestReGreetExcludesReceivedResume 验证已收简历的候选人不会再次进入复打名单。
+func TestReGreetExcludesReceivedResume(t *testing.T) {
+	store := NewMemoryCandidateScreeningStore()
+	ctx := context.Background()
+	_, err := store.UpsertScreening(ctx, CandidateScreeningUpsert{Platform: "boss", PlatformCandidateID: "received", CandidateName: "已收简历", ResumeStatus: "received", SetGreetedAt: true}, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.forceShiftGreetedAt(ctx, "p", "received", time.Now().Add(-time.Hour))
+	items, err := store.ListReGreetCandidates(ctx, "p", "boss", 7, 30, 1)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("已收简历仍在名单中：%+v %v", items, err)
+	}
+}
 
 // TestMemoryReGreetCandidates_ListFilter 验证复打名单的 4 个过滤条件：
 // greeted_at 不为空 / 时间范围 / 复打次数上限 / 间隔下限。

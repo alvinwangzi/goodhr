@@ -5,9 +5,11 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // candidateScreeningUpsertRequest 表示批量上报扫描记录的请求体。
@@ -265,6 +267,8 @@ type reportReGreetRequest struct {
 	Success             bool     `json:"success"`
 	Reason              string   `json:"reason,omitempty"`
 	SkippedIDs          []string `json:"skipped_ids,omitempty"`
+	MessageText         string   `json:"message_text,omitempty"`
+	RunID               string   `json:"run_id,omitempty"`
 }
 
 // ReportReGreet 上报单个候选人的复打招呼结果。
@@ -311,11 +315,62 @@ func (s *PositionExecutionService) ReportReGreet(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, "platform_candidate_id 不能为空")
 		return
 	}
+	if utf8.RuneCountInString(req.MessageText) > 200 || utf8.RuneCountInString(req.Reason) > 500 {
+		writeError(w, http.StatusBadRequest, "复打内容或原因过长")
+		return
+	}
+	// 拒绝上报不存在或其他岗位的候选人，记录归属只使用稳定 ID。
+	screening, findErr := s.screeningStore.FindScreening(r.Context(), position.ID, platform, candidateID)
+	if errors.Is(findErr, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "候选人不在当前岗位名单中")
+		return
+	}
+	if findErr != nil {
+		writeError(w, http.StatusInternalServerError, "无法读取候选人记录")
+		return
+	}
+	runID := strings.TrimSpace(req.RunID)
+	if runID != "" {
+		if s.runStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "无法核对执行任务记录")
+			return
+		}
+		run, err := s.runStore.TaskRunByID(tenantID, runID)
+		if err != nil || run.PositionID != position.ID {
+			writeError(w, http.StatusBadRequest, "执行任务记录不属于当前岗位")
+			return
+		}
+	}
 	var affected int64
 	if req.Success {
 		affected, err = s.screeningStore.MarkReGreetDone(r.Context(), position.ID, platform, []string{candidateID})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to mark re-greet done: "+err.Error())
+			return
+		}
+	}
+	// 复用岗位日志保存所有结果；候选人已入简历库时，同时写入其事件时间线。
+	eventType := "re_greet_failed"
+	if req.Success {
+		eventType = "re_greeted_sent"
+	} else if strings.HasPrefix(req.Reason, "skipped_") || req.Reason == "ai_skip" || req.Reason == "context_changed" {
+		eventType = "re_greet_" + req.Reason
+	}
+	message := fmt.Sprintf("复打结果：候选人=%s，平台ID=%s，事件=%s，原因=%s", screening.CandidateName, candidateID, eventType, req.Reason)
+	if req.Success && req.MessageText != "" {
+		message += "，发送内容=" + req.MessageText
+	}
+	if err := s.positionLogs.WriteLog(position.ID, position.UserEmail, "info", message); err != nil {
+		writeError(w, http.StatusInternalServerError, "复打结果日志保存失败")
+		return
+	}
+	if s.candidateStore != nil {
+		e, err := s.candidateStore.FindEngagementByPlatformCandidate(position.ID, platform, candidateID)
+		if err == nil {
+			_, err = s.candidateStore.SaveCandidateEvent(CandidateEvent{CandidateID: e.CandidateID, EngagementID: e.ID, TaskID: runID, PositionID: position.ID, PlatformID: platform, EventType: eventType, Reason: req.Reason, MessageText: req.MessageText, Metadata: map[string]any{"source": "re_greet", "platform_candidate_id": candidateID}})
+		}
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			writeError(w, http.StatusInternalServerError, "复打候选人事件保存失败")
 			return
 		}
 	}

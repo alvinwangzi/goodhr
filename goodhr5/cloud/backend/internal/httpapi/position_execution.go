@@ -45,7 +45,7 @@ func NewPositionExecutionService(auth *AuthService, store PositionStore, positio
 		candidateStore: candidateStore, screeningStore: screeningStore,
 		subscriptions: subscriptions,
 		systemConfigs: systemConfigs,
-		aiWallet: aiWallet, aiConfigStore: aiConfigStore, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
+		aiWallet:      aiWallet, aiConfigStore: aiConfigStore, mailer: mailer, dailyStats: dailyStats, userFlow: userFlow, agents: agents,
 		runStore: runStore,
 	}
 }
@@ -297,7 +297,12 @@ func (s *PositionExecutionService) verifyActiveDevice(email string, machineID st
 // claimPositionStart 完成所有云端启动条件检查，并原子占用当前账号的运行岗位名额。
 // email 为当前账号，position 为岗位快照，taskType 为本地主流程类型。
 func (s *PositionExecutionService) claimPositionStart(email string, position Position, taskType string) *positionStartError {
-	autoReply := strings.EqualFold(strings.TrimSpace(taskType), "auto_reply")
+	// 复打和自动回复均消耗 AI；组合任务也必须检查会员权限与余额。
+	autoReply := false
+	for _, task := range strings.Split(taskType, ",") {
+		task = strings.TrimSpace(task)
+		autoReply = autoReply || strings.EqualFold(task, "auto_reply") || strings.EqualFold(task, "re_greet")
+	}
 	usesAI := positionUsesAI(position) || autoReply
 	if usesAI {
 		subscription, err := s.subscriptions.UserSubscription(email)
@@ -312,7 +317,7 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 			return &positionStartError{status: http.StatusForbidden, code: "SUBSCRIPTION_REQUIRED", message: "这个岗位用了 AI 功能，会员到期后暂时不能启动，请先续费"}
 		}
 		if autoReply && !access.AllowAutoReply {
-			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "自动回复属于 Pro会员，当前套餐暂时不能使用"}
+			return &positionStartError{status: http.StatusForbidden, code: "AUTO_REPLY_MAX_REQUIRED", message: "复打招呼和自动回复属于 Pro会员，当前套餐暂时不能使用"}
 		}
 		if s.aiWallet == nil {
 			return &positionStartError{status: http.StatusServiceUnavailable, code: "AI_BALANCE_UNAVAILABLE", message: "AI 余额查询失败，请稍后重试"}

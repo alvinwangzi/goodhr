@@ -123,9 +123,9 @@ type ReGreetRuntime interface {
 	// 复打场景面板已由搜索跳转打开，无会话项 data-id 可点。
 	ReadOpenedReplyContext(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation) (ReplyContext, error)
 	// StageReGreet 输入前核对身份与空草稿，再把复打文本输入聊天框。
-	StageReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, text string) error
+	StageReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, before ReplyContext, text string) error
 	// SendReGreet 核对草稿与复打文本一致后点击发送。
-	SendReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, text string) error
+	SendReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, before ReplyContext, text string) error
 	// ConfirmReGreet 发送后核对面板新增了本次出站文本。
 	// before 为发送前上下文，用于区分"本次新增"与"历史同文"。
 	ConfirmReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, before ReplyContext, text string) (bool, error)

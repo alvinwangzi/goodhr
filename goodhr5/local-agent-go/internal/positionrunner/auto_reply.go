@@ -891,7 +891,15 @@ func (r *Runner) notifyCloudAutoReplyStatus(positionID string, options StartOpti
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cloudStatsSyncTimeout)
 	defer cancel()
-	request := cloudapi.TaskStatusRequest{Status: status, TaskType: "auto_reply", RunID: options.CloudRunID, MachineID: options.MachineID, Skipped: stats.Skipped}
+	taskType := options.TaskType
+	if taskType == "" {
+		taskType = "auto_reply"
+	}
+	greeted := 0
+	if hasTaskType(parseTaskTypes(taskType), "greeting") {
+		greeted = r.currentRunGreeted(positionID)
+	}
+	request := cloudapi.TaskStatusRequest{Status: status, TaskType: taskType, RunID: options.CloudRunID, MachineID: options.MachineID, Greeted: greeted, Skipped: stats.Skipped}
 	if _, err := cloudapi.New(baseURL).SyncTaskStatus(ctx, options.Token, positionID, request); err != nil {
 		r.positionLog(positionID, "warning", "自动回复状态同步失败："+err.Error())
 	}

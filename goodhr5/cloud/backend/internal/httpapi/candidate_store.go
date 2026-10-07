@@ -160,10 +160,29 @@ type CandidateStore interface {
 	SaveCandidateEvent(item CandidateEvent) (CandidateEvent, error)
 	UpdateCandidateEngagementStatus(engagementID string, status string, detailFetchedAt *time.Time, greetedAt *time.Time, resumeRequestedAt *time.Time) error
 	FindEngagementsByPositionAndNames(positionID string, names []string) (map[string]CandidateEngagement, error)
+	// FindEngagementByPlatformCandidate 按岗位、平台和稳定候选人 ID 查找事件归属，避免同名错绑。
+	FindEngagementByPlatformCandidate(positionID, platform, candidateID string) (CandidateEngagement, error)
 	ListPositionCandidates(tenantID string, query PositionCandidateQuery) (PositionCandidateListResult, error)
 	GetPositionCandidate(tenantID string, candidateID string, engagementID string, userEmail string, isAdmin bool) (PositionCandidate, error)
 	ListCandidateNotes(tenantID string, candidateID string) ([]CandidateNote, error)
 	DeleteTeamCandidates(tenantID string) (int, error)
+}
+
+// FindEngagementByPlatformCandidate 按稳定平台身份查找岗位关联，不用姓名代替候选人 ID。
+func (s *MemoryCandidateStore) FindEngagementByPlatformCandidate(positionID, platform, candidateID string) (CandidateEngagement, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var selected CandidateEngagement
+	for _, e := range s.engagements {
+		p := s.profiles[e.CandidateID]
+		if e.PositionID == positionID && p.PlatformID == platform && p.PlatformCandidateID == candidateID && (selected.ID == "" || e.CreatedAt.After(selected.CreatedAt)) {
+			selected = e
+		}
+	}
+	if selected.ID == "" {
+		return CandidateEngagement{}, ErrNotFound
+	}
+	return selected, nil
 }
 
 // PositionCandidateQuery 表示候选人列表查询条件。
@@ -383,12 +402,22 @@ func (s *MemoryCandidateStore) ListPositionCandidates(tenantID string, query Pos
 		}
 		var selected CandidateEngagement
 		for _, engagement := range s.engagements {
-			if engagement.CandidateID != item.ID || (query.PositionID != "" && engagement.PositionID != query.PositionID) { continue }
-			if !matchesResumeFilter(engagement, query.Status) { continue }
-			if selected.ID == "" || engagement.CreatedAt.After(selected.CreatedAt) { selected = engagement }
+			if engagement.CandidateID != item.ID || (query.PositionID != "" && engagement.PositionID != query.PositionID) {
+				continue
+			}
+			if !matchesResumeFilter(engagement, query.Status) {
+				continue
+			}
+			if selected.ID == "" || engagement.CreatedAt.After(selected.CreatedAt) {
+				selected = engagement
+			}
 		}
-		if selected.ID == "" && (query.PositionID != "" || query.Status != "") { continue }
-		if selected.ID != "" { item = candidateWithEngagement(item, selected) }
+		if selected.ID == "" && (query.PositionID != "" || query.Status != "") {
+			continue
+		}
+		if selected.ID != "" {
+			item = candidateWithEngagement(item, selected)
+		}
 		items = append(items, item)
 	}
 	total := len(items)
@@ -420,11 +449,20 @@ func (s *MemoryCandidateStore) GetPositionCandidate(tenantID string, candidateID
 	}
 	var selected CandidateEngagement
 	for _, engagement := range s.engagements {
-		if engagement.CandidateID != candidateID || (engagementID != "" && engagement.ID != engagementID) { continue }
-		if selected.ID == "" || engagement.CreatedAt.After(selected.CreatedAt) { selected = engagement }
+		if engagement.CandidateID != candidateID || (engagementID != "" && engagement.ID != engagementID) {
+			continue
+		}
+		if selected.ID == "" || engagement.CreatedAt.After(selected.CreatedAt) {
+			selected = engagement
+		}
 	}
-	if engagementID != "" && selected.ID == "" { return PositionCandidate{}, ErrNotFound }
-	if selected.ID != "" { item = candidateWithEngagement(item, selected); engagementID = selected.ID }
+	if engagementID != "" && selected.ID == "" {
+		return PositionCandidate{}, ErrNotFound
+	}
+	if selected.ID != "" {
+		item = candidateWithEngagement(item, selected)
+		engagementID = selected.ID
+	}
 	events := s.events[candidateID]
 	if strings.TrimSpace(engagementID) != "" {
 		events = make([]CandidateEvent, 0, len(s.events[candidateID]))
