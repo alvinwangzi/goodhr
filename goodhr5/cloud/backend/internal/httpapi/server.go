@@ -94,7 +94,8 @@ func NewServer() (*Server, error) {
 	taskRunStore := config.TaskRunStore(db)
 	paymentService := NewPaymentService(auth, paymentStore, subscriptionStore, systemConfigStore, invitationStore, mailer, aiWalletStore, NewWechatPayProvider(systemConfigStore))
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
-	adminEmails.StartRecoveryScheduler()
+	// 自动挽回邮件定时任务已关闭（To B 场景不向个人用户发送）。
+	// adminEmails.StartRecoveryScheduler()
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
