@@ -7,7 +7,7 @@
 #endif
 #define MyAppName "HR+"
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.2"
 #endif
 #define MyAppPublisher "HR+"
 #define MyAppExeName "hrplus-agent.exe"

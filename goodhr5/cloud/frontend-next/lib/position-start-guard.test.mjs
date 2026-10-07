@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluatePositionStartGuard, positionUsesAI } from "./position-start-guard.ts";
+import { evaluatePositionStartGuard, positionUsesAI, isVersionLower } from "./position-start-guard.ts";
 
 test("非 AI 岗位跳过余额检查", () => {
   const failure = evaluatePositionStartGuard(null, "5.3.5", "5.3.5", false);
@@ -30,4 +30,14 @@ test("基础筛选或详情筛选启用 AI 时识别为 AI 岗位", () => {
 test("AI 岗位但用户已配置自定义 API 时跳过余额检查", () => {
   const failure = evaluatePositionStartGuard({ balance: "0" }, "5.3.5", "5.3.5", true, true);
   assert.equal(failure, null);
+});
+
+// 验证本次开发版升级的启动拦截与固定更新提醒共用相同版本比较结果。
+test("开发版 0.1.2：旧版本被拦截，新版本和更高版本通过", () => {
+  assert.equal(evaluatePositionStartGuard(null, "0.1.1", "0.1.2", false)?.code, "agent_version_outdated");
+  assert.equal(isVersionLower("0.1.1", "0.1.2"), true);
+  for (const version of ["0.1.2", "0.1.3"]) {
+    assert.equal(evaluatePositionStartGuard(null, version, "0.1.2", false), null);
+    assert.equal(isVersionLower(version, "0.1.2"), false);
+  }
 });
