@@ -992,7 +992,7 @@ func (r *Runtime) LocateReplyConversation(ctx context.Context, exec platformcore
 	if panelName != strings.TrimSpace(name) {
 		return platformcore.ReplyConversation{}, fmt.Errorf("面板姓名不匹配：面板=%q，搜索=%q", panelName, name)
 	}
-	conversation := platformcore.ReplyConversation{Name: panelName}
+	conversation := platformcore.ReplyConversation{Name: panelName, ObservedResumeStatus: stringFromMap(result, "resume_status")}
 	exec.Log("info", fmt.Sprintf("Boss复打定位：已打开候选人面板=%s", panelName))
 	return conversation, nil
 }
@@ -1003,7 +1003,11 @@ func (r *Runtime) ReadOpenedReplyContext(ctx context.Context, exec platformcore.
 	if err := r.AutoReplyAvailable(); err != nil {
 		return platformcore.ReplyContext{}, err
 	}
-	return r.readCurrentReply(ctx, exec, target, conversation)
+	current, err := r.readCurrentReply(ctx, exec, target, conversation)
+	if err == nil && conversation.ObservedResumeStatus == "received" {
+		current.ResumeStatus = "received"
+	}
+	return current, err
 }
 
 // StageReGreet 输入前核对身份与空草稿，再把复打文本输入聊天框。

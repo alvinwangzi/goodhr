@@ -437,6 +437,7 @@ type ScreeningRecord struct {
 	Status              string `json:"status"`
 	ResumeStatus        string `json:"resume_status,omitempty"`
 	Source              string `json:"source"`
+	ContactObserved     bool   `json:"contact_observed,omitempty"`
 }
 
 // ScreeningResult 表示云端返回的扫描记录。
@@ -450,6 +451,13 @@ type ScreeningResult struct {
 	Status              string `json:"status"`
 	ResumeStatus        string `json:"resume_status"`
 	Source              string `json:"source"`
+	ContactObserved     bool   `json:"contact_observed"`
+}
+
+// boolFromMap 读取云端 JSON 中的布尔事实，缺失或类型不正确时不视为已确认。
+func boolFromMap(data map[string]any, key string) bool {
+	value, _ := data[key].(bool)
+	return value
 }
 
 // ReportScreenings 批量上报候选人扫描记录到云端。
@@ -503,6 +511,7 @@ func (c *Client) FindScreening(ctx context.Context, token string, positionID str
 		Status:              stringFromMap(data, "status"),
 		ResumeStatus:        stringFromMap(data, "resume_status"),
 		Source:              stringFromMap(data, "source"),
+		ContactObserved:     boolFromMap(data, "contact_observed"),
 	}
 	return result, nil
 }
@@ -536,6 +545,7 @@ func (c *Client) FindScreeningByName(ctx context.Context, token string, position
 		Status:              stringFromMap(data, "status"),
 		ResumeStatus:        stringFromMap(data, "resume_status"),
 		Source:              stringFromMap(data, "source"),
+		ContactObserved:     boolFromMap(data, "contact_observed"),
 	}
 	return result, nil
 }

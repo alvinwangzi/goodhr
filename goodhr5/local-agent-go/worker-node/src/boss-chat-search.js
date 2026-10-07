@@ -27,14 +27,20 @@ export async function searchBossChatSessionOnPage(currentPage, payload) {
   const listItems = currentPage.locator(".geek-search-list ul li");
   const deadline = Date.now() + 6000;
   let matchedText = "";
+  let resumeStatus = "unknown";
   while (Date.now() < deadline) {
     const matches = [];
     const count = await listItems.count();
     for (let i = 0; i < count; i++) {
       const item = listItems.nth(i);
       if (!(await item.isVisible())) continue;
-      const exactName = item.getByText(name, { exact: true });
-      if (!(await exactName.count())) continue;
+      const nameField = item.locator(".search-right .content-text");
+      if (await nameField.count() === 1) {
+        if (!bossSearchNameMatches(await nameField.innerText(), name)) continue;
+      } else {
+        // 兼容旧页面的独立姓名元素，不把公司名或说明中的姓名当作候选人身份。
+        if (!(await item.getByText(name, { exact: true }).count())) continue;
+      }
       matches.push(item);
     }
     if (matches.length > 1) {
@@ -43,6 +49,8 @@ export async function searchBossChatSessionOnPage(currentPage, payload) {
     if (matches.length === 1) {
       const item = matches[0];
       matchedText = await item.innerText();
+      const exchange = item.locator(".search-right .content-exchange");
+      if (await exchange.count() === 1 && (await exchange.innerText()).trim() === "已获取简历") resumeStatus = "received";
       await item.click({ timeout: 3000 });
       break;
     }
@@ -69,6 +77,14 @@ export async function searchBossChatSessionOnPage(currentPage, payload) {
     found: panelText.trim() === name,
     text: matchedText,
     panel_name: panelText.trim(),
+    resume_status: resumeStatus,
     elapsed_ms: Date.now() - startedAt,
   };
+}
+
+/** bossSearchNameMatches 核对真实姓名字段；只接受完整姓名或已验证的“姓名_公司”格式。 */
+export function bossSearchNameMatches(displayName, expectedName) {
+  const display = String(displayName || "").trim();
+  const name = String(expectedName || "").trim();
+  return Boolean(name) && (display === name || display.startsWith(name + "_"));
 }

@@ -9,6 +9,80 @@ import (
 	"time"
 )
 
+// TestScreeningPageObservation 验证页面核对按稳定 ID 更新，不伪造招呼时间，不覆盖评分，不让简历状态倒退。
+func TestScreeningPageObservation(t *testing.T) {
+	store := NewMemoryCandidateScreeningStore()
+	ctx := t.Context()
+	for _, id := range []string{"manual", "same-name"} {
+		_, err := store.UpsertScreening(ctx, CandidateScreeningUpsert{Platform: "boss", PlatformCandidateID: id, CandidateName: "同名", Score: 88, Status: "passed", Source: "greeting"}, "p")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	observed, err := store.UpsertScreening(ctx, CandidateScreeningUpsert{Platform: "boss", PlatformCandidateID: "manual", CandidateName: "同名", ResumeStatus: "received", ContactObserved: true, Source: "platform_observation"}, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observed.ContactObserved || observed.PlatformObservedAt == nil || observed.ResumeStatus != "received" || observed.GreetedAt != nil || observed.Score != 88 || observed.Source != "greeting" {
+		t.Fatalf("页面核对覆盖了已有数据或伪造时间：%+v", observed)
+	}
+	_, _ = store.UpsertScreening(ctx, CandidateScreeningUpsert{Platform: "boss", PlatformCandidateID: "manual", CandidateName: "同名", ResumeStatus: "requested", Source: "auto_reply"}, "p")
+	current, _ := store.FindScreening(ctx, "p", "boss", "manual")
+	other, _ := store.FindScreening(ctx, "p", "boss", "same-name")
+	if current.ResumeStatus != "received" || !current.ContactObserved || other.ContactObserved || other.ResumeStatus == "received" {
+		t.Fatalf("状态回退或同名错绑：%+v %+v", current, other)
+	}
+	items, err := store.ListReGreetCandidates(ctx, "p", "boss", 7, 30, 1)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("缺少真实招呼时间的人工沟通记录进入复打：%+v %v", items, err)
+	}
+}
+
+// TestScreeningObservationHTTP 验证真实 HTTP 入口回写人工收取状态，事件注明页面来源，评分通过不等于发过招呼。
+func TestScreeningObservationHTTP(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "page-observation@example.com"
+	token := loginForTest(t, routes, email)
+	id := createPositionWithConfigForTest(t, routes, token, "页面核对", `{"mode_default":"keyword"}`)
+	s := server.positionExecution
+	path := "/api/positions/" + id + "/screenings"
+	for _, body := range []string{
+		`{"items":[{"platform":"boss","platform_candidate_id":"stable","candidate_name":"候选人","score":88,"status":"passed","source":"greeting"}]}`,
+		`{"items":[{"platform":"boss","platform_candidate_id":"stable","candidate_name":"候选人","resume_status":"received","contact_observed":true,"source":"platform_observation"}]}`,
+	} {
+		response := postPositionExecutionForTest(t, routes, token, path, body)
+		if response.Code != http.StatusOK {
+			t.Fatalf("页面同步失败：%s", response.Body.String())
+		}
+	}
+	item, err := s.screeningStore.FindScreening(t.Context(), id, "boss", "stable")
+	if err != nil || item.GreetedAt != nil || item.ResumeStatus != "received" || item.Score != 88 {
+		t.Fatalf("评分通过被当作实际发送或资料被覆盖：%+v %v", item, err)
+	}
+	engagement, err := s.candidateStore.FindEngagementByPlatformCandidate(id, "boss", "stable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenant, _ := s.getTenantInfo(email)
+	profile, err := s.candidateStore.GetPositionCandidate(tenant, engagement.CandidateID, engagement.ID, email, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.ResumeState != "received" {
+		t.Fatalf("简历库状态未更新：%+v", profile)
+	}
+	found := false
+	for _, event := range profile.Events {
+		if event.EventType == "platform_state_observed" && event.Metadata["source"] == "platform_page" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("缺少平台页面核对事件")
+	}
+}
+
 // TestReGreetReportUsesStableIdentity 验证同名候选人结果归属准确，成功有正文、跳过不累加次数。
 func TestReGreetReportUsesStableIdentity(t *testing.T) {
 	server := mustNewServer(t)

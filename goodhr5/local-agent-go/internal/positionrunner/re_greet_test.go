@@ -86,6 +86,7 @@ func TestRunReGreetSafety(t *testing.T) {
 				}
 			}
 			var reports []map[string]any
+			var observations []map[string]any
 			cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				if strings.HasSuffix(req.URL.Path, "/re-greet-candidates") {
 					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "items": []map[string]any{{"platform_candidate_id": "candidate1", "candidate_name": "候选人"}}})
@@ -93,6 +94,11 @@ func TestRunReGreetSafety(t *testing.T) {
 				}
 				var payload map[string]any
 				_ = json.NewDecoder(req.Body).Decode(&payload)
+				if strings.HasSuffix(req.URL.Path, "/screenings") {
+					observations = append(observations, payload)
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+					return
+				}
 				reports = append(reports, payload)
 				if scenario == "report_failed" {
 					w.WriteHeader(500)
@@ -123,6 +129,16 @@ func TestRunReGreetSafety(t *testing.T) {
 			if scenario == "replied" || scenario == "received" {
 				if f.generated != 0 {
 					t.Fatal("应跳过 AI")
+				}
+				if len(observations) != 1 {
+					t.Fatalf("跳过前未同步页面状态：%v", observations)
+				}
+				item := observations[0]["items"].([]any)[0].(map[string]any)
+				if item["platform_candidate_id"] != "candidate1" || item["source"] != "platform_observation" || item["contact_observed"] != true {
+					t.Fatalf("页面事实归属错误：%v", item)
+				}
+				if scenario == "received" && item["resume_status"] != "received" {
+					t.Fatalf("已收简历未回写：%v", item)
 				}
 			}
 			if f.generated > 0 && (f.request.ReGreetPrompt != "岗位复打规则" || f.request.SkipRefusedCheck || f.request.GreetMessage != "首次招呼") {

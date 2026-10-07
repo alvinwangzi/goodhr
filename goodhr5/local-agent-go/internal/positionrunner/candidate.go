@@ -3,6 +3,7 @@ package positionrunner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
@@ -31,6 +32,16 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		candidate["skip_reason"] = "已达到岗位运行打招呼上限"
 		return 0, 0, 1, nil
 	}
+	// 页面和系统的既有沟通事实优先于本轮评分，避免再次首次打招呼。
+	if skip, err := r.skipFirstGreetFromPage(ctx, position, platformRuntime, exec, platformConfig, candidate, options); skip {
+		if err != nil {
+			r.positionLog(position.ID, "warning", "页面事实已确认，跳过首次招呼，但状态同步失败："+err.Error())
+		}
+		r.positionLog(position.ID, "info", "跳过首次打招呼：页面或系统已有沟通/简历记录，候选人="+candidateLogName(candidate))
+		return 0, 0, 1, nil
+	} else if err != nil {
+		return 0, 1, 0, &candidateOperationError{Operation: "核对候选人页面状态", Err: err}
+	}
 	// 打招呼前模拟人工点击延时
 	if err := waitBeforeGreet(ctx, r, position.ID, options); err != nil {
 		return 0, 0, 0, err
@@ -43,6 +54,22 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 	greetErr := r.tryGreet(ctx, position.ID, platformRuntime, exec, platformConfig, candidate, options)
 	delete(candidate, "_candidate_info_after_greet")
 	if greetErr != nil {
+		var observed *platformcore.CandidateStateObservedError
+		if errors.As(greetErr, &observed) {
+			candidate["status"], candidate["contact_observed"] = "contacted", true
+			candidate["resume_status"] = observed.State.ResumeStatus
+			ext := mapValue(candidate["ext"])
+			ext["contact_observed"] = true
+			if observed.State.ResumeStatus == "received" {
+				ext["resume_status"] = "received"
+				candidate["status"] = "resume_received"
+			}
+			candidate["ext"] = ext
+			if err := r.reconcileCandidatePageState(ctx, position, options, stringFromMap(candidate, "id"), candidateLogName(candidate), observed.State); err != nil {
+				r.positionLog(position.ID, "warning", "页面状态同步失败："+err.Error())
+			}
+			return 0, 0, 1, nil
+		}
 		candidate["status"] = "failed"
 		candidate["error"] = greetErr.Error()
 		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), greetErr.Error()))
@@ -175,6 +202,10 @@ func (r *Runner) tryGreet(ctx context.Context, positionID string, platformRuntim
 		})
 		if err == nil {
 			return nil
+		}
+		var observed *platformcore.CandidateStateObservedError
+		if errors.As(err, &observed) {
+			return err
 		}
 		lastErr = err
 		if attempt < retries {

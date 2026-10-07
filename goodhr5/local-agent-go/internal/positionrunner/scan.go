@@ -819,6 +819,11 @@ func (r *Runner) reportCandidateScreening(ctx context.Context, position localdb.
 		name = candidateLogName(candidate)
 	}
 	status := stringFromMap(candidate, "status")
+	resumeStatus := stringFromMap(candidate, "resume_status")
+	if resumeStatus != "received" && resumeStatus != "requested" {
+		resumeStatus = ""
+	}
+	contactObserved := boolFromMap(candidate, "contact_observed")
 	baseURL := strings.TrimSpace(options.CloudAPIBase)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
@@ -833,6 +838,8 @@ func (r *Runner) reportCandidateScreening(ctx context.Context, position localdb.
 			Score:               score,
 			Status:              status,
 			Source:              source,
+			ResumeStatus:        resumeStatus,
+			ContactObserved:     contactObserved,
 		}
 		if err := cloudapi.New(baseURL).ReportScreenings(syncCtx, options.Token, position.ID, []cloudapi.ScreeningRecord{record}); err != nil {
 			r.positionLog(position.ID, "warning", "扫描记录上报失败："+err.Error())

@@ -18,6 +18,19 @@ func (r *Runtime) GreetCandidate(ctx context.Context, exec platformcore.Executor
 		return err
 	}
 	payload["debug_stage"] = "greet-click"
-	_, err := exec.Post(ctx, "/api/v1/boss/candidates/greet", payload)
+	result, err := exec.Post(ctx, "/api/v1/boss/candidates/greet", payload)
+	if err == nil && boolFromMap(workerDataMap(result), "already_contacted") {
+		return &platformcore.CandidateStateObservedError{State: platformcore.CandidatePageState{ContactObserved: true, ResumeStatus: stringFromMap(workerDataMap(result), "resume_status")}}
+	}
 	return err
+}
+
+// ReadCandidateState 读取当前候选人卡片的既有沟通事实，不执行打招呼。
+func (r *Runtime) ReadCandidateState(ctx context.Context, exec platformcore.Executor, cfg cloudapi.PlatformConfig, candidate platformcore.Candidate) (platformcore.CandidatePageState, error) {
+	result, err := exec.Post(ctx, "/api/v1/boss/candidates/state", bossCandidateVisiblePayload(cfg, candidate))
+	if err != nil {
+		return platformcore.CandidatePageState{}, err
+	}
+	data := workerDataMap(result)
+	return platformcore.CandidatePageState{ContactObserved: boolFromMap(data, "contact_observed"), ResumeStatus: stringFromMap(data, "resume_status")}, nil
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -61,15 +62,55 @@ func (s *PositionExecutionService) UpsertScreenings(w http.ResponseWriter, r *ht
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		// 打招呼流程（source='greeting' 且 status='passed'）上报时自动标记 greeted_at，
-		// 其他流程（auto_reply / re_greet）不上报 greeted_at，避免覆盖原值。
-		if item.Source == "greeting" && item.Status == "passed" {
+		if item.Source == "platform_observation" {
+			if item.Platform != position.PlatformID || strings.TrimSpace(item.CandidateName) == "" {
+				writeError(w, http.StatusBadRequest, "页面事实缺少岗位内的平台身份或姓名")
+				return
+			}
+			item.ContactObserved = item.ContactObserved || item.ResumeStatus == "received"
+			if item.ResumeStatus != "received" && item.ResumeStatus != "requested" {
+				item.ResumeStatus = ""
+			}
+			if !item.ContactObserved && item.ResumeStatus == "" {
+				writeError(w, http.StatusBadRequest, "页面未确认新的沟通或简历事实")
+				return
+			}
+		}
+		// 只有程序实际成功发送的记录才写入招呼时间；评分通过或页面发现人工沟通不代表发送。
+		if item.Source == "greeting" && item.Status == "greeted" {
 			item.SetGreetedAt = true
+			item.ContactObserved = true
 		}
 		result, err := s.screeningStore.UpsertScreening(r.Context(), item, position.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to upsert screening: "+err.Error())
 			return
+		}
+		if item.Source == "platform_observation" {
+			// 复用简历进度存储，同步人工收取的事实，不创建虚假的沟通时间或增加发送次数。
+			if item.ResumeStatus == "received" && s.candidateStore != nil {
+				if err := s.candidateStore.SaveResumeTracking(position, ResumeTrackingInput{ID: item.PlatformCandidateID, Name: item.CandidateName, State: "received", UpdatedAt: time.Now().UTC()}); err != nil {
+					writeError(w, http.StatusInternalServerError, "页面简历状态暂未同步，请重试")
+					return
+				}
+			}
+			if err := s.positionLogs.WriteLog(position.ID, position.UserEmail, "info", fmt.Sprintf("平台页面核对：候选人=%s，平台ID=%s，已沟通=%t，简历状态=%s，实际招呼时间保持原值", item.CandidateName, item.PlatformCandidateID, item.ContactObserved, result.ResumeStatus)); err != nil {
+				writeError(w, http.StatusInternalServerError, "页面核对日志保存失败")
+				return
+			}
+			if s.candidateStore != nil {
+				engagement, findErr := s.candidateStore.FindEngagementByPlatformCandidate(position.ID, item.Platform, item.PlatformCandidateID)
+				if findErr == nil {
+					_, eventErr := s.candidateStore.SaveCandidateEvent(CandidateEvent{CandidateID: engagement.CandidateID, EngagementID: engagement.ID, PositionID: position.ID, PlatformID: item.Platform, EventType: "platform_state_observed", Metadata: map[string]any{"source": "platform_page", "contact_observed": result.ContactObserved, "resume_status": result.ResumeStatus}})
+					if eventErr != nil {
+						writeError(w, http.StatusInternalServerError, "页面核对事件暂未保存，请重试")
+						return
+					}
+				} else if !errors.Is(findErr, ErrNotFound) {
+					writeError(w, http.StatusInternalServerError, "页面核对归属暂未确认，请重试")
+					return
+				}
+			}
 		}
 		saved = append(saved, *result)
 	}

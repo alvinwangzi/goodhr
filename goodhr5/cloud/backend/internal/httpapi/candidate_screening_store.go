@@ -21,12 +21,14 @@ type CandidateScreening struct {
 	PlatformCandidateID string     `json:"platform_candidate_id"`
 	CandidateName       string     `json:"candidate_name"`
 	Score               int        `json:"score"`
-	Status              string     `json:"status"`                       // passed / screened
-	ResumeStatus        string     `json:"resume_status"`                // none / requested / received
-	Source              string     `json:"source"`                       // greeting / auto_reply
-	GreetedAt           *time.Time `json:"greeted_at,omitempty"`         // 首次打招呼成功时间，upsert 永不覆盖
-	LastReGreetedAt     *time.Time `json:"last_re_greeted_at,omitempty"` // 上次复打时间
-	ReGreetCount        int        `json:"re_greet_count"`               // 累计复打次数
+	Status              string     `json:"status"`                         // passed / screened
+	ResumeStatus        string     `json:"resume_status"`                  // none / requested / received
+	Source              string     `json:"source"`                         // greeting / auto_reply
+	ContactObserved     bool       `json:"contact_observed"`               // 页面已核实存在沟通，不代表已知打招呼时间。
+	PlatformObservedAt  *time.Time `json:"platform_observed_at,omitempty"` // 最近页面核对时间。
+	GreetedAt           *time.Time `json:"greeted_at,omitempty"`           // 首次打招呼成功时间，upsert 永不覆盖
+	LastReGreetedAt     *time.Time `json:"last_re_greeted_at,omitempty"`   // 上次复打时间
+	ReGreetCount        int        `json:"re_greet_count"`                 // 累计复打次数
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 }
@@ -40,6 +42,7 @@ type CandidateScreeningUpsert struct {
 	Status              string `json:"status"`
 	ResumeStatus        string `json:"resume_status,omitempty"`
 	Source              string `json:"source"`
+	ContactObserved     bool   `json:"contact_observed,omitempty"`
 	// SetGreetedAt 为 true 时写入 greeted_at = now()；为 false 时不写（upsert 冲突时保留原值）。
 	// 打招呼流程（source='greeting' 且 status='passed'）上报时设为 true，其他流程保持 false。
 	SetGreetedAt bool `json:"-"`
@@ -77,7 +80,7 @@ func NewPostgresCandidateScreeningStore(db *sql.DB) *PostgresCandidateScreeningS
 // FindScreening 按岗位+平台+候选人标识查找扫描记录。
 func (s *PostgresCandidateScreeningStore) FindScreening(ctx context.Context, positionID, platform, platformCandidateID string) (*CandidateScreening, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source,
+		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source, contact_observed, platform_observed_at,
 		       greeted_at, last_re_greeted_at, re_greet_count, created_at, updated_at
 		 FROM candidate_screenings
 		 WHERE position_id = $1 AND platform = $2 AND platform_candidate_id = $3`,
@@ -85,7 +88,7 @@ func (s *PostgresCandidateScreeningStore) FindScreening(ctx context.Context, pos
 	)
 	var item CandidateScreening
 	if err := row.Scan(&item.ID, &item.PositionID, &item.Platform, &item.PlatformCandidateID,
-		&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source,
+		&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source, &item.ContactObserved, &item.PlatformObservedAt,
 		&item.GreetedAt, &item.LastReGreetedAt, &item.ReGreetCount,
 		&item.CreatedAt, &item.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -99,7 +102,7 @@ func (s *PostgresCandidateScreeningStore) FindScreening(ctx context.Context, pos
 // FindScreeningByName 按岗位+平台+候选人姓名查找最近一条扫描记录。
 func (s *PostgresCandidateScreeningStore) FindScreeningByName(ctx context.Context, positionID, platform, candidateName string) (*CandidateScreening, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source,
+		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source, contact_observed, platform_observed_at,
 		       greeted_at, last_re_greeted_at, re_greet_count, created_at, updated_at
 		 FROM candidate_screenings
 		 WHERE position_id = $1 AND platform = $2 AND candidate_name = $3
@@ -108,7 +111,7 @@ func (s *PostgresCandidateScreeningStore) FindScreeningByName(ctx context.Contex
 	)
 	var item CandidateScreening
 	if err := row.Scan(&item.ID, &item.PositionID, &item.Platform, &item.PlatformCandidateID,
-		&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source,
+		&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source, &item.ContactObserved, &item.PlatformObservedAt,
 		&item.GreetedAt, &item.LastReGreetedAt, &item.ReGreetCount,
 		&item.CreatedAt, &item.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -138,21 +141,28 @@ func (s *PostgresCandidateScreeningStore) UpsertScreening(ctx context.Context, i
 	if item.SetGreetedAt {
 		greetedAt = time.Now()
 	}
+	var observedAt any
+	if item.Source == "platform_observation" {
+		observedAt = time.Now()
+	}
 	var saved CandidateScreening
 	err := s.db.QueryRowContext(ctx,
-		`INSERT INTO candidate_screenings (position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source, greeted_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO candidate_screenings (position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source, greeted_at, contact_observed, platform_observed_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 ON CONFLICT (position_id, platform, platform_candidate_id)
-		 DO UPDATE SET score = EXCLUDED.score, status = EXCLUDED.status,
-		               resume_status = CASE WHEN EXCLUDED.resume_status != 'none' THEN EXCLUDED.resume_status ELSE candidate_screenings.resume_status END,
-		               source = EXCLUDED.source,
+		 DO UPDATE SET score = CASE WHEN EXCLUDED.source='platform_observation' THEN candidate_screenings.score ELSE EXCLUDED.score END,
+		               status = CASE WHEN EXCLUDED.source='platform_observation' THEN candidate_screenings.status ELSE EXCLUDED.status END,
+		               resume_status = CASE WHEN candidate_screenings.resume_status='received' THEN 'received' WHEN EXCLUDED.resume_status != 'none' THEN EXCLUDED.resume_status ELSE candidate_screenings.resume_status END,
+		               source = CASE WHEN EXCLUDED.source='platform_observation' THEN candidate_screenings.source ELSE EXCLUDED.source END,
+		               contact_observed = candidate_screenings.contact_observed OR EXCLUDED.contact_observed,
+		               platform_observed_at = COALESCE(EXCLUDED.platform_observed_at, candidate_screenings.platform_observed_at),
 		               greeted_at = COALESCE(candidate_screenings.greeted_at, EXCLUDED.greeted_at),
 		               updated_at = now()
-		 RETURNING id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source,
+		 RETURNING id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source, contact_observed, platform_observed_at,
 		           greeted_at, last_re_greeted_at, re_greet_count, created_at, updated_at`,
-		positionID, item.Platform, item.PlatformCandidateID, item.CandidateName, item.Score, status, resumeStatus, source, greetedAt,
+		positionID, item.Platform, item.PlatformCandidateID, item.CandidateName, item.Score, status, resumeStatus, source, greetedAt, item.ContactObserved, observedAt,
 	).Scan(&saved.ID, &saved.PositionID, &saved.Platform, &saved.PlatformCandidateID,
-		&saved.CandidateName, &saved.Score, &saved.Status, &saved.ResumeStatus, &saved.Source,
+		&saved.CandidateName, &saved.Score, &saved.Status, &saved.ResumeStatus, &saved.Source, &saved.ContactObserved, &saved.PlatformObservedAt,
 		&saved.GreetedAt, &saved.LastReGreetedAt, &saved.ReGreetCount,
 		&saved.CreatedAt, &saved.UpdatedAt)
 	if err != nil {
@@ -176,7 +186,7 @@ func (s *PostgresCandidateScreeningStore) ListScreeningsByPosition(ctx context.C
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source,
+		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source, contact_observed, platform_observed_at,
 		       greeted_at, last_re_greeted_at, re_greet_count, created_at, updated_at
 		 FROM candidate_screenings
 		 WHERE position_id = $1
@@ -192,7 +202,7 @@ func (s *PostgresCandidateScreeningStore) ListScreeningsByPosition(ctx context.C
 	for rows.Next() {
 		var item CandidateScreening
 		if err := rows.Scan(&item.ID, &item.PositionID, &item.Platform, &item.PlatformCandidateID,
-			&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source,
+			&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source, &item.ContactObserved, &item.PlatformObservedAt,
 			&item.GreetedAt, &item.LastReGreetedAt, &item.ReGreetCount,
 			&item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, 0, err
@@ -236,7 +246,7 @@ func (s *PostgresCandidateScreeningStore) ListReGreetCandidates(ctx context.Cont
 	timeRangeStart := now.AddDate(0, 0, -timeRangeDays)
 	intervalThreshold := now.Add(-time.Duration(intervalMinMinutes) * time.Minute)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source,
+		`SELECT id, position_id, platform, platform_candidate_id, candidate_name, score, status, resume_status, source, contact_observed, platform_observed_at,
 		       greeted_at, last_re_greeted_at, re_greet_count, created_at, updated_at
 		 FROM candidate_screenings
 		 WHERE position_id = $1 AND platform = $2
@@ -256,7 +266,7 @@ func (s *PostgresCandidateScreeningStore) ListReGreetCandidates(ctx context.Cont
 	for rows.Next() {
 		var item CandidateScreening
 		if err := rows.Scan(&item.ID, &item.PositionID, &item.Platform, &item.PlatformCandidateID,
-			&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source,
+			&item.CandidateName, &item.Score, &item.Status, &item.ResumeStatus, &item.Source, &item.ContactObserved, &item.PlatformObservedAt,
 			&item.GreetedAt, &item.LastReGreetedAt, &item.ReGreetCount,
 			&item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
@@ -337,15 +347,22 @@ func (s *MemoryCandidateScreeningStore) UpsertScreening(_ context.Context, item 
 	key := positionID + "|" + item.Platform + "|" + item.PlatformCandidateID
 	now := time.Now().UTC()
 	if existing, ok := s.items[key]; ok {
-		existing.Score = item.Score
-		if item.Status != "" {
+		if item.Source != "platform_observation" {
+			existing.Score = item.Score
+		}
+		if item.Status != "" && item.Source != "platform_observation" {
 			existing.Status = item.Status
 		}
-		if item.ResumeStatus != "" && item.ResumeStatus != "none" {
+		if item.ResumeStatus != "" && item.ResumeStatus != "none" && existing.ResumeStatus != "received" {
 			existing.ResumeStatus = item.ResumeStatus
 		}
-		if item.Source != "" {
+		if item.Source != "" && item.Source != "platform_observation" {
 			existing.Source = item.Source
+		}
+		existing.ContactObserved = existing.ContactObserved || item.ContactObserved
+		if item.Source == "platform_observation" {
+			t := now
+			existing.PlatformObservedAt = &t
 		}
 		if item.SetGreetedAt && existing.GreetedAt == nil {
 			t := now
@@ -374,6 +391,11 @@ func (s *MemoryCandidateScreeningStore) UpsertScreening(_ context.Context, item 
 		t := now
 		greetedAt = &t
 	}
+	var observedAt *time.Time
+	if source == "platform_observation" {
+		t := now
+		observedAt = &t
+	}
 	saved := &CandidateScreening{
 		ID:                  fmt.Sprintf("mem-screening-%d", s.nextID),
 		PositionID:          positionID,
@@ -384,6 +406,8 @@ func (s *MemoryCandidateScreeningStore) UpsertScreening(_ context.Context, item 
 		Status:              status,
 		ResumeStatus:        resumeStatus,
 		Source:              source,
+		ContactObserved:     item.ContactObserved,
+		PlatformObservedAt:  observedAt,
 		GreetedAt:           greetedAt,
 		ReGreetCount:        0,
 		CreatedAt:           now,

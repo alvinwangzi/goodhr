@@ -184,6 +184,14 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		}
 
 		// 页面事实优先于 AI：已回复、已收简历或上下文不明确时不生成消息。
+		// 即使要跳过也先回写人工操作事实，下一次名单查询才不会再次包含陈旧记录。
+		if err := r.reconcileCandidatePageState(ctx, position, options, candidate.PlatformCandidateID, candidateName, candidateStateFromReply(beforeCtx)); err != nil {
+			r.positionLog(positionID, "warning", "平台页面状态同步失败，候选人="+candidateName+"，错误="+err.Error())
+			stats.failed++
+			reportSkip(candidate, "state_sync_failed")
+			r.updateReGreetStats(positionID, stats)
+			continue
+		}
 		if reason := reGreetSkipReason(beforeCtx); reason != "" {
 			stats.skipped++
 			if reason == "skipped_replied" {
@@ -256,6 +264,11 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			return false
 		}
 		if err != nil || !reGreetContextMatches(beforeCtx, current) || r.isUserStopped(positionID) {
+			if err == nil && !r.isUserStopped(positionID) {
+				if syncErr := r.reconcileCandidatePageState(ctx, position, options, candidate.PlatformCandidateID, candidateName, candidateStateFromReply(current)); syncErr != nil {
+					r.positionLog(positionID, "warning", "变化后的页面状态同步失败："+syncErr.Error())
+				}
+			}
 			stats.skipped++
 			reportSkip(candidate, "context_changed")
 			r.updateReGreetStats(positionID, stats)

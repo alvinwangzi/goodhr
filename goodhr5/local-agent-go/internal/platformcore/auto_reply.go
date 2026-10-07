@@ -63,7 +63,10 @@ type ReplyTarget struct {
 }
 
 // ReplyConversation 保存稳定会话身份，不用姓名或数组序号代替 ID。
-type ReplyConversation struct{ ID, PositionID, PositionName, Name string }
+type ReplyConversation struct {
+	ID, PositionID, PositionName, Name string
+	ObservedResumeStatus               string // 搜索结果读取的确定简历事实，不能从姓名推断。
+}
 
 // ReplyMessage 保存页面读取的消息事实，Direction 为 inbound、outbound 或 system。
 type ReplyMessage struct{ ID, Direction, Kind, Timestamp, Text string }

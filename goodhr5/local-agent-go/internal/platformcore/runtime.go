@@ -20,6 +20,25 @@ type Executor interface {
 // Candidate 表示平台抽取到的候选人。
 type Candidate map[string]any
 
+// CandidatePageState 保存平台页面核实的既有事实，不包含未知的实际沟通时间。
+type CandidatePageState struct {
+	ContactObserved bool
+	ResumeStatus    string
+}
+
+// CandidateStateReader 是平台可选能力；主流程负责同步记录，平台只读取页面事实。
+type CandidateStateReader interface {
+	ReadCandidateState(context.Context, Executor, cloudapi.PlatformConfig, Candidate) (CandidatePageState, error)
+}
+
+// CandidateStateObservedError 表示点击前发现已有沟通；主流程应同步事实并跳过，而不是重试发送。
+type CandidateStateObservedError struct{ State CandidatePageState }
+
+// Error 返回不包含候选人隐私的页面状态变化说明。
+func (e *CandidateStateObservedError) Error() string {
+	return "页面已显示沟通或简历记录，跳过首次打招呼"
+}
+
 // DetailRequest 表示读取候选人详情的请求。
 type DetailRequest struct {
 	PositionID     string

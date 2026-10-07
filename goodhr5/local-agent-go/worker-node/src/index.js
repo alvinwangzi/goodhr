@@ -1,6 +1,7 @@
 // 本文件负责提供 HRPlus 5 Node Browser Worker HTTP 服务。
 import fs from "node:fs/promises";
 import { searchBossChatSessionOnPage } from "./boss-chat-search.js";
+import { readBossCandidateState } from "./boss-candidate-state.js";
 import crypto from "node:crypto";
 import http from "node:http";
 import os from "node:os";
@@ -1687,6 +1688,9 @@ async function greetBossCandidate(payload) {
     payload,
   );
   const card = cardInfo.card;
+  // 真正点击前再次核对，人工操作产生的既有沟通不能被当作本次发送成功。
+  const observed = await readBossCandidateState(card, selectorList(rules.continue_buttons));
+  if (observed.contact_observed) return { greeted: false, already_contacted: true, ...observed };
   const clicked = await clickFirstVisible(
     card,
     selectorList(rules.greet_buttons),
@@ -1712,6 +1716,14 @@ async function greetBossCandidate(payload) {
     card_index: cardIndex,
     scroll_attempts: cardInfo.attempts,
   };
+}
+
+/** readBossCandidatePageState 复用候选人可见定位，只读取卡片上的状态控件。 */
+async function readBossCandidatePageState(payload) {
+  const currentPage = await ensurePage();
+  const rules = bossRules(payload.platform_config || payload.config || {});
+  const cardInfo = await bossCardByIndex(currentPage, rules, Math.max(0, Number(payload.card_index || 0)), payload);
+  return readBossCandidateState(cardInfo.card, selectorList(rules.continue_buttons));
 }
 
 /**
@@ -6900,6 +6912,7 @@ const routes = {
   "/api/v1/boss/candidates/detail": extractBossCandidateDetail,
   "/api/v1/boss/candidates/detail/close": closeBossCandidateDetail,
   "/api/v1/boss/chat/search-session": searchBossChatSession,
+  "/api/v1/boss/candidates/state": readBossCandidatePageState,
   "/api/v1/boss/chat/find-session": findBossChatSession,
   "/api/v1/boss/chat/scroll-list": scrollBossChatList,
   "/api/v1/boss/chat/request-resume": requestBossChatResume,

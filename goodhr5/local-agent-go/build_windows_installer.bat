@@ -10,7 +10,7 @@ if not "%BUILD_ENV%"=="dev" if not "%BUILD_ENV%"=="prod" (
   exit /b 1
 )
 set "VERSION=%~2"
-if "%VERSION%"=="" set "VERSION=0.1.2"
+if "%VERSION%"=="" set "VERSION=0.1.3"
 
 echo [HRPlus] Start Windows installer build. Environment: %BUILD_ENV% Version: %VERSION%
 echo [HRPlus] Project dir: %ROOT_DIR%
