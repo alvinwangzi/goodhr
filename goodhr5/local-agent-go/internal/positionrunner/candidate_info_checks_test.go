@@ -9,8 +9,10 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 
 	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/platformcore"
 )
 
@@ -21,6 +23,14 @@ type infoCheckFixture struct {
 	prepared, submitted []string
 	beforeSubmit        func(string)
 	legacyCalls         int
+	identityIDs         []string
+}
+
+// LocateReplyConversationByID 记录预期 ID，同名候选人只按已验证映射定位。
+func (f *infoCheckFixture) LocateReplyConversationByID(_ context.Context, _ platformcore.Executor, name, id string) (platformcore.ReplyConversation, error) {
+	f.identityIDs = append(f.identityIDs, id)
+	f.current.Conversation = platformcore.ReplyConversation{ID: id, Name: name, PositionName: "Go"}
+	return f.current.Conversation, nil
 }
 
 // PrepareCandidateInfoRequest 记录每个准备动作，模拟同一候选人的正确确认框。
@@ -97,5 +107,53 @@ func TestCandidateInfoChecksIndependentActions(t *testing.T) {
 	r.performResumeChecks(t.Context(), position, f, nil, options)
 	if len(f.submitted) != 2 {
 		t.Fatalf("重新检查重复提交请求：%v", f.submitted)
+	}
+}
+
+// TestM1CandidateInfoSameNamesAndBudget 验证两个同名对象使用各自 ID，首人耗时过长后交还第二人，停止后不另起页面循环。
+func TestM1CandidateInfoSameNamesAndBudget(t *testing.T) {
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"subscription": map[string]any{"active": true, "allow_auto_reply": true}})
+		} else {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		}
+	}))
+	defer cloud.Close()
+	r, db := newTestRunnerWithDB(t, &onceWorker{})
+	position, err := db.CreatePosition(map[string]any{"name": "Go", "platform_id": "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	position.PositionSnapshot = map[string]any{"common_config": map[string]any{"request_phone": true, "request_resume": false}}
+	ids := []string{}
+	for _, candidateID := range []string{"geek-A", "geek-B"} {
+		item, err := db.EnqueueCandidateInfoRequest(position.ID, "boss", candidateID, "同名", map[string]bool{"phone": true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, item.ID)
+		if err = db.SaveCandidateIdentity(t.Context(), localdb.CandidateIdentity{ProfileScope: platformcore.ReplyHash("profile:default"), Platform: "boss", RecommendationID: candidateID, ConversationID: "conversation-" + candidateID, Source: "controlled-direct-transition", Status: "verified"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &infoCheckFixture{reGreetFixture: &reGreetFixture{replyFixture: &replyFixture{}, current: platformcore.ReplyContext{Messages: []platformcore.ReplyMessage{{Direction: "inbound", Kind: "text", Text: "你好"}}}}}
+	now := time.Now()
+	f.beforeSubmit = func(string) { now = now.Add(61 * time.Second) }
+	remaining := []string{}
+	options := StartOptions{LocalRunID: "local-run", CloudAPIBase: cloud.URL, Token: "fixture", candidateInfoBatchIDs: ids, candidateInfoRemaining: &remaining, actionNow: func() time.Time { return now }}
+	r.performCandidateInfoChecks(t.Context(), position, f, options)
+	if len(f.submitted) != 1 || len(remaining) != 1 || len(f.identityIDs) != 1 {
+		t.Fatalf("预算耗尽未保留队列：submitted=%v remaining=%v ids=%v", f.submitted, remaining, f.identityIDs)
+	}
+	options.candidateInfoBatchIDs = remaining
+	f.beforeSubmit = nil
+	r.performCandidateInfoChecks(t.Context(), position, f, options)
+	if len(f.submitted) != 2 || reflect.DeepEqual(f.identityIDs[:1], f.identityIDs[1:]) {
+		t.Fatalf("同名没有按不同 ID：%v", f.identityIDs)
+	}
+	r.asyncCheckResumeRequests(position, nil, options)
+	if f.legacyCalls != 0 {
+		t.Fatal("M1 仍调用历史姓名名单")
 	}
 }

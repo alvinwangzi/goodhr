@@ -24,10 +24,12 @@ export function pointInsideBox(point, box, margin = 2) {
 /** pointHitsTarget 验证鼠标落点最上层元素仍属于目标，防止猎聘抽屉或聊天框遮挡后误点其他候选人。 */
 export async function pointHitsTarget(target, point) {
   if (!target || !point) return false;
-  return target.evaluate((element, location) => {
-    const hit = document.elementFromPoint(Number(location.x), Number(location.y));
-    return Boolean(hit && (hit === element || element.contains(hit)));
-  }, { x: Number(point.x), y: Number(point.y) }).catch(() => false);
+  try{
+    const box=await target.boundingBox();if(!pointInsideBox(point,box,0))return false;
+    // 标准 trial 仅检查指定落点的可点击性，不执行真实点击或读取页面脚本。
+    await target.click({trial:true,position:{x:point.x-box.x,y:point.y-box.y},timeout:500});
+    const latest=await target.boundingBox();return boxesApproximatelyEqual(box,latest,1)&&pointInsideBox(point,latest,0);
+  }catch{return false}
 }
 
 /** normalizeComparableText 按配置整理目标文字，兼容猎聘按钮字间插入的展示空白。 */

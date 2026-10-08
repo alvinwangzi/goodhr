@@ -222,6 +222,14 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 		r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
 		return
 	}
+	if options.LocalRunID != "" {
+		if runtime, err := platforms.RuntimeFor(position.PlatformID); err == nil {
+			r.performCandidateInfoChecks(ctx, position, runtime, options)
+		}
+		if r.isUserStopped(positionID) || ctx.Err() != nil {
+			return
+		}
+	}
 	// 推荐列表处理完成后执行消息阶段，包含复打的组合不会再漏掉复打。
 	if hasTaskType(taskTypes, "re_greet") || hasTaskType(taskTypes, "auto_reply") {
 		r.runMessageTasks(ctx, position, options, snapshot)

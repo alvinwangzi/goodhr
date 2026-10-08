@@ -1,4 +1,5 @@
 /** 本文件负责统一浏览器内容视口、恢复100%缩放并读取显示诊断信息。 */
+import { nativeViewport } from "./native-page-observation.js";
 
 export const FIXED_BROWSER_VIEWPORT = Object.freeze({ width: 1440, height: 900 });
 
@@ -21,78 +22,23 @@ export function browserDisplayAdjustmentMessage(display = {}) {
   return `浏览器显示比例不符合任务要求：期望视口 ${targetWidth}x${targetHeight}，实际 ${innerWidth}x${innerHeight}${scaleText}。任务已停止，浏览器会保持打开；请在浏览器中按 ${shortcut} 恢复到 100%，确认后重新开始任务。`;
 }
 
-/** readBrowserDisplayMetrics 读取当前页面的实际视口、窗口、DPR和可视区缩放信息。 */
+/** readBrowserDisplayMetrics 只读取标准接口可证实的 CSS 视口，不推断窗口、DPR 或页面缩放。 */
 export async function readBrowserDisplayMetrics(currentPage, options = {}) {
-  // 严格 Locator 流程只读取标准接口，不推测原生窗口的尺寸或缩放。
-  if (options.no_script === true) {
-    const viewport = currentPage?.viewportSize?.();
-    return { inner_width: viewport?.width || 0, inner_height: viewport?.height || 0, source: viewport ? "playwright-viewport" : "unknown" };
-  }
-  if (!currentPage || typeof currentPage.evaluate !== "function") {
-    return {
-      inner_width: 0,
-      inner_height: 0,
-      outer_width: 0,
-      outer_height: 0,
-      device_pixel_ratio: 0,
-      visual_viewport_scale: 0,
-    };
-  }
-  return currentPage.evaluate(() => ({
-    inner_width: Math.round(window.innerWidth || 0),
-    inner_height: Math.round(window.innerHeight || 0),
-    outer_width: Math.round(window.outerWidth || 0),
-    outer_height: Math.round(window.outerHeight || 0),
-    screen_width: Math.round(window.screen?.width || 0),
-    screen_height: Math.round(window.screen?.height || 0),
-    device_pixel_ratio: Number(window.devicePixelRatio || 0),
-    visual_viewport_scale: Number(window.visualViewport?.scale || 1),
-  }));
-}
+  const viewport=await nativeViewport(currentPage);
+  return {inner_width:viewport.width,inner_height:viewport.height,source:viewport.source};
+ }
 
 /**
  * readBrowserViewportSize 读取当前页面真实可用的 CSS 视口。
- * 未设置 Playwright 固定 viewport 时，改用 window.innerWidth/innerHeight，
- * 避免 Windows 高 DPI 缩放下把正常窗口误记为 0x0。
+ * 未设置固定视口时读取标准 CSS 像素截图，不向招聘页面注入读取脚本。
  * @param {any} currentPage - Playwright 页面对象。
  * @returns {Promise<Record<string, any>>} 视口尺寸、来源和显示缩放诊断信息。
  */
 export async function readBrowserViewportSize(currentPage) {
-  const configured =
-    currentPage && typeof currentPage.viewportSize === "function"
-      ? currentPage.viewportSize()
-      : null;
-  if (
-    Number(configured?.width || 0) > 0 &&
-    Number(configured?.height || 0) > 0
-  ) {
-    return {
-      width: Math.round(Number(configured.width)),
-      height: Math.round(Number(configured.height)),
-      source: "playwright-viewport",
-    };
-  }
-  const metrics = await readBrowserDisplayMetrics(currentPage).catch(() => ({}));
-  const innerWidth = Math.max(
-    0,
-    Math.round(Number(metrics.inner_width || 0)),
-  );
-  const innerHeight = Math.max(
-    0,
-    Math.round(Number(metrics.inner_height || 0)),
-  );
-  return {
-    width: innerWidth || 1280,
-    height: innerHeight || 900,
-    source: innerWidth > 0 && innerHeight > 0 ? "window-inner" : "fallback",
-    device_pixel_ratio: Number(metrics.device_pixel_ratio || 0),
-    visual_viewport_scale: Number(metrics.visual_viewport_scale || 0),
-    outer_width: Math.max(0, Math.round(Number(metrics.outer_width || 0))),
-    outer_height: Math.max(0, Math.round(Number(metrics.outer_height || 0))),
-    screen_width: Math.max(0, Math.round(Number(metrics.screen_width || 0))),
-    screen_height: Math.max(0, Math.round(Number(metrics.screen_height || 0))),
-  };
-}
+  const viewport=await nativeViewport(currentPage);
+  if(viewport.width>0&&viewport.height>0)return viewport;
+  return {width:1280,height:900,source:'fallback'};
+ }
 
 /** normalizeBrowserDisplay 将页面恢复到100%缩放和固定视口，并返回校验结果。 */
 export async function normalizeBrowserDisplay(currentPage) {

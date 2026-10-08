@@ -20,7 +20,7 @@ function createStableClickPage(box, targetText = "立即沟通") {
     isVisible: async () => true,
     innerText: async () => targetText,
     boundingBox: async () => ({ ...box }),
-    evaluate: async () => true,
+    click: async options => { assert.equal(options.trial,true); },
     waitFor: async () => {},
   };
   const parent = {
@@ -45,7 +45,7 @@ test("位置比较和落点判断使用允许误差", () => {
 });
 
 test("落点顶层元素不是目标时判定为被弹层遮挡", async () => {
-  const target = { evaluate: async () => false };
+  const target = {boundingBox:async()=>({x:0,y:0,width:100,height:100}),click:async()=>{throw new Error("被遮挡")}};
   assert.equal(await pointHitsTarget(target, { x: 10, y: 20 }), false);
 });
 

@@ -34,6 +34,9 @@ func (r *Runner) enqueueCandidateInfoRequest(position localdb.Position, candidat
 // asyncCheckResumeRequests 在后台协程执行回复检查，避免阻塞岗位停止或完成流程的返回。
 // position 为岗位运行记录，platformConfig 为云端平台配置，options 为启动参数。
 func (r *Runner) asyncCheckResumeRequests(position localdb.Position, platformConfig cloudapi.PlatformConfig, options StartOptions) {
+	if options.LocalRunID != "" {
+		return
+	} // M1 索要由当前单岗位通道处理，停止后不能另起页面循环。
 	release, ready, ok := r.reserveResumeBrowser(position.ID)
 	if !ok {
 		r.positionLog(position.ID, "info", "回复检查：浏览器繁忙，名单保留待下次检查")
@@ -69,6 +72,9 @@ func (r *Runner) checkResumeRequests(position localdb.Position, platformRuntime 
 // ctx 为检查上下文，position 为岗位运行记录，platformRuntime 为平台能力，platformConfig 为云端平台配置，options 为启动参数。
 func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, platformConfig cloudapi.PlatformConfig, options StartOptions) {
 	r.performCandidateInfoChecks(ctx, position, platformRuntime, options)
+	if options.LocalRunID != "" {
+		return
+	} // 历史姓名名单不具备 M1 发送身份，保留记录而不猜测。
 	// 历史仅按姓名的简历名单只在本轮确实勾选简历时继续，不因勾电话而误发简历请求。
 	common := mapValue(position.PositionSnapshot["common_config"])
 	if value, present := common["request_resume"]; present && value != true {

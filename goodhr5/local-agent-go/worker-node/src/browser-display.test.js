@@ -36,26 +36,19 @@ test("readBrowserViewportSize prefers configured Playwright viewport", async () 
   });
 });
 
-/** 验证原生窗口模式会读取页面真实尺寸和高 DPI 信息，不再返回 0x0。 */
-test("readBrowserViewportSize reads window metrics for native viewport", async () => {
+/** 验证原生窗口通过 CSS 像素截图读取尺寸，脚本能力不被调用。 */
+test("readBrowserViewportSize reads CSS screenshot for native viewport", async () => {
+  const png=Buffer.alloc(24);png.write("PNG",1,"ascii");png.writeUInt32BE(1180,16);png.writeUInt32BE(650,20);
   const viewport = await readBrowserViewportSize({
     viewportSize: () => null,
-    evaluate: async () => ({
-      inner_width: 1180,
-      inner_height: 650,
-      outer_width: 1280,
-      outer_height: 800,
-      screen_width: 1280,
-      screen_height: 800,
-      device_pixel_ratio: 2,
-      visual_viewport_scale: 1,
-    }),
+    screenshot:async options=>{assert.equal(options.scale,"css");return png},
+    evaluate:()=>{throw new Error("不允许脚本读取")},
   });
 
   assert.equal(viewport.width, 1180);
   assert.equal(viewport.height, 650);
-  assert.equal(viewport.source, "window-inner");
-  assert.equal(viewport.device_pixel_ratio, 2);
+  assert.equal(viewport.source, "css-screenshot");
+  assert.equal(viewport.device_pixel_ratio, undefined);
 });
 
 /** 验证页面暂时无法读取尺寸时仍返回安全兜底视口。 */

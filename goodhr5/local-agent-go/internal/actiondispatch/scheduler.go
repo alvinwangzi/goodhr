@@ -10,6 +10,7 @@ const (
 	Greeting      Action = "greeting"
 	Reply         Action = "auto_reply"
 	ReGreet       Action = "re_greet"
+	CandidateInfo Action = "candidate_info" // 原后台索要作为有限消息批次，不另起页面循环。
 	CheckMessages Action = "check_messages"
 	Done          Action = "done"
 )
@@ -17,6 +18,7 @@ const (
 // Work 表示当前已经发现的工作，未来未到期复打不算待处理工作。
 type Work struct {
 	Greeting, Reply, ReGreet bool
+	CandidateInfo            bool
 	ReGreetDue               time.Time
 	ReGreetWaitingSince      time.Time // 进入本次活跃队列的时间，停机期间不算调度等待。
 }
@@ -52,7 +54,7 @@ func (s *Scheduler) Completed(action Action) {
 		s.messageBatches = 0
 		return
 	}
-	if action == Reply || action == ReGreet {
+	if action == Reply || action == ReGreet || action == CandidateInfo {
 		s.messageBatches++
 		s.lastMessage = action
 	}
@@ -82,6 +84,9 @@ func (s *Scheduler) Next(now time.Time, w Work) Action {
 	}
 	if s.PrioritizeReply && w.Reply {
 		return Reply
+	}
+	if w.CandidateInfo {
+		return CandidateInfo
 	}
 	if w.Greeting && !w.Reply && !w.ReGreet {
 		return Greeting

@@ -164,7 +164,27 @@ type platformExecutor struct {
 // Post 调用浏览器 Worker。
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (e platformExecutor) Post(ctx context.Context, path string, payload any) (map[string]any, error) {
-	if e.once {
+	// 运行状态窗显示分析结果，招聘页面覆盖层不再发请求或并发抢占动作通道。
+	if path == "/api/v1/page/ai-overlay" || path == "/api/v1/page/keyword-overlay" {
+		return map[string]any{"visible": false, "unsupported": true}, nil
+	}
+	e.runner.mu.Lock()
+	m1 := false
+	if state := e.runner.running[e.positionID]; state != nil {
+		m1 = state.options.LocalRunID != ""
+	}
+	e.runner.mu.Unlock()
+	if m1 {
+		if values, ok := payload.(map[string]any); ok {
+			copy := make(map[string]any, len(values)+1)
+			for key, value := range values {
+				copy[key] = value
+			}
+			copy["no_script"] = true
+			payload = copy
+		}
+	}
+	if e.once || m1 {
 		return e.runner.worker.CallOnce(ctx, path, payload)
 	}
 	return e.runner.worker.Call(ctx, path, payload)
@@ -194,8 +214,10 @@ type StartOptions struct {
 	reGreetTotals    *reGreetStats                // 同一运行跨批次保留复打统计。
 	actionNow        func() time.Time             // 可控时钟仅影响调度和联系事实时间，不创建页面并发。
 	// scanBoundary 在候选人安全结束后由同一运行协程调用，true 表示列表已变化，需要按记录恢复。
-	scanBoundary      func(context.Context) (bool, error)
-	acknowledgeRescan func() // 扫描器已经重建完成集合后确认消费回退要求。
+	scanBoundary           func(context.Context) (bool, error)
+	acknowledgeRescan      func()    // 扫描器已经重建完成集合后确认消费回退要求。
+	candidateInfoBatchIDs  []string  // 同一通道领取的有限索要名单，nil 保持旧调用兼容。
+	candidateInfoRemaining *[]string // 预算耗尽后交还未领取的人，不丢失队列。
 	// LocalRunID 独立标识本次单岗位运行，不包含登录凭证，每次明确开始重新生成。
 	LocalRunID     string `json:"local_run_id,omitempty"`
 	TaskType       string `json:"task_type"` // greeting 或 auto_reply，支持逗号分隔多选，省略时打招呼

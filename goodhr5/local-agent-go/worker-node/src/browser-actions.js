@@ -948,7 +948,7 @@ export class BrowserAdvancedActions {
 }
 
 /**
- * BrowserOverlayActions 提供页面右上角提示浮层能力。
+ * BrowserOverlayActions 保留旧接口兼容返回，状态由 HRPlus 自己的运行窗口显示。
  */
 export class BrowserOverlayActions {
   /**
@@ -960,77 +960,18 @@ export class BrowserOverlayActions {
   }
 
   /**
-   * 显示通用右上角提示卡片。
+   * 返回旧卡片入口已停用，不向招聘页面创建浮层。
    * @param {Record<string, any>} payload - 浮层内容。
    * @returns {Promise<Record<string, any>>} 浮层结果。
    */
-  async showCard(payload = {}) {
-    const currentPage = await this.base.ensurePage();
-    const id = stringValue(payload.id) || "__goodhr_overlay_card";
-    const title = stringValue(payload.title) || "HRPlus";
-    const subtitle = stringValue(payload.subtitle);
-    const message = stringValue(payload.message || payload.text);
-    const maxAgeMS = Math.max(3000, Math.min(60000, Number(payload.max_age_ms || 15000)));
-    await currentPage.evaluate(
-      ({ id, title, subtitle, message, maxAgeMS }) => {
-        const old = document.getElementById(id);
-        if (old) old.remove();
-        const box = document.createElement("div");
-        box.id = id;
-        box.style.cssText = [
-          "position:fixed",
-          "right:16px",
-          "top:16px",
-          "z-index:2147483647",
-          "max-width:360px",
-          "width:calc(100vw - 32px)",
-          "box-sizing:border-box",
-          "padding:14px",
-          "border-radius:12px",
-          "background:rgba(252,250,244,.96)",
-          "color:#18221d",
-          "box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10)",
-          "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-          "font-size:13px",
-          "line-height:1.45",
-          "pointer-events:none",
-          "border:1px solid rgba(48,79,63,.18)",
-        ].join(";");
-        box.innerHTML = [
-          `<div style="font-size:14px;font-weight:750;">${escapeHTML(title)}</div>`,
-          subtitle
-            ? `<div style="font-size:12px;color:#6d7a72;margin-top:2px;">${escapeHTML(subtitle)}</div>`
-            : "",
-          `<div style="margin-top:10px;white-space:pre-wrap;">${escapeHTML(message)}</div>`,
-        ].join("");
-        document.body.appendChild(box);
-        setTimeout(() => box.remove(), maxAgeMS);
-        function escapeHTML(value) {
-          return String(value || "").replace(/[&<>"']/g, (char) => ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;",
-          })[char]);
-        }
-      },
-      { id, title, subtitle, message, maxAgeMS },
-    );
-    return { visible: true, id, title, subtitle, message };
-  }
+  async showCard(payload = {}) { return {visible:false,unsupported:true,id:stringValue(payload.id),reason:'招聘页面不显示覆盖层，请查看 HRPlus 运行状态窗'}; }
 
   /**
-   * 关闭通用提示卡片。
+   * 返回旧卡片入口已停用，不读取或删除招聘页面节点。
    * @param {Record<string, any>} payload - 浮层 ID。
    * @returns {Promise<Record<string, any>>} 关闭结果。
    */
-  async hideCard(payload = {}) {
-    const currentPage = await this.base.ensurePage();
-    const id = stringValue(payload.id) || "__goodhr_overlay_card";
-    await currentPage.evaluate((targetID) => document.getElementById(targetID)?.remove(), id);
-    return { visible: false, id };
-  }
+  async hideCard(payload = {}) { return {visible:false,unsupported:true,id:stringValue(payload.id)}; }
 
   /**
    * 显示 AI 调用提示浮层。
@@ -1041,8 +982,8 @@ export class BrowserOverlayActions {
     return this.showCard({
       ...payload,
       id: "__goodhr_ai_overlay",
-      title: payload.title || "AI 正在干活",
-      subtitle: payload.subtitle || "我先小声处理一下",
+      title: payload.title || "AI 正在分析",
+      subtitle: payload.subtitle || "正在分析候选人",
       message: payload.message || payload.text || "正在分析候选人信息...",
     });
   }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"goodhr5/local-agent-go/internal/actiondispatch"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/platformcore"
@@ -38,6 +39,9 @@ func (r *Runner) syncCandidateInfoFeedback(ctx context.Context, position localdb
 
 // performCandidateInfoChecks 处理稳定 ID 名单，只执行本轮和入队时共同勾选的动作，成功和未知均不重发。
 func (r *Runner) performCandidateInfoChecks(ctx context.Context, position localdb.Position, runtime platformcore.Runtime, options StartOptions) {
+	if options.candidateInfoRemaining != nil {
+		*options.candidateInfoRemaining = nil
+	}
 	items, err := r.db.ListCandidateInfoRequests(position.ID)
 	if err != nil {
 		r.positionLog(position.ID, "warning", "读取索要意图失败："+err.Error())
@@ -47,6 +51,19 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		return
 	}
 	selected := candidateInfoRequestFromPosition(position)
+	if options.candidateInfoBatchIDs != nil {
+		selectedIDs := map[string]bool{}
+		for _, id := range options.candidateInfoBatchIDs {
+			selectedIDs[id] = true
+		}
+		filtered := []localdb.CandidateInfoRequest{}
+		for _, item := range items {
+			if selectedIDs[item.ID] {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 	wanted := map[string]bool{"phone": selected.RequestPhone, "wechat": selected.RequestWechat, "resume": selected.RequestResume}
 	for _, item := range items {
 		for action, state := range item.Results {
@@ -102,11 +119,31 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		r.positionLog(position.ID, "warning", "索要岗位核对失败："+err.Error())
 		return
 	}
-	for _, item := range items {
-		if ctx.Err() != nil {
+	now := time.Now
+	if options.actionNow != nil {
+		now = options.actionNow
+	}
+	batchStarted := now()
+	if options.candidateInfoRemaining != nil {
+		for _, item := range items {
+			*options.candidateInfoRemaining = append(*options.candidateInfoRemaining, item.ID)
+		}
+	}
+	for index, item := range items {
+		if options.candidateInfoRemaining != nil && actiondispatch.BatchLimit(batchStarted, now(), index) {
 			return
 		}
-		if names[item.CandidateName] > 1 {
+		if ctx.Err() != nil || r.isUserStopped(position.ID) {
+			return
+		}
+		if options.candidateInfoRemaining != nil {
+			remaining := []string{}
+			for _, item := range items[index+1:] {
+				remaining = append(remaining, item.ID)
+			}
+			*options.candidateInfoRemaining = remaining
+		}
+		if options.LocalRunID == "" && names[item.CandidateName] > 1 {
 			r.positionLog(position.ID, "warning", "索要名单有多个同名 ID，未自动交换："+item.CandidateName)
 			continue
 		}
@@ -119,7 +156,19 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		if !active {
 			continue
 		}
-		conversation, err := locator.LocateReplyConversation(ctx, exec, item.CandidateName)
+		var conversation platformcore.ReplyConversation
+		var err error
+		if options.LocalRunID != "" {
+			identity, lookupErr := r.db.CandidateIdentityFor(ctx, platformcore.ReplyHash("profile:"+positionProfileName(position)), position.PlatformID, item.CandidateID)
+			identityLocator, supported := runtime.(platformcore.IdentityConversationLocator)
+			if lookupErr != nil || identity.Status != "verified" || !supported {
+				r.positionLog(position.ID, "warning", "索要身份尚未核对，名单保留："+item.CandidateName)
+				continue
+			}
+			conversation, err = identityLocator.LocateReplyConversationByID(ctx, exec, item.CandidateName, identity.ConversationID)
+		} else {
+			conversation, err = locator.LocateReplyConversation(ctx, exec, item.CandidateName)
+		}
 		if err != nil {
 			r.positionLog(position.ID, "warning", "索要候选人定位失败："+err.Error())
 			continue

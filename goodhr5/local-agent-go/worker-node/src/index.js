@@ -1,4 +1,5 @@
 // 本文件负责提供 HRPlus 5 Node Browser Worker HTTP 服务。
+import {nativeViewport,observeContainer,observeScrollAtPointer} from "./native-page-observation.js";
 import { readBossRecommendationID, matchBossRecommendationID } from "./boss-candidate-identity.js";
 import { captureRecommendationAnchors, checkRecommendationAnchors, rewindRecommendation, ensureRecommendationVisible } from "./boss-recommendation-resume.js";
 import fs from "node:fs/promises";
@@ -1070,7 +1071,7 @@ async function findElements(payload) {
       fields: extracted,
     };
     if (payload.include_html) {
-      resultItem.html = await locator.evaluate((element) => element.outerHTML).catch(() => "");
+      throw new Error("招聘页面不支持脚本 HTML 读取，请使用标准字段或截图");
     }
     items.push(resultItem);
   }
@@ -1393,14 +1394,9 @@ async function ensureCheckedByText(payload) {
  * @returns {Promise<Record<string, any>>} 文档滚动状态。
  */
 async function documentScrollState(currentPage, threshold) {
-  return currentPage.evaluate((bottomThreshold) => {
-    const root = document.scrollingElement || document.documentElement;
-    const top = Number(root?.scrollTop || window.scrollY || 0);
-    const viewport = Number(window.innerHeight || document.documentElement.clientHeight || 0);
-    const height = Number(root?.scrollHeight || document.documentElement.scrollHeight || 0);
-    return { top, viewport, height, at_bottom: top + viewport >= height - bottomThreshold };
-  }, threshold);
-}
+  const viewport=await nativeViewport(currentPage);const info=await observeContainer(currentPage.locator('body'),viewport.height);
+  return {top:info.scrollTop,viewport:info.clientHeight,height:info.scrollHeight,at_bottom:!info.can_scroll_down,source:info.source,measured_scroll_top:false};
+ }
 
 /**
  * 在指定总时长内使用真实滚轮逐步滚动到页面底部。
@@ -1461,14 +1457,8 @@ async function clickPaginationNext(currentPage, payload, state) {
   const next = await firstLocator(currentPage, payload.next_element || payload.nextElement, true);
   if (!next) return { action: "end", reason: "next-not-found", before: state };
   const disabledClass = String(payload.disabled_class || payload.disabledClass || "").trim();
-  const disabled = await next.evaluate((element, className) => {
-    return Boolean(
-      element.disabled ||
-      element.getAttribute("aria-disabled") === "true" ||
-      (className && element.classList.contains(className)) ||
-      element.closest?.("[aria-disabled='true'],.ant-pagination-disabled")
-    );
-  }, disabledClass).catch(() => false);
+  const classes=String(await next.getAttribute('class')||'').split(/\s+/);
+  const disabled=!(await next.isEnabled())||await next.getAttribute('aria-disabled')==='true'||(disabledClass&&classes.includes(disabledClass))||await next.locator('xpath=ancestor-or-self::*[@aria-disabled="true" or contains(concat(" ",normalize-space(@class)," ")," ant-pagination-disabled ")]').count()>0;
   if (disabled) return { action: "end", reason: "next-disabled", before: state };
   const visibility = await wheelUntilElementVisible(currentPage, next, next, {
     ...payload,
@@ -2864,40 +2854,9 @@ async function candidateCardIdentityMatch(cards, payload) {
  * @returns {Promise<Record<string, any>>} 当前滚动位置和可滚动方向。
  */
 async function wheelScrollStateAtPoint(currentPage, point) {
-  return currentPage.evaluate(({ x, y }) => {
-    let node = document.elementFromPoint(x, y);
-    while (node instanceof HTMLElement) {
-      const scrollHeight = Math.round(node.scrollHeight || 0);
-      const clientHeight = Math.round(node.clientHeight || 0);
-      const style = window.getComputedStyle(node);
-      if (
-        scrollHeight > clientHeight + 8 &&
-        !["hidden", "clip"].includes(style.overflowY || "")
-      ) {
-        const scrollTop = Math.round(node.scrollTop || 0);
-        const maxTop = Math.max(0, scrollHeight - clientHeight);
-        return {
-          scroll_top: scrollTop,
-          max_top: maxTop,
-          can_scroll_up: scrollTop > 2,
-          can_scroll_down: scrollTop < maxTop - 2,
-          target: String(node.className || node.tagName || "").slice(0, 120),
-        };
-      }
-      node = node.parentElement;
-    }
-    const root = document.scrollingElement || document.documentElement;
-    const scrollTop = Math.round(root?.scrollTop || window.scrollY || 0);
-    const maxTop = Math.max(0, Math.round((root?.scrollHeight || 0) - (root?.clientHeight || 0)));
-    return {
-      scroll_top: scrollTop,
-      max_top: maxTop,
-      can_scroll_up: scrollTop > 2,
-      can_scroll_down: scrollTop < maxTop - 2,
-      target: "document",
-    };
-  }, { x: Number(point?.x || 0), y: Number(point?.y || 0) });
-}
+  const info=await observeScrollAtPointer(currentPage,point);
+  return {scroll_top:info.scrollTop,max_top:Math.max(0,info.scrollHeight-info.clientHeight),can_scroll_up:info.can_scroll_up,can_scroll_down:info.can_scroll_down,source:info.source,measured_scroll_top:false};
+ }
 
 /**
  * 读取第一个可见详情容器文本。
@@ -3417,39 +3376,7 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
  * @param {string} stage - 调用阶段名称。
  * @returns {Promise<Record<string, any>>} 滚动信息。
  */
-async function detailScrollInfo(locator, payload = null, stage = "") {
-  try {
-    return await locator.evaluate((el) => {
-      const style = window.getComputedStyle(el);
-      const overflowY = style.overflowY || "";
-      const scrollHeight = Math.ceil(el.scrollHeight || 0);
-      const clientHeight = Math.ceil(el.clientHeight || 0);
-      const scrollable =
-        scrollHeight > clientHeight + 8 &&
-        !["hidden", "clip"].includes(overflowY);
-      return {
-        scrollable,
-        scrollTop: Math.round(el.scrollTop || 0),
-        scrollHeight,
-        clientHeight,
-        overflowY,
-      };
-    });
-  } catch (error) {
-    if (payload) {
-      logDetailDiagnostic(payload, "详情容器滚动信息读取异常，按不可滚动继续", {
-        stage,
-        ...detailErrorFields(error),
-      });
-    }
-    return {
-      scrollable: false,
-      scrollTop: 0,
-      scrollHeight: 0,
-      clientHeight: 0,
-    };
-  }
-}
+async function detailScrollInfo(locator, payload = null, stage = '') { return observeContainer(locator); }
 
 /**
  * 保存指定元素的截图。
@@ -3816,7 +3743,7 @@ async function screenshotScrollableLocatorParts(
       filename,
       part,
     });
-    const beforeScroll = await pageScrollState(currentPage);
+    const beforeScroll = await pageScrollState(currentPage,{x:mouseX,y:mouseY});
     const beforeContainer = await detailScrollInfo(
       locator,
       payload,
@@ -3866,7 +3793,7 @@ async function screenshotScrollableLocatorParts(
       filename,
       part,
     });
-    const afterScroll = await pageScrollState(currentPage);
+    const afterScroll = await pageScrollState(currentPage,{x:mouseX,y:mouseY});
     const afterContainer = await detailScrollInfo(
       locator,
       payload,
@@ -4304,91 +4231,9 @@ async function screenshotLocatorParts(
  * @returns {Promise<Record<string, any>>} 页面滚动状态。
  */
 async function pageScrollState(currentPage, point) {
-  return currentPage
-    .evaluate((mousePoint) => {
-      const doc = document.scrollingElement || document.documentElement;
-      const docTop = Math.round(doc?.scrollTop || window.scrollY || 0);
-      const docHeight = Math.round(
-        doc?.scrollHeight || document.documentElement.scrollHeight || 0,
-      );
-      const docClientHeight = Math.round(
-        doc?.clientHeight || window.innerHeight || 0,
-      );
-      let top = docTop;
-      let canScrollMore = docTop < Math.max(docHeight - docClientHeight - 2, 0);
-      let target = null;
-      if (
-        mousePoint &&
-        Number.isFinite(mousePoint.x) &&
-        Number.isFinite(mousePoint.y)
-      ) {
-        const start = document.elementFromPoint(mousePoint.x, mousePoint.y);
-        let node = start instanceof HTMLElement ? start : null;
-        let depth = 0;
-        while (node && depth < 12) {
-          const scrollHeight = Math.round(node.scrollHeight || 0);
-          const clientHeight = Math.round(node.clientHeight || 0);
-          const scrollTop = Math.round(node.scrollTop || 0);
-          const style = window.getComputedStyle(node);
-          const overflowY = style.overflowY || "";
-          if (
-            scrollHeight > clientHeight + 8 &&
-            !["hidden", "clip"].includes(overflowY)
-          ) {
-            const maxTop = Math.max(scrollHeight - clientHeight - 2, 0);
-            target = {
-              tag: node.tagName,
-              className: String(node.className || "").slice(0, 120),
-              scrollTop,
-              scrollHeight,
-              clientHeight,
-              overflowY,
-              maxed: scrollTop >= maxTop,
-            };
-            top += scrollTop * 3;
-            if (!target.maxed) canScrollMore = true;
-            break;
-          }
-          node = node.parentElement;
-          depth += 1;
-        }
-      }
-      for (const el of Array.from(document.querySelectorAll("*"))) {
-        const node = /** @type {HTMLElement} */ (el);
-        const scrollHeight = Math.round(node.scrollHeight || 0);
-        const clientHeight = Math.round(node.clientHeight || 0);
-        if (scrollHeight <= clientHeight + 8) continue;
-        const style = window.getComputedStyle(node);
-        if (["hidden", "clip"].includes(style.overflowY || "")) continue;
-        const scrollTop = Math.round(node.scrollTop || 0);
-        top += scrollTop;
-        if (scrollTop < Math.max(scrollHeight - clientHeight - 2, 0)) {
-          canScrollMore = true;
-        }
-      }
-      return {
-        top,
-        height: docHeight,
-        scrollHeight: docHeight,
-        clientHeight: docClientHeight,
-        maxed: !canScrollMore,
-        doc: {
-          scrollTop: docTop,
-          scrollHeight: docHeight,
-          clientHeight: docClientHeight,
-        },
-        target,
-      };
-    }, point || null)
-    .catch(() => ({
-      top: 0,
-      height: 0,
-      scrollHeight: 0,
-      clientHeight: 0,
-      maxed: false,
-      target: null,
-    }));
-}
+  const info=await observeScrollAtPointer(currentPage,point);
+  return {top:info.scrollTop,height:info.scrollHeight,scrollHeight:info.scrollHeight,clientHeight:info.clientHeight,maxed:!info.can_scroll_down,target:info,source:info.source,measured_scroll_top:false};
+ }
 
 /**
  * 计算两次滚动状态之间的移动距离。
@@ -4825,47 +4670,16 @@ function fieldRulesFromCard(card) {
  * @returns {Promise<Record<string, any>|null>} 滚动信息和子元素 locator。
  */
 async function findScrollableChild(locator) {
-  const maxDepth = 3;
-  async function search(el, depth) {
-    if (depth > maxDepth) return null;
-    const info = await el
-      .evaluate((node) => {
-        const style = window.getComputedStyle(node);
-        const overflowY = style.overflowY || "";
-        const scrollHeight = Math.ceil(node.scrollHeight || 0);
-        const clientHeight = Math.ceil(node.clientHeight || 0);
-        const scrollable =
-          scrollHeight > clientHeight + 8 &&
-          !["hidden", "clip"].includes(overflowY);
-        if (scrollable) {
-          return {
-            scrollable: true,
-            scrollTop: Math.round(node.scrollTop || 0),
-            scrollHeight,
-            clientHeight,
-            overflowY,
-            tag: node.tagName,
-            depth,
-          };
-        }
-        return null;
-      })
-      .catch(() => null);
-    if (info) return { ...info, locator: el };
-    // 检查子元素
-    const childCount = await el
-      .locator("> *")
-      .count()
-      .catch(() => 0);
-    for (let i = 0; i < childCount; i++) {
-      const child = el.locator("> *").nth(i);
-      const result = await search(child, depth + 1);
-      if (result) return result;
-    }
+  // 有界检查可见子区域，只观察标准坐标，不读取 computedStyle。
+  async function search(element,depth){
+    if(depth>3)return null;
+    const info=await observeContainer(element).catch(()=>null);
+    if(info?.scrollable)return {...info,locator:element,depth};
+    const children=element.locator(':scope > :not(script):not(style):not(link):visible');
+    for(let i=0;i<Math.min(await children.count(),64);i++){const found=await search(children.nth(i),depth+1);if(found)return found}
     return null;
-  }
-  return search(locator, 1);
-}
+  }return search(locator,1);
+ }
 
 async function screenshotPage(payload) {
   const operationStartedAt = Date.now();
@@ -5139,384 +4953,18 @@ async function screenshotPage(payload) {
 }
 
 /**
- * 在招聘平台页面右上角显示或关闭 AI 状态浮层。
+ * 保留旧浮层接口兼容返回，实际状态由 HRPlus 运行窗口显示，招聘页面不被修改。
  * @param {Record<string, any>} payload - 浮层参数。
  * @returns {Promise<Record<string, any>>} 浮层结果。
  */
-async function aiOverlay(payload) {
-  const currentPage = await ensurePage();
-  const action = String(payload.action || "show")
-    .trim()
-    .toLowerCase();
-  // hide 不再主动移除卡片，由 show 管理卡片生命周期
-  if (action === "hide" || action === "close" || action === "remove") {
-    await currentPage
-      .evaluate(() => {
-        const refs = (window.__gohOvl = window.__gohOvl || []);
-        // 清理已移除卡片的引用
-        window.__gohOvl = refs.filter((r) => r.card && r.card.parentNode);
-      })
-      .catch(() => {});
-    return { visible: false };
-  }
-  const title = String(payload.title || "AI 正在思考").trim();
-  const subtitle = String(payload.subtitle || payload.target || "").trim();
-  const message = String(payload.message || "正在分析候选人，请稍候").trim();
-  const matchKey = aiOverlayMatchKey(title, subtitle);
-  const maxAgeMS = normalizeAIOverlayMaxAge(payload.max_age_ms);
-  await currentPage.evaluate(
-    ({ title, subtitle, message, matchKey, maxAgeMS }) => {
-      const randStr = (len) =>
-        Math.random()
-          .toString(36)
-          .substring(2, 2 + len);
-      const ctx = (window.__gohCtx = window.__gohCtx || {});
-      const mk = matchKey;
-
-      // 同一候选人的流式更新和最终结果复用当前卡片，只更新展示内容。
-      if (
-        ctx.matchKey === mk &&
-        ctx.card &&
-        ctx.card.parentNode &&
-        !ctx.removing
-      ) {
-        var msgDiv = ctx.card.children[0] && ctx.card.children[0].children[1];
-        if (msgDiv && msgDiv.children[3] && msgDiv.children[3].children[0]) {
-          // 也更新标题和副标题（可能因 showAIReply 改变）
-          if (msgDiv.children[0]) msgDiv.children[0].textContent = title;
-          if (msgDiv.children[1]) msgDiv.children[1].textContent = subtitle;
-          var mEl = msgDiv.children[3].children[0];
-          mEl.textContent = message;
-          mEl.scrollTop = mEl.scrollHeight;
-        }
-        if (ctx.removeTimer) clearTimeout(ctx.removeTimer);
-        ctx.removeTimer = setTimeout(function () {
-          if (ctx.card && ctx.card.parentNode) ctx.card.remove();
-          if (ctx.style && ctx.style.parentNode) ctx.style.remove();
-          ctx.card = null;
-          ctx.style = null;
-          ctx.removeTimer = null;
-        }, maxAgeMS);
-        return; // 不复用旧卡片，不走删除流程
-      }
-
-      // 切换候选人时立即移除旧卡片，避免旧姓名与当前详情同时显示。
-      if (ctx.card && ctx.card.parentNode && !ctx.removing) {
-        ctx.removing = true;
-        if (ctx.removeTimer) clearTimeout(ctx.removeTimer);
-        var s = ctx.style;
-        var c = ctx.card;
-        if (s && s.parentNode) s.remove();
-        if (c && c.parentNode) c.remove();
-      }
-
-      const msgCls = randStr(6);
-      const ringCls = randStr(6);
-      const cursorCls = randStr(6);
-      const animSpin = "a" + randStr(8);
-      const animBreathe = "b" + randStr(8);
-      // 此卡片序号，用于标识生成顺序
-      const seq = (window.__gohSeq || 0) + 1;
-      window.__gohSeq = seq;
-
-      const vw = Math.max(
-        document.documentElement.clientWidth || 0,
-        window.innerWidth || 0,
-      );
-      const pw = Math.min(360, Math.max(260, vw - 32));
-
-      const box = document.createElement("div");
-      box.style.cssText = [
-        "position:fixed",
-        "right:16px",
-        "top:16px",
-        "z-index:2147483647",
-        "width:" + pw + "px",
-        "box-sizing:border-box",
-        "padding:14px",
-        "border-radius:14px",
-        "background:rgba(252,250,244,.96)",
-        "color:#18221d",
-        "box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10)",
-        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-        "font-size:13px",
-        "line-height:1.45",
-        "pointer-events:none",
-        "border:1px solid rgba(48,79,63,.18)",
-        "backdrop-filter:saturate(1.1) blur(10px)",
-      ].join(";");
-
-      const style = document.createElement("style");
-      style.textContent = [
-        "@keyframes " + animSpin + " { to { transform: rotate(360deg); } }",
-        "@keyframes " +
-          animBreathe +
-          " { 0%,100% { opacity:.58; transform: translateY(0); } 50% { opacity:1; transform: translateY(-1px); } }",
-        "." +
-          ringCls +
-          " { width:28px;height:28px;border-radius:50%;border:2px solid rgba(69,104,83,.18);border-top-color:#4f7f64;animation:" +
-          animSpin +
-          " .9s linear infinite;flex:0 0 auto; }",
-        "." +
-          msgCls +
-          " { display:block;max-height:200px;overflow-y:auto;color:#405249;white-space:pre-wrap;word-break:break-word; }",
-        "." +
-          cursorCls +
-          " { display:inline-block;width:6px;height:14px;margin-left:2px;border-radius:3px;background:#4f7f64;vertical-align:-2px;animation:" +
-          animBreathe +
-          " 1s infinite ease-in-out; }",
-      ].join("\n");
-      document.head.appendChild(style);
-
-      // 构建卡片 DOM 结构 — 全内联样式，无任何可检测属性
-      box.innerHTML = [
-        '<div style="display:flex;gap:12px;align-items:flex-start;">',
-        '<div class="' + ringCls + '"></div>',
-        '<div style="min-width:0;flex:1;">',
-        '<div style="font-size:14px;font-weight:750;color:#18221d;margin-top:1px;"></div>',
-        '<div style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',
-        '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
-        '<div><span class="' +
-          msgCls +
-          '"></span><span class="' +
-          cursorCls +
-          '"></span></div>',
-        "</div></div>",
-      ].join("");
-      document.body.appendChild(box);
-
-      // 通过 DOM 结构索引设置文本内容，不依赖任何自定义属性
-      var contentCol = box.children[0] && box.children[0].children[1];
-      if (contentCol) {
-        if (contentCol.children[0]) contentCol.children[0].textContent = title;
-        if (contentCol.children[1])
-          contentCol.children[1].textContent = subtitle;
-        if (contentCol.children[3] && contentCol.children[3].children[0]) {
-          var msgEl = contentCol.children[3].children[0];
-          msgEl.textContent = message;
-          msgEl.scrollTop = msgEl.scrollHeight;
-        }
-      }
-
-      // 更新上下文为当前卡片，供下次流式更新时复用
-      ctx.matchKey = mk;
-      ctx.card = box;
-      ctx.style = style;
-      ctx.removing = false;
-      ctx.removeTimer = setTimeout(function () {
-        if (ctx.card !== box) return;
-        if (style && style.parentNode) style.remove();
-        if (box && box.parentNode) box.remove();
-        ctx.card = null;
-        ctx.style = null;
-        ctx.removeTimer = null;
-      }, maxAgeMS);
-    },
-    { title, subtitle, message, matchKey, maxAgeMS },
-  );
-  return { visible: true, title, subtitle, message };
-}
+async function aiOverlay(payload) { return {visible:false,unsupported:true,reason:'招聘页面不显示覆盖层，请查看 HRPlus 运行状态窗'}; }
 
 /**
- * 在招聘平台页面右上角显示 OCR 关键词匹配浮层。
+ * 保留关键词展示的旧接口，明确返回未显示，不创建招聘页面 DOM。
  * @param {Record<string, any>} payload - 关键词匹配展示参数。
  * @returns {Promise<Record<string, any>>} 浮层结果。
  */
-async function keywordOverlay(payload) {
-  const currentPage = await ensurePage();
-  const action = String(payload.action || "show")
-    .trim()
-    .toLowerCase();
-  if (action === "hide" || action === "close" || action === "remove") {
-    await currentPage
-      .evaluate(() => {
-        const ctx = (window.__gohCtx = window.__gohCtx || {});
-        if (ctx.keywordTimer) clearTimeout(ctx.keywordTimer);
-        if (ctx.keywordCard && ctx.keywordCard.parentNode)
-          ctx.keywordCard.remove();
-        ctx.keywordCard = null;
-      })
-      .catch(() => {});
-    return { visible: false };
-  }
-  const title = String(payload.title || "关键词匹配").trim();
-  const subtitle = String(payload.subtitle || "").trim();
-  const keywords = cleanOverlayWords(payload.keywords);
-  const excludes = cleanOverlayWords(
-    payload.exclude_keywords || payload.excludes,
-  );
-  const matchedKeywords = cleanOverlayWords(payload.matched_keywords);
-  const matchedExcludes = cleanOverlayWords(
-    payload.matched_excludes || payload.matched_exclude_keywords,
-  );
-  const loading = Boolean(payload.loading);
-  const text =
-    String(payload.text || "").trim() ||
-    (loading ? "OCR图文识别中..." : "OCR 未识别到文字");
-  const maxAgeMS = Math.max(
-    3000,
-    Math.min(60000, Number(payload.max_age_ms || payload.maxAgeMS || 20000)),
-  );
-  await currentPage.evaluate(
-    ({
-      title,
-      subtitle,
-      keywords,
-      excludes,
-      matchedKeywords,
-      matchedExcludes,
-      text,
-      maxAgeMS,
-    }) => {
-      const chip = (word, color, bg) => {
-        const item = document.createElement("span");
-        item.textContent = word;
-        item.style.cssText =
-          "display:inline-flex;align-items:center;max-width:100%;padding:2px 7px;border-radius:999px;font-size:12px;font-weight:650;color:" +
-          color +
-          ";background:" +
-          bg +
-          ";overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-        return item;
-      };
-      const renderWords = (wrap, words, matched, color, bg) => {
-        wrap.textContent = "";
-        if (!words.length) {
-          const empty = document.createElement("span");
-          empty.textContent = "无";
-          empty.style.cssText = "font-size:12px;color:#7b867f;";
-          wrap.appendChild(empty);
-          return;
-        }
-        const matchedSet = new Set(
-          matched.map((word) => String(word).toLowerCase()),
-        );
-        words.forEach((word) => {
-          wrap.appendChild(
-            chip(
-              word,
-              matchedSet.has(String(word).toLowerCase()) ? color : "#56635c",
-              matchedSet.has(String(word).toLowerCase())
-                ? bg
-                : "rgba(86,99,92,.10)",
-            ),
-          );
-        });
-      };
-      const highlightText = (wrap, source, greenWords, redWords) => {
-        wrap.textContent = "";
-        const words = [
-          ...redWords.map((word) => ({
-            word,
-            color: "#b4232c",
-            bg: "rgba(180,35,44,.14)",
-          })),
-          ...greenWords.map((word) => ({
-            word,
-            color: "#157347",
-            bg: "rgba(21,115,71,.14)",
-          })),
-        ].filter((item) => item.word);
-        if (!words.length) {
-          wrap.textContent = source;
-          return;
-        }
-        const escaped = words
-          .map((item) => item.word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-          .sort((a, b) => b.length - a.length);
-        const pattern = new RegExp("(" + escaped.join("|") + ")", "gi");
-        let last = 0;
-        source.replace(pattern, (match, _value, offset) => {
-          if (offset > last)
-            wrap.appendChild(
-              document.createTextNode(source.slice(last, offset)),
-            );
-          const found =
-            words.find(
-              (item) => item.word.toLowerCase() === match.toLowerCase(),
-            ) || words[0];
-          const mark = document.createElement("span");
-          mark.textContent = match;
-          mark.style.cssText =
-            "color:" +
-            found.color +
-            ";background:" +
-            found.bg +
-            ";border-radius:4px;padding:0 2px;font-weight:750;";
-          wrap.appendChild(mark);
-          last = offset + match.length;
-          return match;
-        });
-        if (last < source.length)
-          wrap.appendChild(document.createTextNode(source.slice(last)));
-      };
-      const ctx = (window.__gohCtx = window.__gohCtx || {});
-      const removeOverlay = () => {
-        if (ctx.keywordCard && ctx.keywordCard.parentNode)
-          ctx.keywordCard.remove();
-        ctx.keywordCard = null;
-      };
-      let box =
-        ctx.keywordCard && ctx.keywordCard.parentNode ? ctx.keywordCard : null;
-      if (!box) {
-        box = document.createElement("div");
-        document.body.appendChild(box);
-        ctx.keywordCard = box;
-      }
-      const vw = Math.max(
-        document.documentElement.clientWidth || 0,
-        window.innerWidth || 0,
-      );
-      const width = Math.min(360, Math.max(260, vw - 32));
-      box.style.cssText =
-        "position:fixed;right:16px;top:16px;z-index:2147483647;width:" +
-        width +
-        "px;box-sizing:border-box;padding:14px;border-radius:14px;background:rgba(252,250,244,.96);color:#18221d;box-shadow:0 18px 48px rgba(18,28,22,.22),0 2px 8px rgba(18,28,22,.10);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;line-height:1.45;pointer-events:none;border:1px solid rgba(48,79,63,.18);backdrop-filter:saturate(1.1) blur(10px);";
-      if (ctx.keywordTimer) clearTimeout(ctx.keywordTimer);
-      ctx.keywordTimer = setTimeout(removeOverlay, maxAgeMS);
-      box.innerHTML = [
-        '<div style="font-size:14px;font-weight:750;color:#18221d;"></div>',
-        '<div style="font-size:12px;color:#6d7a72;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>',
-        '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
-        '<div style="display:grid;grid-template-columns:42px 1fr;gap:7px 8px;align-items:start;"></div>',
-        '<div style="height:1px;background:rgba(48,79,63,.12);margin:10px 0 9px;"></div>',
-        '<div style="max-height:230px;overflow-y:auto;color:#405249;white-space:pre-wrap;word-break:break-word;"></div>',
-      ].join("");
-      box.children[0].textContent = title;
-      box.children[1].textContent = subtitle;
-      const grid = box.children[3];
-      grid.innerHTML =
-        '<div style="font-size:12px;color:#6d7a72;">关键词</div><div style="display:flex;gap:5px;flex-wrap:wrap;min-width:0;"></div><div style="font-size:12px;color:#6d7a72;">排除词</div><div style="display:flex;gap:5px;flex-wrap:wrap;min-width:0;"></div>';
-      renderWords(
-        grid.children[1],
-        keywords,
-        matchedKeywords,
-        "#157347",
-        "rgba(21,115,71,.14)",
-      );
-      renderWords(
-        grid.children[3],
-        excludes,
-        matchedExcludes,
-        "#b4232c",
-        "rgba(180,35,44,.14)",
-      );
-      highlightText(box.children[5], text, matchedKeywords, matchedExcludes);
-      box.children[5].scrollTop = 0;
-    },
-    {
-      title,
-      subtitle,
-      keywords,
-      excludes,
-      matchedKeywords,
-      matchedExcludes,
-      text,
-      maxAgeMS,
-    },
-  );
-  return { visible: true, title, subtitle };
-}
+async function keywordOverlay(payload) { return {visible:false,unsupported:true,reason:'招聘页面不显示覆盖层，请查看 HRPlus 运行状态窗'}; }
 
 /**
  * 读取页面截图尺寸。
@@ -5525,24 +4973,9 @@ async function keywordOverlay(payload) {
  * @returns {Promise<{width:number,height:number}>} 截图尺寸。
  */
 async function pageSize(targetPage, fullPage) {
-  if (fullPage) {
-    return targetPage
-      .evaluate(() => ({
-        width: Math.max(
-          document.documentElement.scrollWidth,
-          document.body?.scrollWidth || 0,
-          window.innerWidth,
-        ),
-        height: Math.max(
-          document.documentElement.scrollHeight,
-          document.body?.scrollHeight || 0,
-          window.innerHeight,
-        ),
-      }))
-      .catch(() => ({ width: 0, height: 0 }));
-  }
-  return readBrowserViewportSize(targetPage);
-}
+  if(!fullPage)return readBrowserViewportSize(targetPage);
+  const png=await targetPage.screenshot({fullPage:true,type:'png',scale:'css'});return {width:png.readUInt32BE(16),height:png.readUInt32BE(20),source:'css-screenshot'};
+ }
 
 /**
  * 导出当前浏览器 Cookie。
@@ -6732,11 +6165,7 @@ async function allLocators(scope, element, visibleOnly = true, limit = 200) {
     const currentScope = current.locator;
     for (const selector of selectors) {
       if (current.includeSelf) {
-        const selfMatches = await currentScope
-          .evaluate((el, rawSelector) => {
-            return Boolean(el && el.matches && el.matches(rawSelector));
-          }, selector)
-          .catch(() => false);
+        const selfMatches = await currentScope.locator(':scope:is('+selector+')').count().then(count=>count===1).catch(()=>false);
         if (
           selfMatches &&
           (!visibleOnly || (await currentScope.isVisible().catch(() => false)))

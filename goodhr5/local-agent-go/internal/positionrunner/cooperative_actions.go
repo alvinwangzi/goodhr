@@ -46,6 +46,9 @@ type actionSession struct {
 	lastScanSignature string
 	pendingScanRescan bool
 	lastChecked       time.Time
+	infoQueue         []string
+	handledInfo       map[string]bool
+	greetingRemaining bool
 }
 
 // newActionSession 复用原回复准备和岗位快照，三种动作不会再次发起独立岗位启动。
@@ -112,6 +115,36 @@ func (s *actionSession) refreshWork(ctx context.Context) error {
 		return err
 	}
 	types := parseTaskTypes(s.options.TaskType)
+	if s.handledInfo == nil || s.greetingRemaining {
+		s.handledInfo = map[string]bool{}
+	}
+	if candidateInfoRequestConfigured(candidateInfoRequestFromPosition(s.position)) {
+		items, err := s.runner.db.ListCandidateInfoRequests(s.position.ID)
+		if err != nil {
+			return err
+		}
+		known := map[string]bool{}
+		for _, id := range s.infoQueue {
+			known[id] = true
+		}
+		selected := candidateInfoRequestFromPosition(s.position)
+		wanted := map[string]bool{"phone": selected.RequestPhone, "wechat": selected.RequestWechat, "resume": selected.RequestResume}
+		for _, item := range items {
+			if known[item.ID] || s.handledInfo[item.ID] {
+				continue
+			}
+			active := false
+			for action, enabled := range item.Actions {
+				if enabled && wanted[action] && item.Results[action] != "requested" && item.Results[action] != "satisfied" {
+					active = true
+				}
+			}
+			if active {
+				s.infoQueue = append(s.infoQueue, item.ID)
+				known[item.ID] = true
+			}
+		}
+	}
 	signatureParts := []string{}
 	if hasTaskType(types, "auto_reply") {
 		conversations, err := s.flow.runtime.ScanUnreadReplies(ctx, s.flow.exec, s.flow.target, 100)
@@ -230,6 +263,7 @@ func (s *actionSession) returnRecommendation(ctx context.Context) error {
 
 // service 在当前工作间交替执行有限批次，停止后不再领取新会话，无工作时立即结束。
 func (s *actionSession) service(ctx context.Context, greetingRemaining bool, forceCheck bool) (bool, error) {
+	s.greetingRemaining = greetingRemaining
 	if forceCheck {
 		s.scheduler.NextCheck = time.Time{}
 	}
@@ -238,7 +272,7 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 			s.scheduler.Stop()
 			return false, context.Canceled
 		}
-		work := actiondispatch.Work{Greeting: greetingRemaining, Reply: len(s.replies) > 0, ReGreet: len(s.reGreets) > 0}
+		work := actiondispatch.Work{Greeting: greetingRemaining, Reply: len(s.replies) > 0, ReGreet: len(s.reGreets) > 0, CandidateInfo: len(s.infoQueue) > 0}
 		if len(s.reGreets) > 0 {
 			work.ReGreetDue = s.reGreets[0].due
 			work.ReGreetWaitingSince = s.reGreets[0].queuedAt
@@ -319,6 +353,38 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 			s.scheduler.Completed(action)
 			if err := s.saveDispatchCheckpoint(ctx, action); err != nil {
 				return false, err
+			}
+		case actiondispatch.CandidateInfo:
+			if err := s.enterMessages(ctx); err != nil {
+				return false, err
+			}
+			count := minInt(3, len(s.infoQueue))
+			selected := append([]string{}, s.infoQueue[:count]...)
+			options := s.options
+			options.candidateInfoBatchIDs = selected
+			remaining := []string{}
+			options.candidateInfoRemaining = &remaining
+			options.actionNow = s.now
+			s.runner.performCandidateInfoChecks(ctx, s.position, s.runtime, options)
+			pending := map[string]bool{}
+			for _, id := range remaining {
+				pending[id] = true
+			}
+			queue := []string{}
+			for _, id := range selected {
+				if pending[id] {
+					queue = append(queue, id)
+				} else {
+					s.handledInfo[id] = true
+				}
+			}
+			s.infoQueue = append(queue, s.infoQueue[count:]...)
+			s.scheduler.Completed(action)
+			if err := s.saveDispatchCheckpoint(context.WithoutCancel(ctx), action); err != nil {
+				return false, err
+			}
+			if ctx.Err() != nil {
+				return false, ctx.Err()
 			}
 		case actiondispatch.Greeting:
 			if err := s.returnRecommendation(ctx); err != nil {
