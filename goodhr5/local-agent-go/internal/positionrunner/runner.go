@@ -239,6 +239,7 @@ type StartOptions struct {
 	actionNow        func() time.Time             // 可控时钟仅影响调度和联系事实时间，不创建页面并发。
 	// scanBoundary 在候选人安全结束后由同一运行协程调用，true 表示列表已变化，需要按记录恢复。
 	scanBoundary           func(context.Context) (bool, error)
+	requestScanRescan      func()    // 追加问候返回时发现锚点变化，在下一安全边界重建扫描队列。
 	acknowledgeRescan      func()    // 扫描器已经重建完成集合后确认消费回退要求。
 	candidateInfoBatchIDs  []string  // 同一通道领取的有限索要名单，nil 保持旧调用兼容。
 	candidateInfoRemaining *[]string // 预算耗尽后交还未领取的人，不丢失队列。

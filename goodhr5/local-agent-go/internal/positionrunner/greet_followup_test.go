@@ -14,6 +14,8 @@ type followupFixture struct {
 	platformcore.Runtime
 	*reGreetFixture
 	returned int
+	mismatch bool
+	rewound  int
 }
 
 // GreetCandidate 模拟明确的首次招呼成功，后续追加流程和数据库仍使用生产实现。
@@ -44,11 +46,12 @@ func (f *followupFixture) ReturnToRecommendation(context.Context, platformcore.E
 
 // CheckRecommendationCursor 表示局部锚点仍匹配。
 func (f *followupFixture) CheckRecommendationCursor(context.Context, platformcore.Executor, platformcore.RecommendationCursor) (bool, string, error) {
-	return true, "resume_anchor_match", nil
+	return !f.mismatch, "controlled_anchor_check", nil
 }
 
 // RewindRecommendation 保留回退接口，正常路径不会调用。
 func (f *followupFixture) RewindRecommendation(context.Context, platformcore.Executor) error {
+	f.rewound++
 	return nil
 }
 
@@ -93,6 +96,9 @@ func TestVerifiedGreetFollowup(t *testing.T) {
 				t.Fatal("追加流程没有恢复推荐页面")
 			}
 			if correct {
+				fixture.mismatch = true
+				rescanRequested := false
+				options.requestScanRescan = func() { rescanRequested = true }
 				position.PositionSnapshot["greet_message"] = "岗位追加内容"
 				position.PositionSnapshot["common_config"] = map[string]any{"request_phone": true}
 				freshCandidate := map[string]any{"id": "opaque-second", "candidate_name": "张三", "status": "passed", "ai_greet_score": 90}
@@ -109,6 +115,9 @@ func TestVerifiedGreetFollowup(t *testing.T) {
 				}
 				if freshCandidate["requested_phone"] == true {
 					t.Fatal("追加消息误记电话已索要")
+				}
+				if !rescanRequested || fixture.rewound != 1 {
+					t.Fatal("追加返回锚点变化未通知扫描器重建队列")
 				}
 			}
 		})

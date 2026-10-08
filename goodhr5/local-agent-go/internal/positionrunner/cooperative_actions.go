@@ -415,6 +415,7 @@ func (r *Runner) runCooperativePosition(ctx context.Context, position localdb.Po
 		if _, err = session.service(ctx, greeting, true); err == nil && greeting {
 			r.initRestState(position.ID, options)
 			options.scanBoundary = session.scanBoundary
+			options.requestScanRescan = func() { session.pendingScanRescan = true }
 			options.acknowledgeRescan = func() { session.pendingScanRescan = false }
 			_, err = r.scanOnce(ctx, position, snapshot.PlatformConfig, options)
 		}

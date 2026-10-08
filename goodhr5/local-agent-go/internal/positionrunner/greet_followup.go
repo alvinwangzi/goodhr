@@ -51,11 +51,20 @@ func (r *Runner) sendVerifiedGreetFollowup(ctx context.Context, position localdb
 			}
 			return
 		}
-		matched, _, err := resumer.CheckRecommendationCursor(cleanup, exec, cursor)
+		matched, reason, err := resumer.CheckRecommendationCursor(cleanup, exec, cursor)
 		if err != nil || !matched {
-			if err := resumer.RewindRecommendation(cleanup, exec); err != nil && resultErr == nil {
-				resultErr = err
+			if options.requestScanRescan != nil {
+				options.requestScanRescan()
 			}
+			if err := resumer.RewindRecommendation(cleanup, exec); err != nil {
+				if resultErr == nil {
+					resultErr = err
+				}
+			} else {
+				r.positionLog(position.ID, "info", "resume_rescan：追加问候返回后重建扫描队列，原因="+reason)
+			}
+		} else {
+			r.positionLog(position.ID, "info", "resume_anchor_match：追加问候返回后保留扫描队列与本次数量")
 		}
 	}()
 	if err := preparer.PrepareCandidateFollowup(ctx, exec); err != nil {
