@@ -294,22 +294,29 @@ func (s *PositionExecutionService) ListReGreetCandidates(w http.ResponseWriter, 
 		writeError(w, http.StatusInternalServerError, "failed to list re-greet candidates: "+err.Error())
 		return
 	}
+	_, receiptSupported := s.screeningStore.(ReGreetReceiptStore)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":    true,
-		"items": items,
+		"ok":                true,
+		"items":             items,
+		"re_greet_receipts": receiptSupported,
 	})
 }
 
 // reportReGreetRequest 表示复打招呼结果上报的请求体。
 type reportReGreetRequest struct {
-	Platform            string   `json:"platform"`
-	PlatformCandidateID string   `json:"platform_candidate_id"`
-	CandidateName       string   `json:"candidate_name"`
-	Success             bool     `json:"success"`
-	Reason              string   `json:"reason,omitempty"`
-	SkippedIDs          []string `json:"skipped_ids,omitempty"`
-	MessageText         string   `json:"message_text,omitempty"`
-	RunID               string   `json:"run_id,omitempty"`
+	MachineID           string    `json:"machine_id,omitempty"`
+	OperationID         string    `json:"operation_id,omitempty"`
+	BaseCount           int       `json:"base_count"`
+	BaseContactAt       time.Time `json:"base_contact_at"`
+	SentAt              time.Time `json:"sent_at"`
+	Platform            string    `json:"platform"`
+	PlatformCandidateID string    `json:"platform_candidate_id"`
+	CandidateName       string    `json:"candidate_name"`
+	Success             bool      `json:"success"`
+	Reason              string    `json:"reason,omitempty"`
+	SkippedIDs          []string  `json:"skipped_ids,omitempty"`
+	MessageText         string    `json:"message_text,omitempty"`
+	RunID               string    `json:"run_id,omitempty"`
 }
 
 // ReportReGreet 上报单个候选人的复打招呼结果。
@@ -383,6 +390,46 @@ func (s *PositionExecutionService) ReportReGreet(w http.ResponseWriter, r *http.
 		}
 	}
 	var affected int64
+	if req.OperationID != "" {
+		if runID == "" {
+			writeError(w, http.StatusBadRequest, "可靠复打结果缺少原执行任务记录")
+			return
+		}
+		if failure := s.verifyActiveDevice(session.Email, req.MachineID); failure != nil {
+			writeError(w, failure.status, failure.message)
+			return
+		}
+		run, runErr := s.runStore.TaskRunByID(tenantID, runID)
+		if runErr != nil || run.MachineID != req.MachineID {
+			writeError(w, http.StatusConflict, "复打结果与原执行设备不一致")
+			return
+		}
+		if !req.Success {
+			writeError(w, http.StatusBadRequest, "收据只接受已确认成功的发送结果")
+			return
+		}
+		store, ok := s.screeningStore.(ReGreetReceiptStore)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "当前服务尚不支持可靠复打收据")
+			return
+		}
+		input := ReGreetReceiptInput{OperationID: req.OperationID, OwnerEmail: session.Email, PositionID: position.ID, Platform: platform, CandidateID: candidateID, RunID: runID, BaseCount: req.BaseCount, BaseContactAt: req.BaseContactAt, SentAt: req.SentAt, MessageText: req.MessageText}
+		if _, err := receiptDigest(input); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		receipt, err := store.CommitReGreetReceipt(r.Context(), input)
+		if errors.Is(err, ErrReGreetReceiptConflict) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "复打收据保存失败")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "affected": 1, "receipt": receipt})
+		return
+	}
 	if req.Success {
 		affected, err = s.screeningStore.MarkReGreetDone(r.Context(), position.ID, platform, []string{candidateID})
 		if err != nil {

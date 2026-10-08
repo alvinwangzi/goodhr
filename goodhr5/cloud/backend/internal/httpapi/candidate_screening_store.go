@@ -239,8 +239,9 @@ func (s *PostgresCandidateScreeningStore) MarkReGreetDone(ctx context.Context, p
 }
 
 // ListReGreetCandidates 查询复打招呼候选名单：
-//   greeted_at 不为空、在时间范围内、未超过复打次数上限，
-//   且距上次复打（或首次打招呼）已满间隔下限的候选人。
+//
+//	greeted_at 不为空、在时间范围内、未超过复打次数上限，
+//	且距上次复打（或首次打招呼）已满间隔下限的候选人。
 func (s *PostgresCandidateScreeningStore) ListReGreetCandidates(ctx context.Context, positionID, platform string, timeRangeDays, intervalMinMinutes, maxCount int) ([]CandidateScreening, error) {
 	now := time.Now()
 	timeRangeStart := now.AddDate(0, 0, -timeRangeDays)
@@ -297,9 +298,10 @@ func validateScreeningUpsert(item CandidateScreeningUpsert) error {
 
 // MemoryCandidateScreeningStore 提供开发期候选人扫描记录内存存储。
 type MemoryCandidateScreeningStore struct {
-	mu     sync.Mutex
-	items  map[string]*CandidateScreening // key: positionID|platform|candidateID
-	nextID int
+	receipts map[string]memoryReGreetReceipt
+	mu       sync.Mutex
+	items    map[string]*CandidateScreening // key: positionID|platform|candidateID
+	nextID   int
 }
 
 // NewMemoryCandidateScreeningStore 创建候选人扫描记录内存存储。
