@@ -205,6 +205,7 @@ func TestReGreetRules(t *testing.T) {
 		current      platformcore.ReplyContext
 	}{
 		{"已回复", "skipped_replied", platformcore.ReplyContext{Messages: []platformcore.ReplyMessage{{Direction: "inbound", Kind: "text", Text: "你好"}}}},
+		{"我方回复后仍不可复打", "skipped_replied", platformcore.ReplyContext{ResumeStatus: "none", Messages: []platformcore.ReplyMessage{{Direction: "outbound", Kind: "text", Text: "首次招呼"}, {Direction: "inbound", Kind: "text", Text: "想了解岗位"}, {Direction: "outbound", Kind: "text", Text: "岗位说明"}}}},
 		{"已收到简历", "skipped_resume_received", platformcore.ReplyContext{ResumeStatus: "received", Messages: base.Messages}},
 		{"空上下文", "context_unsafe", platformcore.ReplyContext{}},
 		{"未知方向", "context_unsafe", platformcore.ReplyContext{Messages: []platformcore.ReplyMessage{{Direction: "", Kind: "text"}}}},

@@ -614,6 +614,9 @@ func reGreetSkipReason(current platformcore.ReplyContext) string {
 		if message.Direction != "inbound" && message.Direction != "outbound" && message.Direction != "system" {
 			return "context_unsafe"
 		}
+		if message.Direction == "inbound" {
+			return "skipped_replied"
+		}
 	}
 	for i := len(current.Messages) - 1; i >= 0; i-- {
 		switch current.Messages[i].Direction {
