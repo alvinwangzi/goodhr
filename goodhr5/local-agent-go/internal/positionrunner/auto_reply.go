@@ -222,6 +222,19 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 	skipReview := false
 	if f.cloudClient != nil && strings.TrimSpace(f.token) != "" {
 		screening, screenErr := f.cloudClient.FindScreeningByName(ctx, f.token, f.positionID, f.platform, current.Conversation.Name)
+		if screening != nil && f.legacyScope != "" {
+			resolver, supported := f.runtime.(platformcore.CandidateIdentityResolver)
+			matched := false
+			if supported && screening.PlatformCandidateID != "" && screening.PositionID == f.positionID && screening.Platform == f.platform {
+				// 姓名仅发现旧记录；空姓名参数只核对已加载真实 ID，不搜索或切换当前面板。
+				id, _, identityErr := resolver.ResolveCandidateConversationID(ctx, f.exec, screening.PlatformCandidateID, "")
+				matched = identityErr == nil && id == current.Conversation.ID
+			}
+			if !matched {
+				screening = nil
+				f.flowLog("warning", "同名评分记录未与当前真实会话匹配，改为核对当前候选人资料")
+			}
+		}
 		if screenErr != nil {
 			f.flowLog("warning", fmt.Sprintf("扫描记录查询失败：候选人=%s，错误=%s，将走回复前简历评估", current.Conversation.Name, screenErr.Error()))
 		} else if screening != nil {
