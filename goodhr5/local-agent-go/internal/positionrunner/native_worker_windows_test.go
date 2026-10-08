@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"goodhr5/local-agent-go/internal/browser"
+	"goodhr5/local-agent-go/internal/cloudapi"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -79,8 +80,15 @@ func TestNativeWorkerReplyPositionEnd(t *testing.T) { runNativeWorkerPosition(t,
 // TestNativeWorkerStopDuringGeneration 验证真实页面读取后、AI 返回前停止，之后不输入、不发送且释放运行。
 func TestNativeWorkerStopDuringGeneration(t *testing.T) { runNativeWorkerPosition(t, "stop-reply-job") }
 
+// TestNativeWorkerReGreetPositionEnd 验证到期复打的真实页面发送、确认、SQLite 队列和原收据补传。
+func TestNativeWorkerReGreetPositionEnd(t *testing.T) { runNativeWorkerPosition(t, "regreet-job") }
+
+// TestNativeWorkerReGreetLostReceipt 验证服务器已接收但回执丢失后只补传原收据，不再次操作候选人页面。
+func TestNativeWorkerReGreetLostReceipt(t *testing.T) { runNativeWorkerPosition(t, "regreet-loss-job") }
+
 // runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
 func runNativeWorkerPosition(t *testing.T, mode string) {
+	regreet := strings.HasPrefix(mode, "regreet-")
 	if os.Getenv("HRPLUS_M1_NATIVE_WORKER_TEST") != "1" {
 		t.Skip("需要显式启用 Windows 真实 Worker 受控验收")
 	}
@@ -110,6 +118,9 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	command.Stdout = logFile
 	command.Stderr = logFile
 	fixtureMode := mode
+	if regreet {
+		fixtureMode = "regreet-job"
+	}
 	if mode == "stop-reply-job" {
 		fixtureMode = "reply-job"
 	}
@@ -151,11 +162,20 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			case <-releaseGeneration:
 			}
 		}
+		if regreet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"should_send":true,"message":"方便时可以继续了解岗位。","is_refused":false,"refuse_reason":""}`}}}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"action":"reply","text":"岗位仍在招聘，欢迎沟通。","reason":"回答岗位状态","request_resume":false}`}}}})
+
 	}))
 	defer ai.Close()
 	defer finishGeneration()
 	var runCounter atomic.Int32
+	var receiptCount atomic.Int32
+	var receiptMu sync.Mutex
+	var originalReceipt cloudapi.ReGreetReceiptRequest
+	contactAt := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Microsecond)
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var result any
 		switch r.URL.Path {
@@ -171,6 +191,38 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			result = map[string]any{"item": map[string]any{"id": "screen-A", "position_id": "native-position", "platform": "boss", "platform_candidate_id": "opaque-A", "candidate_name": "同名候选人 A", "score": 90}}
 		case "/api/positions/native-position/resume-requests", "/api/positions/native-position/screenings":
 			result = map[string]any{"ok": true}
+		case "/api/positions/native-position/re-greet-candidates":
+			items := []any{}
+			if receiptCount.Load() == 0 {
+				items = append(items, map[string]any{"id": "screen-A", "position_id": "native-position", "platform": "boss", "platform_candidate_id": "opaque-A", "candidate_name": "同名候选人 A", "greeted_at": contactAt.Format(time.RFC3339Nano), "re_greet_count": 0})
+			}
+			result = map[string]any{"ok": true, "re_greet_receipts": true, "items": items}
+		case "/api/positions/native-position/re-greet-report":
+			var request cloudapi.ReGreetReceiptRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			if !request.Success || request.OperationID == "" || request.RunID == "" || request.MachineID != "fixture-machine" {
+				t.Errorf("未上报完整原收据 %+v", request)
+			}
+			index := receiptCount.Add(1)
+			receiptMu.Lock()
+			if index == 1 {
+				originalReceipt = request
+			} else {
+				first, _ := json.Marshal(originalReceipt)
+				next, _ := json.Marshal(request)
+				if string(first) != string(next) {
+					t.Error("重试改变了原收据事实")
+				}
+			}
+			receiptMu.Unlock()
+			if mode == "regreet-loss-job" && index == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "虚构回执丢失"})
+				return
+			}
+			result = map[string]any{"receipt": cloudapi.ReGreetReceiptResponse{OperationID: request.OperationID, ResultCount: request.BaseCount + 1, SentAt: request.SentAt, ReceivedAt: time.Now()}}
 		case "/api/positions/native-position":
 			result = map[string]any{"position": map[string]any{"id": "native-position", "name": "Go", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "Go"}}}
 		case "/api/positions/native-position/status":
@@ -198,7 +250,13 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	defer cloud.Close()
 	db := openRunnerTestDB(t)
 	runner := newTestRunner(t, db, worker)
-	if _, err = runner.Start(t.Context(), "native-position", StartOptions{CloudAPIBase: cloud.URL, Token: "fixture-token", MachineID: "fixture-machine", TaskType: "auto_reply", PrioritizeReply: true}); err != nil {
+	taskType := "auto_reply"
+	priority := true
+	if regreet {
+		taskType = "re_greet"
+		priority = false
+	}
+	if _, err = runner.Start(t.Context(), "native-position", StartOptions{CloudAPIBase: cloud.URL, Token: "fixture-token", MachineID: "fixture-machine", TaskType: taskType, PrioritizeReply: priority}); err != nil {
 		t.Fatal(err)
 	}
 	expectedStatus := "completed"
@@ -312,6 +370,47 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		}
 		if ledger.Clicks != 1 {
 			t.Fatalf("停止与重新开始造成重复发送 clicks=%d", ledger.Clicks)
+		}
+	}
+	if regreet {
+		wantedReceipts := int32(1)
+		if mode == "regreet-loss-job" {
+			wantedReceipts = 2
+			deadline = time.Now().Add(12 * time.Second)
+			for receiptCount.Load() < wantedReceipts && time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		if checkpoint.ReGreeted != 1 || receiptCount.Load() != wantedReceipts {
+			t.Fatalf("复打及补传计数错误 checkpoint=%+v receipts=%d", checkpoint, receiptCount.Load())
+		}
+		deadline = time.Now().Add(3 * time.Second)
+		for {
+			pending, readErr := db.PendingReGreetForCandidate(t.Context(), checkpoint.ProfileScope, "boss", "opaque-A")
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if !pending || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		raw, readErr := os.ReadFile(filepath.Join(directory, "ledger.json"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var ledger struct {
+			Clicks int `json:"clicks"`
+		}
+		if err = json.Unmarshal(raw, &ledger); err != nil {
+			t.Fatal(err)
+		}
+		if ledger.Clicks != 1 {
+			t.Fatalf("复打页面发送次数=%d", ledger.Clicks)
+		}
+		pending, readErr := db.PendingReGreetForCandidate(t.Context(), checkpoint.ProfileScope, "boss", "opaque-A")
+		if readErr != nil || pending {
+			t.Fatalf("确认后仍有待补传 pending=%t err=%v", pending, readErr)
 		}
 	}
 }
