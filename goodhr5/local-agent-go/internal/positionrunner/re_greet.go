@@ -222,7 +222,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			stats.skipped++
 			continue
 		}
-		identity, identityErr := r.verifiedCandidateIdentity(ctx, exec, runtime, platformcore.ReplyHash("profile:"+profileName), platform, candidate.PlatformCandidateID)
+		identity, identityErr := r.verifiedCandidateIdentity(ctx, exec, runtime, platformcore.ReplyHash("profile:"+profileName), platform, candidate.PlatformCandidateID, candidateName)
 		if identityErr != nil && !errors.Is(identityErr, sql.ErrNoRows) && !errors.Is(identityErr, platformcore.ErrReplyUnsafe) && !errors.Is(identityErr, localdb.ErrIdentityConflict) {
 			r.failStart(positionID, "候选人身份记录读取失败", options)
 			return false

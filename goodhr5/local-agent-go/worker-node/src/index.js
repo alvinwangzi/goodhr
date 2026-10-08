@@ -1803,8 +1803,8 @@ function bossChatRules(platformConfig) {
  * @returns {Promise<Record<string, any>>} 搜索结果，含面板姓名用于身份核对。
  */
 // searchBossChatSession 获取当前页面后委托标准浏览器操作模块搜索，不包含任务流程判断。
-async function searchBossChatSession(payload) {
-  return searchBossChatSessionOnPage(await ensurePage(), payload);
+async function searchBossChatSession(payload, signal) {
+  return searchBossChatSessionOnPage(await ensurePage(), payload, signal);
 }
 
 async function findBossChatSession(payload) {
@@ -6344,7 +6344,7 @@ const routes = {
   "/api/v1/page/keyword-overlay": keywordOverlay,
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
-  "/api/v1/boss/candidates/identity": async (payload) => resolveBossResponseIdentity(await ensurePage(), String(payload.recommendation_id || "")),
+  "/api/v1/boss/candidates/identity": async (payload, signal) => resolveBossResponseIdentity(await ensurePage(), String(payload.recommendation_id || ""), String(payload.candidate_name || ""), signal),
   "/api/v1/boss/candidates/capture-anchors": async (payload) => captureRecommendationAnchors(await ensurePage(), payload),
   "/api/v1/boss/candidates/check-anchors": async (payload) => checkRecommendationAnchors(await ensurePage(), payload),
   "/api/v1/boss/candidates/rewind": async () => rewindRecommendation(await ensurePage()),

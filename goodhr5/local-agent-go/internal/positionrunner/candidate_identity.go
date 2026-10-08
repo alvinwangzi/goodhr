@@ -9,8 +9,8 @@ import (
 	"goodhr5/local-agent-go/internal/platformcore"
 )
 
-// verifiedCandidateIdentity 在每次索要或复打之前重新核对页面映射；冲突记录保持隔离，不退回姓名搜索。
-func (r *Runner) verifiedCandidateIdentity(ctx context.Context, exec platformcore.Executor, runtime any, scope, platform, recommendationID string) (localdb.CandidateIdentity, error) {
+// verifiedCandidateIdentity 在每次索要或复打之前重新核对页面映射；姓名仅用于发现入口，冲突不能绕过 ID 核对。
+func (r *Runner) verifiedCandidateIdentity(ctx context.Context, exec platformcore.Executor, runtime any, scope, platform, recommendationID string, candidateName ...string) (localdb.CandidateIdentity, error) {
 	identity, err := r.db.CandidateIdentityFor(ctx, scope, platform, recommendationID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return identity, err
@@ -22,7 +22,11 @@ func (r *Runner) verifiedCandidateIdentity(ctx context.Context, exec platformcor
 	if !supported {
 		return identity, err
 	}
-	id, source, resolveErr := resolver.ResolveCandidateConversationID(ctx, exec, recommendationID)
+	name := ""
+	if len(candidateName) > 0 {
+		name = candidateName[0]
+	}
+	id, source, resolveErr := resolver.ResolveCandidateConversationID(ctx, exec, recommendationID, name)
 	if resolveErr != nil {
 		return localdb.CandidateIdentity{}, resolveErr
 	}

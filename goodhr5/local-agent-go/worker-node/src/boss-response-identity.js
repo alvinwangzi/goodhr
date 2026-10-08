@@ -1,5 +1,6 @@
 // 本文件只观察 Boss 页面正常加载的响应 ID，并结合真实聊天行验证跨入口身份；不请求接口、不读取凭证、不注入脚本。
 const observers = new WeakMap();
+import { locateBossConversationByNumericID, locateBossConversationByEncryptedID } from "./boss-chat-search.js";
 const recommendationPath = "/wapi/zpjob/rec/geek/list";
 const friendPath = "/wapi/zprelation/friend/getBossFriendListV2.json";
 const detailPath = "/wapi/zpjob/chat/geek/info";
@@ -76,18 +77,38 @@ export function observeBossResponseIdentities(page) {
 }
 
 /** resolveBossResponseIdentity 用成对响应事实和当前唯一真实聊天行建立映射，不合成 data-id 后缀。 */
-export async function resolveBossResponseIdentity(page, recommendationID) {
+export async function resolveBossResponseIdentity(page, recommendationID, candidateName = "", signal) {
+  signal?.throwIfAborted();
   const state = observeBossResponseIdentities(page);
   await Promise.allSettled([...state.pending]);
-  const fact = state.facts.get(recommendationID);
-  if (!fact || state.conflicts.has(recommendationID)) return { verified: false };
+  signal?.throwIfAborted();
   const epoch = state.epoch;
+  let fact = state.facts.get(recommendationID);
+  if (state.conflicts.has(recommendationID)) return { verified: false };
+  if (!fact && candidateName && recommendationID) {
+    const opened = await locateBossConversationByEncryptedID(page, candidateName, recommendationID, signal);
+    await Promise.allSettled([...state.pending]);
+    fact = state.facts.get(recommendationID);
+    if (!opened.found || !fact || epoch !== state.epoch || state.conflicts.has(recommendationID) ||
+        /^(\d+)-\d+$/.exec(opened.conversation_id || "")?.[1] !== fact.numeric_id) return { verified: false };
+    return { verified: true, recommendation_id: recommendationID, conversation_id: opened.conversation_id,
+      source: fact.source + "_and_selected_chat_id" };
+  }
+  if (!fact) return { verified: false };
   const rows = await page.locator("[data-id]").all();
   const matches = [];
   for (const row of rows) {
     const id = await row.getAttribute("data-id");
     const parsed = /^(\d+)-(\d+)$/.exec(id || "");
     if (parsed?.[1] === fact.numeric_id && await row.isVisible()) matches.push(id);
+  }
+  if (matches.length === 0 && candidateName) {
+    const opened = await locateBossConversationByNumericID(page, candidateName, fact.numeric_id, signal);
+    await Promise.allSettled([...state.pending]);
+    if (!opened.found || epoch !== state.epoch || state.conflicts.has(recommendationID) ||
+        state.facts.get(recommendationID)?.numeric_id !== fact.numeric_id) return { verified: false };
+    return { verified: true, recommendation_id: recommendationID, conversation_id: opened.conversation_id,
+      source: fact.source + "_and_selected_chat_id" };
   }
   if (matches.length !== 1 || epoch !== state.epoch || state.conflicts.has(recommendationID)) return { verified: false };
   return { verified: true, recommendation_id: recommendationID, conversation_id: matches[0],

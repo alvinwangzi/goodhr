@@ -8,8 +8,8 @@ import (
 )
 
 // ResolveCandidateConversationID 只接受被动响应成对 ID 与当前真实聊天行的联合核对结果。
-func (r *Runtime) ResolveCandidateConversationID(ctx context.Context, exec platformcore.Executor, recommendationID string) (string, string, error) {
-	result, err := exec.Post(ctx, "/api/v1/boss/candidates/identity", map[string]any{"recommendation_id": recommendationID})
+func (r *Runtime) ResolveCandidateConversationID(ctx context.Context, exec platformcore.Executor, recommendationID, candidateName string) (string, string, error) {
+	result, err := exec.Post(ctx, "/api/v1/boss/candidates/identity", map[string]any{"recommendation_id": recommendationID, "candidate_name": candidateName})
 	if err != nil {
 		return "", "", err
 	}

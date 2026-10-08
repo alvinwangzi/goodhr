@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
 import { readBossResponseIdentityFacts, observeBossResponseIdentities, resolveBossResponseIdentity } from "../src/boss-response-identity.js";
+import { searchBossChatSessionOnPage } from "../src/boss-chat-search.js";
 const recPath = "/wapi/zpjob/rec/geek/list";
 const friendPath = "/wapi/zprelation/friend/getBossFriendListV2.json";
 
@@ -78,7 +79,7 @@ test("系统 Edge 的真实响应事件与标准 Locator 完成联合核对，�
       if (path === friendPath) {
         await route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }] } }) });
       } else {
-        await route.fulfill({ contentType: "text/html", body: `<div data-id="123-9">虚构候选人</div><iframe src="${friendPath}"></iframe>` });
+        await route.fulfill({ contentType: "text/html; charset=utf-8", body: `<div data-id="123-9">虚构候选人</div><iframe src="${friendPath}"></iframe>` });
       }
     });
     observeBossResponseIdentities(page);
@@ -86,5 +87,59 @@ test("系统 Edge 的真实响应事件与标准 Locator 完成联合核对，�
     const identity = await resolveBossResponseIdentity(page, "opaque-A");
     assert.equal(identity.verified, true);
     assert.equal(identity.conversation_id, "123-9");
+  } finally { await browser.close(); }
+});
+
+test("未加载目标可逐个打开同名结果，详情响应和迟到的 selected 均须匹配", async () => {
+  const browser = await chromium.launch({ channel: "msedge", headless: true });
+  try {
+    const page = await browser.newPage();
+    const openedUIDs = [];
+    let cancelController;
+    let includeInitialIdentity = true;
+    // 这是独立虚构页面自身的交互代码，不向招聘页面注入代码。
+    await page.route("https://www.zhipin.com/**", async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === friendPath) {
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: includeInitialIdentity ? [{ uid: 123, encryptUid: "opaque-A" }] : [] } }) });
+      } else if (url.pathname === "/wapi/zpjob/chat/geek/info") {
+        const uid = Number(url.searchParams.get("uid"));
+        openedUIDs.push(uid);
+        cancelController?.abort();
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { data: { uid, encryptUid: uid === 123 ? "opaque-A" : "opaque-B" } } }) });
+      } else {
+        await route.fulfill({ contentType: "text/html; charset=utf-8", body: `<button class="chat-search-btn" onclick="document.querySelector('.chat-job-search').hidden=false;document.querySelector('.geek-search-list').hidden=false">搜索</button><div class="chat-job-search"><input class="search-input" oninput="document.querySelector('.geek-search-list').hidden=false"></div>
+          <div class="geek-search-list"><ul><li onclick="openFixture(124)"><div class="search-right"><span class="content-text">张三_某公司</span></div></li><li onclick="openFixture(123)"><div class="search-right"><span class="content-text">张三_某公司</span></div></li></ul></div>
+          <div class="user-list"><div class="geek-item selected" data-id="999-0">张三</div></div><div class="chat-conversation"><span class="base-name">张三</span></div>
+          <iframe src="${friendPath}"></iframe><script>async function openFixture(uid){document.querySelector('.geek-search-list').hidden=true;document.querySelector('.chat-job-search').hidden=true;document.querySelector('.geek-item').setAttribute('data-id','123-9'); await fetch('/wapi/zpjob/chat/geek/info?uid='+uid);setTimeout(()=>document.querySelector('.geek-item').setAttribute('data-id',uid+'-9'),150)}</script>` });
+      }
+    });
+    observeBossResponseIdentities(page);
+    await page.goto("https://www.zhipin.com/fixture");
+    const identity = await resolveBossResponseIdentity(page, "opaque-A", "张三");
+    assert.equal(identity.verified, true, JSON.stringify({ identity, selected: await page.locator('.geek-item.selected').getAttribute('data-id'), inputVisible: await page.locator('.search-input').isVisible(), searchTexts: await page.locator('.geek-search-list li').allTextContents() }));
+    assert.equal(identity.conversation_id, "123-9");
+    assert.equal(await page.locator(".geek-item.selected").getAttribute("data-id"), "123-9");
+    assert.deepEqual(openedUIDs, [124, 123]);
+    // 已保存完整会话 ID 的搜索也不能采信错误点击期间遗留的目标 selected。
+    await page.goto("https://www.zhipin.com/fixture");
+    openedUIDs.length = 0;
+    const known = await searchBossChatSessionOnPage(page, { candidate_name: "张三", conversation_id: "123-9" });
+    assert.equal(known.found, true);
+    assert.deepEqual(openedUIDs, [124, 123]);
+    // 复用启动前已打开的页面时没有初始响应缓存，也要从本次详情的完整加密 ID 建立映射。
+    includeInitialIdentity = false;
+    await page.goto("https://www.zhipin.com/fixture");
+    openedUIDs.length = 0;
+    const discovered = await resolveBossResponseIdentity(page, "opaque-A", "张三");
+    assert.equal(discovered.verified, true);
+    assert.equal(discovered.conversation_id, "123-9");
+    assert.deepEqual(openedUIDs, [124, 123]);
+    // 第一个同名入口打开期间停止，之后不得继续点击第二个人。
+    await page.goto("https://www.zhipin.com/fixture");
+    openedUIDs.length = 0;
+    cancelController = new AbortController();
+    await assert.rejects(resolveBossResponseIdentity(page, "opaque-A", "张三", cancelController.signal), error => error.name === "AbortError");
+    assert.deepEqual(openedUIDs, [124]);
   } finally { await browser.close(); }
 });

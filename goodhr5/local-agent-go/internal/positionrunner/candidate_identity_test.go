@@ -16,7 +16,7 @@ type identityResolverFixture struct {
 }
 
 // ResolveCandidateConversationID 模拟仅提供 ID 证据的平台能力。
-func (f identityResolverFixture) ResolveCandidateConversationID(context.Context, platformcore.Executor, string) (string, string, error) {
+func (f identityResolverFixture) ResolveCandidateConversationID(context.Context, platformcore.Executor, string, string) (string, string, error) {
 	return f.id, "controlled_response_and_chat_id", f.err
 }
 
