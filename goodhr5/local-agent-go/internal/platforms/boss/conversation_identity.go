@@ -7,6 +7,20 @@ import (
 	"strings"
 )
 
+// ResolveCandidateConversationID 只接受被动响应成对 ID 与当前真实聊天行的联合核对结果。
+func (r *Runtime) ResolveCandidateConversationID(ctx context.Context, exec platformcore.Executor, recommendationID string) (string, string, error) {
+	result, err := exec.Post(ctx, "/api/v1/boss/candidates/identity", map[string]any{"recommendation_id": recommendationID})
+	if err != nil {
+		return "", "", err
+	}
+	data := workerDataMap(result)
+	id, source := stringFromMap(data, "conversation_id"), stringFromMap(data, "source")
+	if !boolFromMap(data, "verified") || stringFromMap(data, "recommendation_id") != recommendationID || id == "" || source == "" {
+		return "", "", platformcore.ErrReplyUnsafe
+	}
+	return id, source, nil
+}
+
 // LocateReplyConversationByID 使用已有聊天搜索接口定位指定 ID，返回前再次独立核对唯一选中项。
 func (r *Runtime) LocateReplyConversationByID(ctx context.Context, exec platformcore.Executor, name, expectedID string) (platformcore.ReplyConversation, error) {
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(expectedID) == "" {

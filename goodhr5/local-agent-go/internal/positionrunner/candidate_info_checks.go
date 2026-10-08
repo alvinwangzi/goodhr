@@ -159,7 +159,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		var conversation platformcore.ReplyConversation
 		var err error
 		if options.LocalRunID != "" {
-			identity, lookupErr := r.db.CandidateIdentityFor(ctx, platformcore.ReplyHash("profile:"+positionProfileName(position)), position.PlatformID, item.CandidateID)
+			identity, lookupErr := r.verifiedCandidateIdentity(ctx, exec, runtime, platformcore.ReplyHash("profile:"+positionProfileName(position)), position.PlatformID, item.CandidateID)
 			identityLocator, supported := runtime.(platformcore.IdentityConversationLocator)
 			if lookupErr != nil || identity.Status != "verified" || !supported {
 				r.positionLog(position.ID, "warning", "索要身份尚未核对，名单保留："+item.CandidateName)

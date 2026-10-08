@@ -140,6 +140,11 @@ type IdentityConversationLocator interface {
 	LocateReplyConversationByID(context.Context, Executor, string, string) (ReplyConversation, error)
 }
 
+// CandidateIdentityResolver 通过当前平台页面的直接证据核对推荐标识对应的完整会话标识。
+type CandidateIdentityResolver interface {
+	ResolveCandidateConversationID(context.Context, Executor, string) (string, string, error)
+}
+
 // ReplyHash 返回正文或已规范化数据的摘要，不保留原文。
 func ReplyHash(text string) string {
 	sum := sha256.Sum256([]byte(text))
