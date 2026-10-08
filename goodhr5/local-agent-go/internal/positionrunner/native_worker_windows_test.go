@@ -97,8 +97,14 @@ func TestNativeWorkerThreeActions(t *testing.T) { runNativeWorkerPosition(t, "tr
 // TestNativeWorkerTimedScanInterrupt 验证扫描中出现消息，经可控到期时钟触发实际切入并恢复同一队列和数量。
 func TestNativeWorkerTimedScanInterrupt(t *testing.T) { runNativeWorkerPosition(t, "triple-timed-job") }
 
+// TestNativeWorkerScanReorderRecovery 验证消息返回后的列表重排触发真实回退，已处理者不重发，数量不重置。
+func TestNativeWorkerScanReorderRecovery(t *testing.T) {
+	runNativeWorkerPosition(t, "triple-rescan-job")
+}
+
 // runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
 func runNativeWorkerPosition(t *testing.T, mode string) {
+	timed := mode == "triple-timed-job" || mode == "triple-rescan-job"
 	triple := strings.HasPrefix(mode, "triple")
 	combined := mode == "combined-job" || triple
 	regreet := strings.HasPrefix(mode, "regreet-") || combined
@@ -220,7 +226,7 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 				candidateID, name = "opaque-B", "同名候选人 B"
 			}
 			workReady := true
-			if mode == "triple-timed-job" {
+			if timed {
 				raw, _ := os.ReadFile(filepath.Join(directory, "ledger.json"))
 				var ledger struct {
 					GreetOrder []string `json:"greetOrder"`
@@ -307,7 +313,7 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		options.detailOpenProbabilitySet = true
 		options.PageReadyDelay = 1
 	}
-	if mode == "triple-timed-job" {
+	if timed {
 		baseClock := time.Now()
 		options.actionNow = func() time.Time {
 			raw, _ := os.ReadFile(filepath.Join(directory, "ledger.json"))
@@ -502,10 +508,10 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		if err = json.Unmarshal(raw, &ledger); err != nil {
 			t.Fatal(err)
 		}
-		if ledger.Clicks != 2 || len(ledger.SendOrder) != 2 || (mode != "triple-timed-job" && (ledger.SendOrder[0] != 123 || ledger.SendOrder[1] != 124)) {
+		if ledger.Clicks != 2 || len(ledger.SendOrder) != 2 || (!timed && (ledger.SendOrder[0] != 123 || ledger.SendOrder[1] != 124)) {
 			t.Fatalf("优先回复与复打顺序错误 %+v", ledger)
 		}
-		if mode == "triple-timed-job" {
+		if timed {
 			indices := map[string]int{}
 			for i, event := range ledger.Timeline {
 				indices[event] = i
@@ -521,12 +527,16 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			logs, _ := db.ListPositionLogs("native-position", 200)
 			matched := false
 			for _, entry := range logs {
-				if strings.Contains(entry.Message, "resume_anchor_match") {
+				wanted := "resume_anchor_match"
+				if mode == "triple-rescan-job" {
+					wanted = "resume_rescan"
+				}
+				if strings.Contains(entry.Message, wanted) {
 					matched = true
 				}
 			}
 			if !matched {
-				t.Fatal("返回推荐没有匹配局部锚点")
+				t.Fatal("返回推荐没有进入预期恢复路径")
 			}
 		}
 		if triple {
