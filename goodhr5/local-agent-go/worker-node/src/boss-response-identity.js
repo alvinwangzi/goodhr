@@ -4,6 +4,14 @@ import { locateBossConversationByNumericID, locateBossConversationByEncryptedID 
 const recommendationPath = "/wapi/zpjob/rec/geek/list";
 const friendPath = "/wapi/zprelation/friend/getBossFriendListV2.json";
 const detailPath = "/wapi/zpjob/chat/geek/info";
+const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
+const batchPath = "/wapi/batch/requests";
+
+/** readBossResponseAccountID 只读取账号信息节点中的数字用户 ID，不访问 token、联系方式或其他批量响应。 */
+export function readBossResponseAccountID(path, body) {
+  const response = path === accountPath ? body : path === batchPath && body?.code === 0 ? body.zpData?.[accountPath] : null;
+  return response?.code === 0 ? numericID(response.zpData?.userId) : "";
+}
 
 /** numericID 只接受无精度损失的正整数候选人 ID。 */
 function numericID(value) {
@@ -40,24 +48,34 @@ export function readBossResponseIdentityFacts(path, body) {
 /** observeBossResponseIdentities 在标准 Page 上被动观察三类响应，只在内存保存 ID 事实。 */
 export function observeBossResponseIdentities(page) {
   if (observers.has(page)) return observers.get(page);
-  const state = { facts: new Map(), conflicts: new Set(), pending: new Set(), epoch: 0 };
+  const state = { facts: new Map(), conflicts: new Set(), pending: new Set(), epoch: 0, accountID: "", accountConflict: false };
   observers.set(page, state);
   page.on("framenavigated", frame => {
     if (frame !== page.mainFrame()) return;
     state.epoch++;
     state.facts.clear();
     state.conflicts.clear();
+    state.accountID = "";
+    state.accountConflict = false;
   });
   page.on("response", response => {
     let url;
     try { url = new URL(response.url()); } catch { return; }
     if (url.protocol !== "https:" || url.hostname !== "www.zhipin.com" ||
-        ![recommendationPath, friendPath, detailPath].includes(url.pathname)) return;
+        ![recommendationPath, friendPath, detailPath, accountPath, batchPath].includes(url.pathname)) return;
     const epoch = state.epoch;
     const pending = (async () => {
       try {
         const body = await response.json();
         if (epoch !== state.epoch) return;
+        const accountID = readBossResponseAccountID(url.pathname, body);
+        if (accountID) {
+          if (state.accountID && state.accountID !== accountID) {
+            state.accountConflict = true;
+            state.facts.clear();
+          }
+          state.accountID = accountID;
+        }
         for (const fact of readBossResponseIdentityFacts(url.pathname, body)) {
           const old = state.facts.get(fact.recommendation_id);
           if (old && old.numeric_id !== fact.numeric_id) {
@@ -84,12 +102,12 @@ export async function resolveBossResponseIdentity(page, recommendationID, candid
   signal?.throwIfAborted();
   const epoch = state.epoch;
   let fact = state.facts.get(recommendationID);
-  if (state.conflicts.has(recommendationID)) return { verified: false };
+  if (state.accountConflict || state.conflicts.has(recommendationID)) return { verified: false };
   if (!fact && candidateName && recommendationID) {
     const opened = await locateBossConversationByEncryptedID(page, candidateName, recommendationID, signal);
     await Promise.allSettled([...state.pending]);
     fact = state.facts.get(recommendationID);
-    if (!opened.found || !fact || epoch !== state.epoch || state.conflicts.has(recommendationID) ||
+    if (!opened.found || !fact || epoch !== state.epoch || state.accountConflict || state.conflicts.has(recommendationID) ||
         /^(\d+)-\d+$/.exec(opened.conversation_id || "")?.[1] !== fact.numeric_id) return { verified: false };
     return { verified: true, recommendation_id: recommendationID, conversation_id: opened.conversation_id,
       source: fact.source + "_and_selected_chat_id" };
@@ -105,12 +123,22 @@ export async function resolveBossResponseIdentity(page, recommendationID, candid
   if (matches.length === 0 && candidateName) {
     const opened = await locateBossConversationByNumericID(page, candidateName, fact.numeric_id, signal);
     await Promise.allSettled([...state.pending]);
-    if (!opened.found || epoch !== state.epoch || state.conflicts.has(recommendationID) ||
+    if (!opened.found || epoch !== state.epoch || state.accountConflict || state.conflicts.has(recommendationID) ||
         state.facts.get(recommendationID)?.numeric_id !== fact.numeric_id) return { verified: false };
     return { verified: true, recommendation_id: recommendationID, conversation_id: opened.conversation_id,
       source: fact.source + "_and_selected_chat_id" };
   }
-  if (matches.length !== 1 || epoch !== state.epoch || state.conflicts.has(recommendationID)) return { verified: false };
+  if (matches.length !== 1 || epoch !== state.epoch || state.accountConflict || state.conflicts.has(recommendationID)) return { verified: false };
   return { verified: true, recommendation_id: recommendationID, conversation_id: matches[0],
     source: fact.source + "_and_visible_chat_id" };
+}
+
+/** readBossObservedAccountIdentity 返回当前主文档正常加载的账号 ID 证明，缺失或同页变化时不猜测。 */
+export async function readBossObservedAccountIdentity(page, signal) {
+  signal?.throwIfAborted();
+  const state = observeBossResponseIdentities(page);
+  await Promise.allSettled([...state.pending]);
+  signal?.throwIfAborted();
+  if (!state.accountID || state.accountConflict) return { verified: false };
+  return { verified: true, account_id: state.accountID, source: "boss_user_info_response" };
 }

@@ -3,10 +3,38 @@ import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
-import { readBossResponseIdentityFacts, observeBossResponseIdentities, resolveBossResponseIdentity } from "../src/boss-response-identity.js";
+import { readBossResponseIdentityFacts, observeBossResponseIdentities, resolveBossResponseIdentity, readBossResponseAccountID, readBossObservedAccountIdentity } from "../src/boss-response-identity.js";
 import { searchBossChatSessionOnPage } from "../src/boss-chat-search.js";
 const recPath = "/wapi/zpjob/rec/geek/list";
 const friendPath = "/wapi/zprelation/friend/getBossFriendListV2.json";
+const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
+
+test("账号证明只读取用户 ID，不访问 token 或批量凭证节点", () => {
+  const data = { userId: 901 };
+  Object.defineProperty(data, "token", { get() { throw new Error("禁止读取凭证"); } });
+  const account = { code: 0, zpData: data };
+  const batchData = { [accountPath]: account };
+  Object.defineProperty(batchData, "/wapi/zppassport/get/wt", { get() { throw new Error("禁止读取凭证节点"); } });
+  assert.equal(readBossResponseAccountID(accountPath, account), "901");
+  assert.equal(readBossResponseAccountID("/wapi/batch/requests", { code: 0, zpData: batchData }), "901");
+  assert.equal(readBossResponseAccountID(accountPath, { code: 1, zpData: data }), "");
+});
+
+test("缺失账号不猜测，同文档换账号清空候选人证明并保持拒绝状态", async () => {
+  const page = fixturePage(); observeBossResponseIdentities(page);
+  assert.deepEqual(await readBossObservedAccountIdentity(page), { verified: false });
+  const account = uid => page.emit("response", { url: () => `https://www.zhipin.com${accountPath}`, json: async () => ({ code: 0, zpData: { userId: uid } }) });
+  account(901); emitFriend(page);
+  assert.equal((await readBossObservedAccountIdentity(page)).account_id, "901");
+  assert.equal((await resolveBossResponseIdentity(page, "opaque-A")).verified, true);
+  account(902); emitFriend(page);
+  assert.deepEqual(await readBossObservedAccountIdentity(page), { verified: false });
+  assert.deepEqual(await resolveBossResponseIdentity(page, "opaque-A"), { verified: false });
+  page.emit("framenavigated", page.mainFrame());
+  assert.deepEqual(await readBossObservedAccountIdentity(page), { verified: false });
+  account(902);
+  assert.equal((await readBossObservedAccountIdentity(page)).account_id, "902");
+});
 
 /** fixturePage 构造标准事件与 Locator 形状，不提供脚本或凭证接口。 */
 function fixturePage(ids = ["123-0"]) {
@@ -76,10 +104,12 @@ test("系统 Edge 的真实响应事件与标准 Locator 完成联合核对，�
     const page = await browser.newPage();
     await page.route("https://www.zhipin.com/**", async route => {
       const path = new URL(route.request().url()).pathname;
-      if (path === friendPath) {
+      if (path === accountPath) {
+        await route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { userId: 901, name: "同名招聘者" } }) });
+      } else if (path === friendPath) {
         await route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }] } }) });
       } else {
-        await route.fulfill({ contentType: "text/html; charset=utf-8", body: `<div data-id="123-9">虚构候选人</div><iframe src="${friendPath}"></iframe>` });
+        await route.fulfill({ contentType: "text/html; charset=utf-8", body: `<div data-id="123-9">虚构候选人</div><iframe src="${friendPath}"></iframe><iframe src="${accountPath}"></iframe>` });
       }
     });
     observeBossResponseIdentities(page);
@@ -87,6 +117,7 @@ test("系统 Edge 的真实响应事件与标准 Locator 完成联合核对，�
     const identity = await resolveBossResponseIdentity(page, "opaque-A");
     assert.equal(identity.verified, true);
     assert.equal(identity.conversation_id, "123-9");
+    assert.deepEqual(await readBossObservedAccountIdentity(page), { verified: true, account_id: "901", source: "boss_user_info_response" });
   } finally { await browser.close(); }
 });
 

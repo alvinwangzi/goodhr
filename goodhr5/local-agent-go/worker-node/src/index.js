@@ -1,7 +1,7 @@
 // 本文件负责提供 HRPlus 5 Node Browser Worker HTTP 服务。
 import {nativeViewport,observeContainer,observeScrollAtPointer} from "./native-page-observation.js";
 import { readBossRecommendationID, matchBossRecommendationID } from "./boss-candidate-identity.js";
-import { observeBossResponseIdentities, resolveBossResponseIdentity } from "./boss-response-identity.js";
+import { observeBossResponseIdentities, resolveBossResponseIdentity, readBossObservedAccountIdentity } from "./boss-response-identity.js";
 import { captureRecommendationAnchors, checkRecommendationAnchors, rewindRecommendation, ensureRecommendationVisible } from "./boss-recommendation-resume.js";
 import fs from "node:fs/promises";
 import { searchBossChatSessionOnPage } from "./boss-chat-search.js";
@@ -6345,6 +6345,7 @@ const routes = {
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
   "/api/v1/boss/candidates/identity": async (payload, signal) => resolveBossResponseIdentity(await ensurePage(), String(payload.recommendation_id || ""), String(payload.candidate_name || ""), signal),
+  "/api/v1/boss/account/identity": async (_payload, signal) => readBossObservedAccountIdentity(await ensurePage(), signal),
   "/api/v1/boss/candidates/capture-anchors": async (payload) => captureRecommendationAnchors(await ensurePage(), payload),
   "/api/v1/boss/candidates/check-anchors": async (payload) => checkRecommendationAnchors(await ensurePage(), payload),
   "/api/v1/boss/candidates/rewind": async () => rewindRecommendation(await ensurePage()),
