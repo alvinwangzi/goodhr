@@ -1,5 +1,6 @@
 // 本文件负责提供 HRPlus 5 Node Browser Worker HTTP 服务。
 import { readBossRecommendationID, matchBossRecommendationID } from "./boss-candidate-identity.js";
+import { captureRecommendationAnchors, checkRecommendationAnchors, rewindRecommendation, ensureRecommendationVisible } from "./boss-recommendation-resume.js";
 import fs from "node:fs/promises";
 import { searchBossChatSessionOnPage } from "./boss-chat-search.js";
 import { readBossCandidateState } from "./boss-candidate-state.js";
@@ -2227,6 +2228,7 @@ async function closeBossCandidateDetail(payload) {
  * @returns {Promise<{card:any, attempts:number}>} 候选人卡片和滚动次数。
  */
 async function bossCardByIndex(currentPage, rules, cardIndex, payload) {
+  if (payload.recommendation_candidate_id) return ensureRecommendationVisible(currentPage, payload);
   const requestedCardIndex = cardIndex;
   const requireFull = payload.require_full !== false || Boolean(payload.force_scroll);
   const viewportMargin = Number(payload.viewport_margin ?? payload.margin ?? 12);
@@ -6911,6 +6913,9 @@ const routes = {
   "/api/v1/page/keyword-overlay": keywordOverlay,
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
+  "/api/v1/boss/candidates/capture-anchors": async (payload) => captureRecommendationAnchors(await ensurePage(), payload),
+  "/api/v1/boss/candidates/check-anchors": async (payload) => checkRecommendationAnchors(await ensurePage(), payload),
+  "/api/v1/boss/candidates/rewind": async () => rewindRecommendation(await ensurePage()),
   "/api/v1/boss/candidates/scroll": scrollBossCandidates,
   "/api/v1/boss/candidates/visible": ensureBossCandidateVisible,
   "/api/v1/boss/candidates/greet": greetBossCandidate,

@@ -106,6 +106,28 @@ func (r *Runtime) PrepareReplyPage(ctx context.Context, exec platformcore.Execut
 	if err := r.AutoReplyAvailable(); err != nil {
 		return err
 	}
+	pagesResult, pagesErr := exec.Post(ctx, "/api/v1/page/list", map[string]any{})
+	if pagesErr != nil {
+		return pagesErr
+	}
+	currentURL := stringFromMap(currentDefaultPage(mapList(workerData(workerDataMap(pagesResult), "pages"))), "url")
+	if strings.TrimRight(currentURL, "/") == strings.TrimRight(r.replyPageSettings().MessagesURL, "/") {
+		return nil
+	}
+	if strings.HasPrefix(currentURL, "https://www.zhipin.com/web/chat/") {
+		menu := platformcore.SelectorSpec{Selectors: []string{`dl a[href*="/web/chat/index"]`}}
+		items, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: menu, MaxItems: 2})
+		if err != nil {
+			return err
+		}
+		if len(items) != 1 {
+			return fmt.Errorf("沟通菜单未唯一定位，不能刷新已有推荐进度")
+		}
+		if _, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: menu}); err != nil {
+			return err
+		}
+		return exec.Delay(ctx, "等待沟通菜单切换", 0.5)
+	}
 	_, err := exec.Post(ctx, "/api/v1/page/open", struct {
 		URL      string `json:"url"`
 		NoScript bool   `json:"no_script"`

@@ -80,6 +80,9 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 		p.lastOpen = payload
 		return map[string]any{}, nil
 	}
+	if path == "/api/v1/page/list" {
+		return map[string]any{"pages": []any{}}, nil
+	}
 	request, ok := payload.(platformcore.LocatorRequest)
 	if !ok {
 		return nil, errors.New("非强类型请求")

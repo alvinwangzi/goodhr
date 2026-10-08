@@ -53,6 +53,7 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 		"humanize":       true,
 		"user_data_dir":  userDataDir,
 		"downloads_path": r.browserDownloadDir(),
+		"no_script":      true,
 		// "viewport_width":  viewportWidth,
 		// "viewport_height": viewportHeight,
 	}); err != nil {
@@ -74,6 +75,7 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 		r.positionLog(position.ID, "info", "页面准备：招聘平台页面打开完成")
 	}
 	seen := map[string]struct{}{}
+	readSeen := map[string]struct{}{}
 	queue := make([]map[string]any, 0)
 	totalResult := batchProcessResult{}
 	persistedResult := batchProcessResult{}
@@ -201,9 +203,17 @@ scanLoop:
 				continue
 			}
 			emptyLoads = 0
-			totalResult.Scanned += len(candidates)
+			newlyRead := 0
+			for _, candidate := range candidates {
+				id := stringFromMap(candidate, "id")
+				if _, ok := readSeen[id]; !ok {
+					readSeen[id] = struct{}{}
+					newlyRead++
+				}
+			}
+			totalResult.Scanned += newlyRead
 			queue = append(queue, candidates...)
-			r.syncProcessedResumeCount(ctx, position, len(candidates), options)
+			r.syncProcessedResumeCount(ctx, position, newlyRead, options)
 			r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：读取完成，本次新增=%d，重复=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
 			// 开发测试：限制单次扫描的候选人总数，方便快速验证流程。
 			if r.devScanLimit > 0 && totalResult.Scanned >= r.devScanLimit {
@@ -455,6 +465,28 @@ scanLoop:
 				candidateCancel()
 				if err := r.saveScanCheckpoint(context.WithoutCancel(ctx), options, candidate, filtered[nextIndex:], totalResult.Greeted); err != nil {
 					return nil, fmt.Errorf("候选人安全边界检查点保存失败：%w", err)
+				}
+				if options.scanBoundary != nil {
+					rescan, boundaryErr := options.scanBoundary(ctx)
+					if boundaryErr != nil {
+						return nil, boundaryErr
+					}
+					if rescan {
+						pipelineCancel()
+						states, stateErr := r.db.ActionCandidateStates(ctx, options.LocalRunID, position.ID)
+						if stateErr != nil {
+							return nil, stateErr
+						}
+						seen = map[string]struct{}{}
+						for id, state := range states {
+							if state == "completed" || state == "skipped" || state == "unknown" || state == "processing" {
+								seen[id] = struct{}{}
+							}
+						}
+						queue = nil
+						emptyLoads = 0
+						continue scanLoop
+					}
 				}
 				if err := r.maybeRestAfterCandidate(ctx, position, platformRuntime, exec, platformConfig, options); err != nil {
 					return nil, err

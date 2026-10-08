@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -705,62 +704,12 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 		}
 		return false
 	}
-	r.positionLog(positionID, "info", "自动回复启动：正在启动浏览器")
-	if _, err := r.worker.Start(ctx); err != nil {
-		r.failStart(positionID, "浏览器启动失败："+err.Error(), options)
-		return stats
-	}
-	exec := platformExecutor{runner: r, positionID: positionID, once: true}
-	profileName := positionProfileName(position)
-	if _, err := r.worker.CallOnce(ctx, "/api/v1/browser/start", map[string]any{
-		"humanize":       true,
-		"user_data_dir":  filepath.Join(r.profilesDir, profileName),
-		"downloads_path": r.browserDownloadDir(),
-		"no_script":      true,
-	}); err != nil {
-		r.failStart(positionID, "浏览器启动或显示校准失败："+err.Error(), options)
-		return stats
-	}
-	r.positionLog(positionID, "info", "自动回复启动：正在打开消息页并核对岗位")
-	if err := runtime.PrepareReplyPage(ctx, exec); err != nil {
-		r.failStart(positionID, "消息页准备失败："+err.Error(), options)
-		return stats
-	}
-	name := positionPositionName(position)
-	r.positionLog(positionID, "info", "自动回复核对岗位：岗位名="+name)
-	target, err := runtime.ResolveReplyTarget(ctx, exec, name)
+	flow, err := r.prepareReplyFlow(ctx, position, options, runtime, generator, aiClient, true)
 	if err != nil {
-		r.positionLog(positionID, "error", "自动回复岗位核对失败：岗位名="+name+"，错误="+err.Error())
-		r.failStart(positionID, "页面岗位核对失败："+err.Error(), options)
+		r.failStart(positionID, err.Error(), options)
 		return stats
 	}
-	r.positionLog(positionID, "info", "自动回复岗位核对成功：positionID="+target.PositionID)
-	cloudBase := strings.TrimSpace(options.CloudAPIBase)
-	if cloudBase == "" {
-		cloudBase = strings.TrimSpace(r.cloudAPIBase)
-	}
-	if cloudBase == "" {
-		cloudBase = "https://www.xx.com"
-	}
-	flow := &replyFlow{
-		db: r.db, runtime: runtime, exec: exec, generator: generator, aiClient: aiClient, target: target,
-		scope:            platformcore.ReplyHash("profile:" + safePathName(profileName)),
-		platform:         strings.ToLower(strings.TrimSpace(position.PlatformID)),
-		positionID:       positionID,
-		runID:            options.CloudRunID,
-		rejectTemplate:   positionRejectTemplate(position),
-		cloudClient:      cloudapi.New(cloudBase),
-		token:            options.Token,
-		positionSnapshot: position.PositionSnapshot,
-		screenshotsDir:   r.screenshotsDir,
-		request: localai.ReplyRequest{
-			PositionName:        name,
-			PositionRequirement: positionRequirement(position),
-			ReplyPrompt:         positionReplyPrompt(position),
-			ReplySystemPrompt:   options.AIConfig.ReplySystemPrompt,
-			FAQ:                 positionFAQ(position),
-		},
-	}
+	exec, target := flow.exec, flow.target
 	flow.flushResumeTracking()
 	defer flow.flushResumeTracking()
 	for round := 1; round <= totalRounds; round++ {

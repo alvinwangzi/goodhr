@@ -188,6 +188,8 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 
 // StartOptions 表示本地岗位运行启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
+	// scanBoundary 在候选人安全结束后由同一运行协程调用，true 表示列表已变化，需要按记录恢复。
+	scanBoundary func(context.Context) (bool, error)
 	// LocalRunID 独立标识本次单岗位运行，不包含登录凭证，每次明确开始重新生成。
 	LocalRunID     string `json:"local_run_id,omitempty"`
 	TaskType       string `json:"task_type"` // greeting 或 auto_reply，支持逗号分隔多选，省略时打招呼

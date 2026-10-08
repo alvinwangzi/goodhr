@@ -169,6 +169,24 @@ func (db *DB) ActionCompletedIDs(ctx context.Context, runID, positionID string) 
 	return ids, rows.Err()
 }
 
+// ActionCandidateStates 返回本次候选人的各类状态，恢复时区分已完成、待重试和未知。
+func (db *DB) ActionCandidateStates(ctx context.Context, runID, positionID string) (map[string]string, error) {
+	rows, err := db.conn.QueryContext(ctx, `SELECT recommendation_id,status FROM action_candidates WHERE run_id=? AND position_id=?`, runID, positionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	states := map[string]string{}
+	for rows.Next() {
+		var id, status string
+		if err := rows.Scan(&id, &status); err != nil {
+			return nil, err
+		}
+		states[id] = status
+	}
+	return states, rows.Err()
+}
+
 // SaveActionCandidate 原子保存处理结果及检查点，结果不明不得进入完成锚点。
 func (db *DB) SaveActionCandidate(ctx context.Context, checkpoint ActionCheckpoint, candidateID, status, reason string) error {
 	if strings.TrimSpace(candidateID) == "" {
