@@ -1066,11 +1066,21 @@ func (r *Runtime) ReadOpenedReplyContext(ctx context.Context, exec platformcore.
 // StageReGreet 输入前核对身份与空草稿，再把复打文本输入聊天框。
 // 复用 readCurrentReply 做面板身份与岗位核对，不复用 RecheckReplyContext（无入站指纹）。
 func (r *Runtime) StageReGreet(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string) error {
+	return r.stageOpenedMessage(ctx, exec, target, conversation, before, text, 200)
+}
+
+// StageCandidateFollowup 追加问候复用相同身份、草稿和变化检查，保留原标准消息输入的千字上限。
+func (r *Runtime) StageCandidateFollowup(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string) error {
+	return r.stageOpenedMessage(ctx, exec, target, conversation, before, text, 1000)
+}
+
+// stageOpenedMessage 在指定长度限制下核对真实选中项和上下文后执行标准输入。
+func (r *Runtime) stageOpenedMessage(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation, before platformcore.ReplyContext, text string, maxChars int) error {
 	current, err := r.readCurrentReply(ctx, exec, target, conversation)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(current.Messages, before.Messages) || current.ResumeStatus != before.ResumeStatus || strings.TrimSpace(current.Draft) != "" || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > 200 {
+	if !reflect.DeepEqual(current.Messages, before.Messages) || current.ResumeStatus != before.ResumeStatus || strings.TrimSpace(current.Draft) != "" || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > maxChars {
 		return platformcore.ErrReplyUnsafe
 	}
 	if err := ctx.Err(); err != nil {

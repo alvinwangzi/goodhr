@@ -97,24 +97,36 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 	}
 	var requestErr error
 	requestAttempted := false
+	messageOnlyAttempted := false
 	if requestConfigured && requestAllowed {
-		if hasRequestItems := request.RequestPhone || request.RequestWechat || request.RequestResume; hasRequestItems {
-			// Boss 等平台的索要按钮需要候选人先回复才会解锁，打招呼后立即索要必然失败，
-			// 因此改为把候选人记入待索要名单，岗位收尾时统一检查回复后再执行索要。
-			if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
-				r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：写入待索要名单失败，本轮跳过索要，候选人=%s，错误=%s", candidateLogName(candidate), enqueueErr.Error()))
-			} else {
-				r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：已记入待索要名单，候选人=%s，岗位结束后自动检查回复并索要%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
+		if options.LocalRunID != "" && strings.TrimSpace(request.GreetMessage) != "" {
+			requestAttempted = true
+			messageOnlyAttempted = true
+			requestErr = r.sendVerifiedGreetFollowup(ctx, position, options, platformRuntime, exec, platformConfig, candidate, request.GreetMessage)
+			if request.RequestPhone || request.RequestWechat || request.RequestResume {
+				if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
+					r.positionLog(position.ID, "warning", "追加问候后的索要名单保存失败："+enqueueErr.Error())
+				}
 			}
 		} else {
-			requester, ok := platformRuntime.(platformcore.CandidateInfoRequester)
-			if !ok {
-				r.positionLog(position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
+			if hasRequestItems := request.RequestPhone || request.RequestWechat || request.RequestResume; hasRequestItems {
+				// Boss 等平台的索要按钮需要候选人先回复才会解锁，打招呼后立即索要必然失败，
+				// 因此改为把候选人记入待索要名单，岗位收尾时统一检查回复后再执行索要。
+				if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
+					r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：写入待索要名单失败，本轮跳过索要，候选人=%s，错误=%s", candidateLogName(candidate), enqueueErr.Error()))
+				} else {
+					r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：已记入待索要名单，候选人=%s，岗位结束后自动检查回复并索要%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
+				}
 			} else {
-				requestAttempted = true
-				requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
-					return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
-				})
+				requester, ok := platformRuntime.(platformcore.CandidateInfoRequester)
+				if !ok {
+					r.positionLog(position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
+				} else {
+					requestAttempted = true
+					requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
+						return requester.RequestCandidateInfo(requestCtx, exec, platformConfig, platformcore.Candidate(candidate), request)
+					})
+				}
 			}
 		}
 	}
@@ -122,13 +134,13 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：执行失败但继续后续候选人，候选人=%s，索要项=%s，错误=%s", candidateLogName(candidate), candidateInfoRequestLabel(request), requestErr.Error()))
 	} else if requestAttempted {
 		// 索要动作真实执行成功后才写结果字段，云端据此落索要事件和已发送问候语事件。
-		if request.RequestPhone {
+		if request.RequestPhone && !messageOnlyAttempted {
 			candidate["requested_phone"] = true
 		}
-		if request.RequestWechat {
+		if request.RequestWechat && !messageOnlyAttempted {
 			candidate["requested_wechat"] = true
 		}
-		if request.RequestResume {
+		if request.RequestResume && !messageOnlyAttempted {
 			candidate["requested_resume"] = true
 		}
 		if message := strings.TrimSpace(request.GreetMessage); message != "" {

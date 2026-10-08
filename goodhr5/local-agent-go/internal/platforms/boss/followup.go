@@ -31,11 +31,37 @@ var bossConversationRequestButtons = chatflow.RequestButtons{
 }
 
 const (
-	bossConversationReusePollCount    = 30   // 复用打招呼已打开聊天框的短轮询轮数；Boss 聊天框姓名渲染较慢，需留足等待
-	bossConversationReusePollInterval = 0.2  // 复用短轮询的间隔秒数
-	bossConversationOpenPollCount     = 50   // 主动打开聊天框后的等待轮数
-	bossConversationOpenPollInterval  = 0.2  // 主动打开等待的间隔秒数
+	bossConversationReusePollCount    = 30  // 复用打招呼已打开聊天框的短轮询轮数；Boss 聊天框姓名渲染较慢，需留足等待
+	bossConversationReusePollInterval = 0.2 // 复用短轮询的间隔秒数
+	bossConversationOpenPollCount     = 50  // 主动打开聊天框后的等待轮数
+	bossConversationOpenPollInterval  = 0.2 // 主动打开等待的间隔秒数
 )
+
+// PrepareCandidateFollowup 保留人工草稿，关闭推荐侧全局弹窗后进入标准消息页，发送必须另按真实 ID 核对。
+func (r *Runtime) PrepareCandidateFollowup(ctx context.Context, exec platformcore.Executor) error {
+	modal := platformcore.SelectorSpec{Selectors: []string{bossConversationFlow.ChatModal}}
+	items, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: modal, MaxItems: 2})
+	if err != nil {
+		return err
+	}
+	if len(items) > 1 {
+		return platformcore.ErrReplyUnsafe
+	}
+	if len(items) == 1 {
+		input := platformcore.SelectorSpec{Selectors: []string{bossConversationFlow.Input}, Parent: &modal}
+		result, err := exec.Post(ctx, "/api/v1/page/extract-text", platformcore.LocatorRequest{Selector: input, Editable: true})
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(stringFromMap(workerDataMap(result), "text")) != "" {
+			return fmt.Errorf("全局聊天框存在人工草稿，保留追加问候待处理")
+		}
+		if err := chatflow.CloseConversation(ctx, exec, bossConversationFlow); err != nil {
+			return err
+		}
+	}
+	return r.PrepareReplyPage(ctx, exec)
+}
 
 // ApplyBasicFilters 保留 Boss 基础筛选入口，当前不执行页面操作。
 func (r *Runtime) ApplyBasicFilters(context.Context, platformcore.Executor, cloudapi.PlatformConfig, map[string]any) error {

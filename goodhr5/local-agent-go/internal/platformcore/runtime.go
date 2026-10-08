@@ -141,6 +141,16 @@ type CandidateInfoRequester interface {
 	RequestCandidateInfo(ctx context.Context, exec Executor, cfg cloudapi.PlatformConfig, candidate Candidate, request CandidateInfoRequest) error
 }
 
+// CandidateFollowupPagePreparer 关闭原候选人弹窗并准备可按真实 ID 核对的消息页，不自行发送。
+type CandidateFollowupPagePreparer interface {
+	PrepareCandidateFollowup(context.Context, Executor) error
+}
+
+// CandidateFollowupMessageStager 复用标准消息输入与上下文核对，保留原追加问候语长度规则。
+type CandidateFollowupMessageStager interface {
+	StageCandidateFollowup(context.Context, Executor, ReplyTarget, ReplyConversation, ReplyContext, string) error
+}
+
 // ResumeRequestChecker 是平台可选实现的"检查候选人回复并索要简历"能力。
 // 用于岗位收尾阶段：切到平台消息页，确认候选人已回复后再执行索要动作。
 type ResumeRequestChecker interface {
