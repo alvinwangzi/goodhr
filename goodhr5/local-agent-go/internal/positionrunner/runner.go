@@ -71,23 +71,26 @@ type OCRRecognizer interface {
 
 // Runner 是本地岗位运行运行器。
 type Runner struct {
-	db             *localdb.DB
-	worker         BrowserWorker
-	ocr            OCRRecognizer
-	profilesDir    string
-	downloadsDir   string
-	screenshotsDir string
-	audioDir       string
-	cloudAPIBase   string
-	devScanLimit   int
-	mu             sync.Mutex
-	running        map[string]*runState
-	userStopped    map[string]bool
-	powerGuard     power.Inhibitor
-	sleepCancel    context.CancelFunc
-	browserLease   *browserLease
-	uploadToken    string // 仅保存在当前进程，不写入检查点。
-	uploadActive   bool   // 补传器独立于招聘页面租约，单实例串行补传。
+	db                   *localdb.DB
+	worker               BrowserWorker
+	ocr                  OCRRecognizer
+	profilesDir          string
+	downloadsDir         string
+	screenshotsDir       string
+	audioDir             string
+	cloudAPIBase         string
+	devScanLimit         int
+	mu                   sync.Mutex
+	running              map[string]*runState
+	userStopped          map[string]bool
+	powerGuard           power.Inhibitor
+	sleepCancel          context.CancelFunc
+	browserLease         *browserLease
+	uploadToken          string // 仅保存在当前进程，不写入检查点。
+	uploadOwnerScope     string // 云端接口确认的所有者摘要，与当前令牌一起切换。
+	uploadAPIBase        string // 当前已核对登录的云端地址，旧收据不能跨地址使用令牌。
+	uploadSessionVersion uint64 // 防止迟到的旧账号核对结果覆盖当前登录。
+	uploadActive         bool   // 补传器独立于招聘页面租约，单实例串行补传。
 }
 
 // browserLease 由主任务和收尾任务共同持有，全部退出后才释放浏览器。
@@ -95,18 +98,20 @@ type browserLease struct{ refs int }
 
 // runState 保存单个运行岗位运行的控制句柄。
 type runState struct {
-	lease              *browserLease
-	done               chan struct{}
-	cancel             context.CancelFunc
-	progress           Progress
-	analysis           *positionAnalysisStatus
-	emailForNotify     string // 失败通知邮箱
-	options            StartOptions
-	cancelReason       string
-	runGreeted         int                         // 本次运行已打招呼数量
-	replyStats         *platformcore.ReplyStats    // 自动回复任务统计，不计入打招呼数量
-	reGreetStats       reGreetStats                // 复打招呼任务统计，不计入打招呼数量
-	pendingDetailClose func(context.Context) error // 当前可能仍打开的候选人详情清理动作
+	expectedPlatformAccountID string // 仅在当前进程持有真实账号 ID，页面动作前核对，检查点只存摘要。
+	expectedAccountPlatform   string // 账号证明所属平台，页面核对由对应平台实现。
+	lease                     *browserLease
+	done                      chan struct{}
+	cancel                    context.CancelFunc
+	progress                  Progress
+	analysis                  *positionAnalysisStatus
+	emailForNotify            string // 失败通知邮箱
+	options                   StartOptions
+	cancelReason              string
+	runGreeted                int                         // 本次运行已打招呼数量
+	replyStats                *platformcore.ReplyStats    // 自动回复任务统计，不计入打招呼数量
+	reGreetStats              reGreetStats                // 复打招呼任务统计，不计入打招呼数量
+	pendingDetailClose        func(context.Context) error // 当前可能仍打开的候选人详情清理动作
 	// 摸鱼休息状态
 	restMaxTimes  int
 	restUsed      int
@@ -170,17 +175,36 @@ func (e platformExecutor) Post(ctx context.Context, path string, payload any) (m
 	}
 	e.runner.mu.Lock()
 	m1 := false
+	expectedAccount := ""
+	expectedPlatform := ""
 	if state := e.runner.running[e.positionID]; state != nil {
 		m1 = state.options.LocalRunID != ""
+		expectedAccount = state.expectedPlatformAccountID
+		expectedPlatform = state.expectedAccountPlatform
 	}
 	e.runner.mu.Unlock()
 	if m1 {
-		if values, ok := payload.(map[string]any); ok {
+		values, ok := payload.(map[string]any)
+		if !ok && expectedAccount != "" {
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				return nil, err
+			}
+			if err = json.Unmarshal(encoded, &values); err != nil {
+				return nil, err
+			}
+			ok = true
+		}
+		if ok {
 			copy := make(map[string]any, len(values)+1)
 			for key, value := range values {
 				copy[key] = value
 			}
 			copy["no_script"] = true
+			if expectedAccount != "" {
+				copy["expected_platform_account_id"] = expectedAccount
+				copy["expected_account_platform"] = expectedPlatform
+			}
 			payload = copy
 		}
 	}

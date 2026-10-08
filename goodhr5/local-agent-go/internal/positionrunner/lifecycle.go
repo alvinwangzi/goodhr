@@ -157,7 +157,15 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	}
 	options.LocalRunID = checkpoint.RunID
 	snapshot.Options.LocalRunID = checkpoint.RunID
-	r.BindReGreetUploadSession(options.Token)
+	uploadVersion := r.ReGreetUploadSessionVersion()
+	owner, ownerErr := client.SessionOwner(ctx, options.Token)
+	if ownerErr != nil {
+		cancel()
+		r.failStart(positionID, "启动账号所有者核对失败："+ownerErr.Error(), options)
+		r.clear(positionID)
+		return nil, ownerErr
+	}
+	r.BindVerifiedReGreetUploadSession(options.Token, CloudOwnerScope(client.BaseURL, owner), uploadVersion, client.BaseURL)
 	r.positionLog(positionID, "info", "岗位运行启动：已进入后台运行")
 	go r.runPosition(runCtx, position, options, snapshot)
 	return map[string]any{"position": updated, "running": true}, nil

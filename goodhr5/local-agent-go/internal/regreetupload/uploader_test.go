@@ -28,7 +28,7 @@ func queuedReceipt(t *testing.T, base string) (*localdb.DB, string, cloudapi.ReG
 	if err = db.TransitionAutoReply(t.Context(), record.ID, "prepared", "sending", ""); err != nil {
 		t.Fatal(err)
 	}
-	request := cloudapi.ReGreetReceiptRequest{OperationID: record.ID, Platform: "boss", PlatformCandidateID: "candidate", Success: true, RunID: "run", BaseContactAt: time.Now().Add(-time.Hour), SentAt: time.Now(), MessageText: "复打消息"}
+	request := cloudapi.ReGreetReceiptRequest{MachineID: "machine", OperationID: record.ID, Platform: "boss", PlatformCandidateID: "candidate", Success: true, RunID: "run", BaseContactAt: time.Now().Add(-time.Hour), SentAt: time.Now(), MessageText: "复打消息"}
 	body := struct {
 		PositionID string `json:"position_id"`
 		cloudapi.ReGreetReceiptRequest
@@ -38,6 +38,49 @@ func queuedReceipt(t *testing.T, base string) (*localdb.DB, string, cloudapi.ReG
 		t.Fatal(err)
 	}
 	return db, record.ProfileScope, request
+}
+
+// TestLegacyReceiptOwnerCheck 验证旧作用域收据须核对原任务所有者；换回原账号仍补传原编号，不丢原事实。
+func TestLegacyReceiptOwnerCheck(t *testing.T) {
+	owner := "other@example.com"
+	posts := 0
+	var received cloudapi.ReGreetReceiptRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/me":
+			_ = json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{"email": owner}})
+		case "/api/task-runs/run":
+			_ = json.NewEncoder(w).Encode(map[string]any{"run": map[string]any{"id": "run", "user_email": "original@example.com", "position_id": "position", "platform_id": "boss", "machine_id": "machine"}})
+		case "/api/positions/position/re-greet-report":
+			posts++
+			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+				t.Error(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"receipt": cloudapi.ReGreetReceiptResponse{OperationID: received.OperationID, ResultCount: received.BaseCount + 1, SentAt: received.SentAt, ReceivedAt: time.Now()}})
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	db, scope, original := queuedReceipt(t, server.URL)
+	u := New(db)
+	if count, err := u.FlushLegacyOwned(t.Context(), scope, "fixture-token", cloudapi.SessionOwnerScope(server.URL, owner), server.URL); err != nil || count != 0 || posts != 0 {
+		t.Fatalf("其他账号补传了旧收据 count=%d posts=%d err=%v", count, posts, err)
+	}
+	if pending, err := db.PendingReGreetForCandidate(t.Context(), scope, "boss", "candidate"); err != nil || !pending {
+		t.Fatal("未核对旧事实被丢弃")
+	}
+	owner = "original@example.com"
+	if err := db.ResumeReGreetUploads(t.Context(), scope); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := u.FlushLegacyOwned(t.Context(), scope, "fixture-token", cloudapi.SessionOwnerScope(server.URL, owner), server.URL); err != nil || count != 1 || posts != 1 {
+		t.Fatalf("原账号未恢复旧收据 count=%d posts=%d err=%v", count, posts, err)
+	}
+	if received.OperationID != original.OperationID || received.MessageText != original.MessageText || !received.SentAt.Equal(original.SentAt) || received.RunID != original.RunID || received.MachineID != original.MachineID {
+		t.Fatal("补传改变了原编号或发送事实")
+	}
 }
 
 // TestUploadLostReceipt 验证服务器已保存但丢回执后补传原编号，未产生新的发送意图。

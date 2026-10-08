@@ -43,6 +43,7 @@ type replyFlow struct {
 	aiClient                           *localai.Client
 	target                             platformcore.ReplyTarget
 	scope, platform, positionID, runID string
+	legacyScope                        string // 旧默认目录记录只用于防止盲目重发，不自动归属到新账号。
 	request                            localai.ReplyRequest
 	rejectTemplate                     string // 岗位自定义拒绝话术，留空用系统默认
 	cloudClient                        *cloudapi.Client
@@ -166,6 +167,17 @@ func (f *replyFlow) process(ctx context.Context, current platformcore.ReplyConte
 		return "skipped", fmt.Errorf("上下文验证失败: %w", err)
 	}
 	key := localdb.AutoReplyRecord{ProfileScope: f.scope, Platform: f.platform, ConversationID: current.Conversation.ID, InboundFingerprint: current.InboundFingerprint}
+	if f.legacyScope != "" && f.legacyScope != f.scope {
+		legacyKey := key
+		legacyKey.ProfileScope = f.legacyScope
+		legacy, legacyErr := f.db.FindAutoReply(ctx, legacyKey)
+		if legacyErr != nil && !errors.Is(legacyErr, sql.ErrNoRows) {
+			return "failed", errReplyStorage
+		}
+		if legacyErr == nil && legacy.Status != "prepared" && legacy.Status != "obsolete" {
+			return "unknown", fmt.Errorf("旧回复记录账号归属待核对，不自动重发")
+		}
+	}
 	existing, err := f.db.FindAutoReply(ctx, key)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "failed", errReplyStorage

@@ -27,13 +27,22 @@ func (r *Runner) prepareReplyFlow(ctx context.Context, position localdb.Position
 		return nil, fmt.Errorf("消息页准备失败：%w", err)
 	}
 	name := positionPositionName(position)
+	scope, accountBound, scopeErr := r.bindPlatformAccountScope(ctx, exec, runtime, position, options)
+	if scopeErr != nil {
+		return nil, fmt.Errorf("登录账号核对失败：%w", scopeErr)
+	}
 	target, err := runtime.ResolveReplyTarget(ctx, exec, name)
 	if err != nil {
 		return nil, fmt.Errorf("页面岗位核对失败：%w", err)
 	}
 	base := firstNonEmptyString(options.CloudAPIBase, r.cloudAPIBase, "https://www.xx.com")
+	legacyScope := ""
+	if accountBound {
+		legacyScope = platformcore.ReplyHash("profile:" + safePathName(positionProfileName(position)))
+	}
 	return &replyFlow{db: r.db, runtime: runtime, exec: exec, generator: generator, aiClient: aiClient, target: target,
-		scope: platformcore.ReplyHash("profile:" + safePathName(positionProfileName(position))), platform: strings.ToLower(strings.TrimSpace(position.PlatformID)), positionID: position.ID, runID: options.CloudRunID,
+		scope: scope, platform: strings.ToLower(strings.TrimSpace(position.PlatformID)), positionID: position.ID, runID: options.CloudRunID,
+		legacyScope:    legacyScope,
 		rejectTemplate: positionRejectTemplate(position), cloudClient: cloudapi.New(base), token: options.Token, positionSnapshot: position.PositionSnapshot, screenshotsDir: r.screenshotsDir,
 		request: localai.ReplyRequest{PositionName: name, PositionRequirement: positionRequirement(position), ReplyPrompt: positionReplyPrompt(position), ReplySystemPrompt: options.AIConfig.ReplySystemPrompt, FAQ: positionFAQ(position)}}, nil
 }

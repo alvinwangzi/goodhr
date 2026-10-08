@@ -40,6 +40,17 @@ func (r *Runner) recheckUnknownScanCandidates(ctx context.Context, positionID st
 		if lookupErr != nil {
 			return nil, lookupErr
 		}
+		if checkpoint.AccountBound {
+			legacyScope := platformcore.ReplyHash("profile:default")
+			legacy, legacyErr := r.db.UnresolvedActionCandidates(ctx, legacyScope, checkpoint.Platform, id)
+			if legacyErr != nil {
+				return nil, legacyErr
+			}
+			if len(legacy) > 0 {
+				r.positionLog(positionID, "warning", "旧发送记录的账号归属尚未核对，保留历史且不重复发送："+candidateLogName(candidate))
+				continue
+			}
+		}
 		if len(unresolved) == 0 {
 			eligible = append(eligible, candidate)
 			continue

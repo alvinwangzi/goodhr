@@ -29,6 +29,7 @@ type ActionCheckpoint struct {
 	RunID            string           `json:"run_id"`
 	PositionID       string           `json:"position_id"`
 	ProfileScope     string           `json:"profile_scope"`
+	AccountBound     bool             `json:"account_bound,omitempty"` // 已用当前平台账号证明绑定，不得在运行内换账号。
 	Platform         string           `json:"platform"`
 	CloudRunID       string           `json:"cloud_run_id"`
 	PositionSnapshot map[string]any   `json:"position_snapshot"`
@@ -115,6 +116,16 @@ CREATE TABLE IF NOT EXISTS re_greet_schedules (
  -- 在同一基准下只生成一次的到期时间。
  due_at TEXT NOT NULL,
  PRIMARY KEY(profile_scope,platform,candidate_id)
+);
+CREATE TABLE IF NOT EXISTS action_account_scopes (
+ -- 已核对的平台账号作用域摘要，不包含明文账号或凭证。
+ profile_scope TEXT PRIMARY KEY,
+ -- 云端登录所有者摘要，用于独立补传的账号隔离。
+ cloud_owner_scope TEXT NOT NULL,
+ -- 招聘平台标识。
+ platform TEXT NOT NULL,
+ -- 最近成功核对时间。
+ verified_at TEXT NOT NULL
 );`)
 	if err != nil {
 		return err
@@ -210,7 +221,7 @@ func (db *DB) SaveActionCheckpoint(ctx context.Context, checkpoint ActionCheckpo
 	if err != nil {
 		return err
 	}
-	result, err := db.conn.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=?`, string(raw), time.Now().UTC().Format(time.RFC3339Nano), checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform)
+	result, err := db.conn.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=? AND (?=1 OR NOT EXISTS(SELECT 1 FROM action_account_scopes WHERE profile_scope=action_runs.profile_scope))`, string(raw), time.Now().UTC().Format(time.RFC3339Nano), checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, checkpoint.AccountBound)
 	if err != nil {
 		return err
 	}
@@ -275,7 +286,7 @@ func (db *DB) SaveActionCandidate(ctx context.Context, checkpoint ActionCheckpoi
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := tx.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=?`, string(raw), now, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform)
+	result, err := tx.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=? AND (?=1 OR NOT EXISTS(SELECT 1 FROM action_account_scopes WHERE profile_scope=action_runs.profile_scope))`, string(raw), now, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, checkpoint.AccountBound)
 	if err != nil {
 		return err
 	}

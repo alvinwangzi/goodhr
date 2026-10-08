@@ -3,9 +3,23 @@ package boss
 
 import (
 	"context"
+	"fmt"
 	"goodhr5/local-agent-go/internal/platformcore"
 	"strings"
 )
+
+// ObserveAccountIdentity 读取正常加载响应中的登录用户 ID，缺失时不得用显示姓名或目录名代替。
+func (r *Runtime) ObserveAccountIdentity(ctx context.Context, exec platformcore.Executor, refreshIfMissing bool) (string, error) {
+	result, err := exec.Post(ctx, "/api/v1/boss/account/identity", map[string]any{"refresh_if_missing": refreshIfMissing})
+	if err != nil {
+		return "", err
+	}
+	data := workerDataMap(result)
+	if !boolFromMap(data, "verified") || stringFromMap(data, "account_id") == "" {
+		return "", fmt.Errorf("无法核对 Boss 登录账号，请确认已登录后重新开始")
+	}
+	return stringFromMap(data, "account_id"), nil
+}
 
 // ResolveCandidateConversationID 只接受被动响应成对 ID 与当前真实聊天行的联合核对结果。
 func (r *Runtime) ResolveCandidateConversationID(ctx context.Context, exec platformcore.Executor, recommendationID, candidateName string) (string, string, error) {

@@ -20,6 +20,46 @@ test("账号证明只读取用户 ID，不访问 token 或批量凭证节点", (
   assert.equal(readBossResponseAccountID(accountPath, { code: 1, zpData: data }), "");
 });
 
+test("账号响应尚未结束时停止，立即退出等待且不使用旧证明", async () => {
+  const page = fixturePage(); observeBossResponseIdentities(page);
+  page.emit("response", { url: () => `https://www.zhipin.com${accountPath}`, json: () => new Promise(() => {}) });
+  const controller = new AbortController();
+  const reading = readBossObservedAccountIdentity(page, controller.signal);
+  controller.abort();
+  await assert.rejects(reading, error => error.name === "AbortError");
+});
+
+test("补取账号证明保留人工草稿；空草稿首次准备才可刷新", async () => {
+  const browser = await chromium.launch({ channel: "msedge", headless: true });
+  try {
+    const page = await browser.newPage();
+    let visits = 0;
+    await page.route("https://www.zhipin.com/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === accountPath) await route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { userId: 901 } }) });
+      else {
+        visits++;
+        await route.fulfill({ contentType: "text/html; charset=utf-8", body: path.includes("draft") ? "<textarea>人工草稿</textarea>" : `<iframe src="${accountPath}"></iframe>` });
+      }
+    });
+    await page.goto("https://www.zhipin.com/web/chat/draft");
+    observeBossResponseIdentities(page);
+    await assert.rejects(readBossObservedAccountIdentity(page, undefined, true), /尚未发送/);
+    assert.equal(visits, 1);
+    assert.equal(await page.locator("textarea").inputValue(), "人工草稿");
+    // 新页面在观察器安装前已加载，模拟启动时复用已打开的浏览器。
+    const empty = await browser.newPage();
+    await empty.route("https://www.zhipin.com/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      await route.fulfill(path === accountPath ? { contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { userId: 902 } }) } : { contentType: "text/html", body: `<iframe src="${accountPath}"></iframe>` });
+    });
+    await empty.goto("https://www.zhipin.com/web/chat/index");
+    observeBossResponseIdentities(empty);
+    const proof = await readBossObservedAccountIdentity(empty, undefined, true);
+    assert.equal(proof.account_id, "902");
+  } finally { await browser.close(); }
+});
+
 test("缺失账号不猜测，同文档换账号清空候选人证明并保持拒绝状态", async () => {
   const page = fixturePage(); observeBossResponseIdentities(page);
   assert.deepEqual(await readBossObservedAccountIdentity(page), { verified: false });

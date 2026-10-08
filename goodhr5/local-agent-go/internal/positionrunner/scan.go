@@ -75,6 +75,9 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 		r.positionLog(position.ID, "info", "页面准备：招聘平台页面打开完成")
 	}
 	seen := map[string]struct{}{}
+	if _, _, err := r.bindPlatformAccountScope(ctx, exec, platformRuntime, position, options); err != nil {
+		return nil, fmt.Errorf("登录账号核对失败：%w", err)
+	}
 	readSeen := map[string]struct{}{}
 	queue := make([]map[string]any, 0)
 	totalResult := batchProcessResult{}

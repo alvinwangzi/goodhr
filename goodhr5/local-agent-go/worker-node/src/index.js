@@ -6345,7 +6345,7 @@ const routes = {
   "/api/v1/page/cookies": importCookies,
   "/api/v1/boss/candidates/extract": extractBossCandidates,
   "/api/v1/boss/candidates/identity": async (payload, signal) => resolveBossResponseIdentity(await ensurePage(), String(payload.recommendation_id || ""), String(payload.candidate_name || ""), signal),
-  "/api/v1/boss/account/identity": async (_payload, signal) => readBossObservedAccountIdentity(await ensurePage(), signal),
+  "/api/v1/boss/account/identity": async (payload, signal) => readBossObservedAccountIdentity(await ensurePage(), signal, payload.refresh_if_missing === true),
   "/api/v1/boss/candidates/capture-anchors": async (payload) => captureRecommendationAnchors(await ensurePage(), payload),
   "/api/v1/boss/candidates/check-anchors": async (payload) => checkRecommendationAnchors(await ensurePage(), payload),
   "/api/v1/boss/candidates/rewind": async () => rewindRecommendation(await ensurePage()),
@@ -6455,8 +6455,13 @@ const server = http.createServer(async (req, res) => {
       ).trim(),
     });
     const handlerStartedAt = Date.now();
-    const data = await runBrowserAction(() => {
+    const data = await runBrowserAction(async () => {
       actionController.signal.throwIfAborted();
+      if (requestPayload.expected_platform_account_id) {
+        if (requestPayload.expected_account_platform !== "boss") throw new Error("当前平台尚未支持动作前账号核对");
+        const account = await readBossObservedAccountIdentity(await ensurePage(), actionController.signal, false, true);
+        if (!account.verified || account.account_id !== requestPayload.expected_platform_account_id) throw new Error("Boss 登录账号已变化或无法核对，请停止后重新开始");
+      }
       return handler(requestPayload, actionController.signal);
     }, Object.hasOwn(requestPayload, "selector_spec") || requestPayload.no_script === true);
     const completionFields = {

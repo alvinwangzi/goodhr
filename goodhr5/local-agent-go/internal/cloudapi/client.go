@@ -152,17 +152,41 @@ func (c *Client) FetchSubscription(ctx context.Context, token string) (map[strin
 // ValidateSession 验证当前云端登录态是否仍然有效。
 // ctx 为请求上下文，token 为登录令牌。
 func (c *Client) ValidateSession(ctx context.Context, token string) error {
+	_, err := c.sessionPayload(ctx, token)
+	return err
+}
+
+// SessionOwner 复用登录态验证接口读取服务端确认的所有者，不解析客户端令牌或相信前端提交的姓名。
+func (c *Client) SessionOwner(ctx context.Context, token string) (string, error) {
+	payload, err := c.sessionPayload(ctx, token)
+	if err != nil {
+		return "", err
+	}
+	if data, ok := payload["data"].(map[string]any); ok {
+		payload = data
+	}
+	user, _ := payload["user"].(map[string]any)
+	email, _ := user["email"].(string)
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || !strings.Contains(email, "@") {
+		return "", fmt.Errorf("登录校验未返回账号所有者，暂不能恢复补传")
+	}
+	return email, nil
+}
+
+// sessionPayload 统一验证登录状态并返回已验证响应，供原校验和账号作用域读取复用。
+func (c *Client) sessionPayload(ctx context.Context, token string) (map[string]any, error) {
 	payload, status, err := c.getAuthed(ctx, token, "/api/auth/me")
 	if err != nil {
-		return fmt.Errorf("验证账号登录态失败：%w", err)
+		return nil, fmt.Errorf("验证账号登录态失败：%w", err)
 	}
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		return AuthExpiredError{Message: cloudMessage(payload, "账号已在其他地方登录，请重新登录")}
+		return nil, AuthExpiredError{Message: cloudMessage(payload, "账号已在其他地方登录，请重新登录")}
 	}
 	if status >= 400 {
-		return fmt.Errorf("%s", cloudMessage(payload, "验证账号登录态失败"))
+		return nil, fmt.Errorf("%s", cloudMessage(payload, "验证账号登录态失败"))
 	}
-	return nil
+	return payload, nil
 }
 
 // FetchPosition 读取云端岗位运行详情。

@@ -3,6 +3,8 @@ package positionrunner
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -159,7 +161,20 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		var conversation platformcore.ReplyConversation
 		var err error
 		if options.LocalRunID != "" {
-			identity, lookupErr := r.verifiedCandidateIdentity(ctx, exec, runtime, platformcore.ReplyHash("profile:"+positionProfileName(position)), position.PlatformID, item.CandidateID, item.CandidateName)
+			scope := platformcore.ReplyHash("profile:" + positionProfileName(position))
+			checkpoint, checkpointErr := r.db.LoadActionCheckpoint(ctx, options.LocalRunID)
+			if checkpointErr != nil && !errors.Is(checkpointErr, sql.ErrNoRows) {
+				r.positionLog(position.ID, "warning", "索要账号检查点读取失败")
+				continue
+			}
+			if _, requiresProof := runtime.(platformcore.AccountIdentityRuntime); requiresProof && (checkpointErr != nil || !checkpoint.AccountBound) {
+				r.positionLog(position.ID, "warning", "索要账号尚未核对，名单保留")
+				continue
+			}
+			if checkpoint.AccountBound {
+				scope = checkpoint.ProfileScope
+			}
+			identity, lookupErr := r.verifiedCandidateIdentity(ctx, exec, runtime, scope, position.PlatformID, item.CandidateID, item.CandidateName)
 			identityLocator, supported := runtime.(platformcore.IdentityConversationLocator)
 			if lookupErr != nil || identity.Status != "verified" || !supported {
 				r.positionLog(position.ID, "warning", "索要身份尚未核对，名单保留："+item.CandidateName)

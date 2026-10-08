@@ -145,6 +145,11 @@ type CandidateIdentityResolver interface {
 	ResolveCandidateConversationID(context.Context, Executor, string, string) (string, string, error)
 }
 
+// AccountIdentityRuntime 提供当前招聘平台的只读登录账号证明，首次准备时可以安全补取。
+type AccountIdentityRuntime interface {
+	ObserveAccountIdentity(context.Context, Executor, bool) (string, error)
+}
+
 // ReplyHash 返回正文或已规范化数据的摘要，不保留原文。
 func ReplyHash(text string) string {
 	sum := sha256.Sum256([]byte(text))

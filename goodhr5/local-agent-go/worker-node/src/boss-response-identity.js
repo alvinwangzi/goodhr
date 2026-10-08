@@ -7,6 +7,20 @@ const detailPath = "/wapi/zpjob/chat/geek/info";
 const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
 const batchPath = "/wapi/batch/requests";
 
+/** waitBossIdentityResponses 有界等待已观察响应，取消或超时后不使用旧证明，也不继续页面动作。 */
+async function waitBossIdentityResponses(state, signal) {
+  signal?.throwIfAborted();
+  if (state.pending.size === 0) return true;
+  let timer, onAbort;
+  const interrupted = new Promise((resolve, reject) => {
+    timer = setTimeout(() => resolve(false), 5000);
+    onAbort = () => reject(signal.reason || new Error("身份核对已取消"));
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  try { return await Promise.race([Promise.allSettled([...state.pending]).then(() => true), interrupted]); }
+  finally { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); }
+}
+
 /** readBossResponseAccountID 只读取账号信息节点中的数字用户 ID，不访问 token、联系方式或其他批量响应。 */
 export function readBossResponseAccountID(path, body) {
   const response = path === accountPath ? body : path === batchPath && body?.code === 0 ? body.zpData?.[accountPath] : null;
@@ -98,14 +112,14 @@ export function observeBossResponseIdentities(page) {
 export async function resolveBossResponseIdentity(page, recommendationID, candidateName = "", signal) {
   signal?.throwIfAborted();
   const state = observeBossResponseIdentities(page);
-  await Promise.allSettled([...state.pending]);
+  if (!await waitBossIdentityResponses(state, signal)) return { verified: false };
   signal?.throwIfAborted();
   const epoch = state.epoch;
   let fact = state.facts.get(recommendationID);
   if (state.accountConflict || state.conflicts.has(recommendationID)) return { verified: false };
   if (!fact && candidateName && recommendationID) {
     const opened = await locateBossConversationByEncryptedID(page, candidateName, recommendationID, signal);
-    await Promise.allSettled([...state.pending]);
+    if (!await waitBossIdentityResponses(state, signal)) return { verified: false };
     fact = state.facts.get(recommendationID);
     if (!opened.found || !fact || epoch !== state.epoch || state.accountConflict || state.conflicts.has(recommendationID) ||
         /^(\d+)-\d+$/.exec(opened.conversation_id || "")?.[1] !== fact.numeric_id) return { verified: false };
@@ -122,7 +136,7 @@ export async function resolveBossResponseIdentity(page, recommendationID, candid
   }
   if (matches.length === 0 && candidateName) {
     const opened = await locateBossConversationByNumericID(page, candidateName, fact.numeric_id, signal);
-    await Promise.allSettled([...state.pending]);
+    if (!await waitBossIdentityResponses(state, signal)) return { verified: false };
     if (!opened.found || epoch !== state.epoch || state.accountConflict || state.conflicts.has(recommendationID) ||
         state.facts.get(recommendationID)?.numeric_id !== fact.numeric_id) return { verified: false };
     return { verified: true, recommendation_id: recommendationID, conversation_id: opened.conversation_id,
@@ -134,11 +148,35 @@ export async function resolveBossResponseIdentity(page, recommendationID, candid
 }
 
 /** readBossObservedAccountIdentity 返回当前主文档正常加载的账号 ID 证明，缺失或同页变化时不猜测。 */
-export async function readBossObservedAccountIdentity(page, signal) {
+export async function readBossObservedAccountIdentity(page, signal, refreshIfMissing = false, waitForAccount = false) {
   signal?.throwIfAborted();
   const state = observeBossResponseIdentities(page);
-  await Promise.allSettled([...state.pending]);
+  if (!await waitBossIdentityResponses(state, signal)) return { verified: false };
+  if (!state.accountID && !state.accountConflict && waitForAccount) {
+    const deadline = Date.now() + 5000;
+    while (!state.accountID && !state.accountConflict && Date.now() < deadline) {
+      signal?.throwIfAborted();
+      await page.waitForTimeout(100);
+    }
+  }
   signal?.throwIfAborted();
+  if (!state.accountID && !state.accountConflict && refreshIfMissing) {
+    const url = new URL(page.url());
+    if (url.hostname !== "www.zhipin.com" || !url.pathname.startsWith("/web/chat/")) return { verified: false };
+    // 仅在首次任务准备时补取账号证明；保留人工草稿，绝不为刷新账号丢弃输入。
+    for (const input of await page.locator('[contenteditable="true"], .boss-chat-editor-input, textarea').all()) {
+      if (!await input.isVisible()) continue;
+      const draft = await input.getAttribute("contenteditable") === "true" ? await input.innerText() : await input.inputValue().catch(() => input.innerText());
+      if (String(draft || "").trim()) throw new Error("页面有尚未发送的输入，请先处理后再开始任务");
+    }
+    signal?.throwIfAborted();
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 15000 });
+    const deadline = Date.now() + 5000;
+    while (!state.accountID && !state.accountConflict && Date.now() < deadline) {
+      signal?.throwIfAborted();
+      await page.waitForTimeout(100);
+    }
+  }
   if (!state.accountID || state.accountConflict) return { verified: false };
   return { verified: true, account_id: state.accountID, source: "boss_user_info_response" };
 }

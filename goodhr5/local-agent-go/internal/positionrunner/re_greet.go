@@ -114,6 +114,16 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		return false
 	}
 	name := positionPositionName(position)
+	accountScope, accountBound, scopeErr := r.bindPlatformAccountScope(ctx, exec, runtime, position, options)
+	if scopeErr != nil {
+		r.failStart(positionID, "登录账号核对失败："+scopeErr.Error(), options)
+		return false
+	}
+	legacySendScope := platformcore.ReplyHash(profileName)
+	sendScope := legacySendScope
+	if accountBound {
+		sendScope = accountScope
+	}
 	r.positionLog(positionID, "info", "复打招呼核对岗位：岗位名="+name)
 	target, err := pageRuntime.ResolveReplyTarget(ctx, exec, name)
 	if err != nil {
@@ -205,7 +215,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			reportSkip(candidate, "identity_basis_unresolved")
 			continue
 		}
-		due, dueErr := r.db.EnsureReGreetDue(ctx, platformcore.ReplyHash("profile:"+profileName), platform, candidate.PlatformCandidateID, fmt.Sprintf("%d:%s", candidate.ReGreetCount, basis.UTC().Format(time.RFC3339Nano)), basis.Add(randomInterval(prefs.intervalMinMinutes, prefs.intervalMaxMinutes)))
+		due, dueErr := r.db.EnsureReGreetDue(ctx, accountScope, platform, candidate.PlatformCandidateID, fmt.Sprintf("%d:%s", candidate.ReGreetCount, basis.UTC().Format(time.RFC3339Nano)), basis.Add(randomInterval(prefs.intervalMinMinutes, prefs.intervalMaxMinutes)))
 		if dueErr != nil {
 			r.failStart(positionID, "复打到期安排保存失败", options)
 			return false
@@ -213,7 +223,10 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		if now().Before(due) {
 			continue
 		}
-		pending, pendingErr := r.db.PendingReGreetForCandidate(ctx, platformcore.ReplyHash(profileName), platform, candidate.PlatformCandidateID)
+		pending, pendingErr := r.db.PendingReGreetForCandidate(ctx, sendScope, platform, candidate.PlatformCandidateID)
+		if pendingErr == nil && !pending && accountBound {
+			pending, pendingErr = r.db.PendingReGreetForCandidate(ctx, legacySendScope, platform, candidate.PlatformCandidateID)
+		}
 		if pendingErr != nil {
 			r.failStart(positionID, "复打补传状态读取失败", options)
 			return false
@@ -222,7 +235,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			stats.skipped++
 			continue
 		}
-		identity, identityErr := r.verifiedCandidateIdentity(ctx, exec, runtime, platformcore.ReplyHash("profile:"+profileName), platform, candidate.PlatformCandidateID, candidateName)
+		identity, identityErr := r.verifiedCandidateIdentity(ctx, exec, runtime, accountScope, platform, candidate.PlatformCandidateID, candidateName)
 		if identityErr != nil && !errors.Is(identityErr, sql.ErrNoRows) && !errors.Is(identityErr, platformcore.ErrReplyUnsafe) && !errors.Is(identityErr, localdb.ErrIdentityConflict) {
 			r.failStart(positionID, "候选人身份记录读取失败", options)
 			return false
@@ -282,7 +295,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			continue
 		}
 		// 复用本地发送意图存储；名单次数相同的候选人不能因上报失败而再次发送。
-		key := localdb.AutoReplyRecord{ProfileScope: platformcore.ReplyHash(profileName), Platform: platform,
+		key := localdb.AutoReplyRecord{ProfileScope: sendScope, Platform: platform,
 			ConversationID: "re_greet:" + candidate.PlatformCandidateID, InboundFingerprint: platformcore.ReplyHash(fmt.Sprintf("%s:%d", positionID, candidate.ReGreetCount)),
 			PositionID: positionID, RunID: options.CloudRunID, ContextFingerprint: reGreetContextFingerprint(beforeCtx)}
 		if existing, err := r.db.FindAutoReply(ctx, key); err == nil && (existing.Status == "sent" || existing.Status == "sending" || existing.Status == "unknown") {

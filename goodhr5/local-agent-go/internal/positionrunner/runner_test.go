@@ -1565,6 +1565,9 @@ func (w *fakeWorker) CallOnce(ctx context.Context, path string, payload any) (ma
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (w *fakeWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
 	w.calls = append(w.calls, path)
+	if path == "/api/v1/boss/account/identity" {
+		return map[string]any{"data": map[string]any{"verified": true, "account_id": "901"}}, nil
+	}
 	if path == "/api/v1/page/list" {
 		w.pageListCalls++
 		if w.pageListCalls <= w.pageListEmptyBefore {
@@ -1747,6 +1750,9 @@ func (w *blockingWorker) CallOnce(ctx context.Context, path string, payload any)
 // Call 模拟 Worker API，并在候选人提取时等待当前步骤完成。
 // ctx 为请求上下文，path 为 Worker 路径，payload 为请求体。
 func (w *blockingWorker) Call(ctx context.Context, path string, payload any) (map[string]any, error) {
+	if path == "/api/v1/boss/account/identity" {
+		return map[string]any{"data": map[string]any{"verified": true, "account_id": "901"}}, nil
+	}
 	if path == "/api/v1/page/list" {
 		return map[string]any{"data": map[string]any{"pages": []any{map[string]any{
 			"page_id":    "0",

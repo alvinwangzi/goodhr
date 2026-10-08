@@ -223,6 +223,7 @@ func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := cloudapi.New(s.cfg.CloudAPIBase)
+	uploadVersion := s.runner.ReGreetUploadSessionVersion()
 	resp, statusCode, err := client.BindDevice(r.Context(), token, machineID, version.Value, s.cfg.Port)
 	if err != nil {
 		response.Error(w, http.StatusBadGateway, err.Error())
@@ -257,7 +258,12 @@ func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadGateway, cloudapi.ErrorMessage(resp, "设备绑定失败"))
 		return
 	}
-	s.runner.BindReGreetUploadSession(token)
+	owner, ownerErr := client.SessionOwner(r.Context(), token)
+	if ownerErr != nil {
+		response.Error(w, http.StatusBadGateway, "设备已绑定，但账号核对未完成，请重试："+ownerErr.Error())
+		return
+	}
+	s.runner.BindVerifiedReGreetUploadSession(token, positionrunner.CloudOwnerScope(s.cfg.CloudAPIBase, owner), uploadVersion, s.cfg.CloudAPIBase)
 	response.Success(w, resp)
 }
 
