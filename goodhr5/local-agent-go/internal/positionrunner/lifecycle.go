@@ -144,6 +144,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		PositionID: positionID, Platform: position.PlatformID,
 		ProfileScope: platformcore.ReplyHash("profile:" + safePathName(positionProfileName(position))),
 		CloudRunID:   options.CloudRunID, PositionSnapshot: position.PositionSnapshot,
+		TaskType: strings.Join(parseTaskTypes(options.TaskType), ","), PrioritizeReply: options.PrioritizeReply,
 	})
 	if checkpointErr != nil {
 		cancel()
@@ -171,6 +172,10 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	options.EnableSound = position.EnableSound
 	r.updateRunOptions(positionID, options)
 	taskTypes := parseTaskTypes(options.TaskType)
+	if options.LocalRunID != "" && (hasTaskType(taskTypes, "auto_reply") || hasTaskType(taskTypes, "re_greet")) {
+		r.runCooperativePosition(ctx, position, options, snapshot)
+		return
+	}
 	if !hasTaskType(taskTypes, "greeting") {
 		// 只选择消息任务时跳过推荐列表扫描，按复打、自动回复的顺序执行。
 		r.runMessageTasks(ctx, position, options, snapshot)
@@ -378,18 +383,35 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 	if stats, ok := r.currentReGreetStats(positionID); ok {
 		positionMap["re_greet_stats"] = stats
 	}
+	var dispatch map[string]any
+	if checkpoint, ok := r.actionStatusCheckpoint(positionID); ok {
+		dispatch = dispatchStatusMap(checkpoint, running)
+		if checkpoint.TaskType != "" {
+			positionMap["task_type"] = checkpoint.TaskType
+		}
+		if !running {
+			positionMap["current_run_greeted_count"] = checkpoint.Greeted
+			if checkpoint.ReplyStats != nil {
+				positionMap["reply_stats"] = checkpoint.ReplyStats
+			}
+			if checkpoint.ReGreetStats != nil {
+				positionMap["re_greet_stats"] = checkpoint.ReGreetStats
+			}
+		}
+	}
 	return map[string]any{
-		"position":      positionMap,
-		"running":       running,
-		"progress":      progress,
-		"logs":          logs,
-		"status":        position.Status,
-		"current_step":  progress.Message,
-		"scanned_count": position.ScannedCount,
-		"greeted_count": position.GreetedCount,
-		"skipped_count": position.SkippedCount,
-		"failed_count":  position.FailedCount,
-		"analysis":      analysis,
+		"action_dispatch": dispatch,
+		"position":        positionMap,
+		"running":         running,
+		"progress":        progress,
+		"logs":            logs,
+		"status":          position.Status,
+		"current_step":    progress.Message,
+		"scanned_count":   position.ScannedCount,
+		"greeted_count":   position.GreetedCount,
+		"skipped_count":   position.SkippedCount,
+		"failed_count":    position.FailedCount,
+		"analysis":        analysis,
 	}, nil
 }
 
@@ -404,10 +426,12 @@ func isLocalPositionMissing(err error) bool {
 func (r *Runner) Progress(positionID string, position localdb.Position) Progress {
 	r.mu.Lock()
 	state := r.running[strings.TrimSpace(positionID)]
-	r.mu.Unlock()
 	if state != nil {
-		return state.progress
+		progress := state.progress
+		r.mu.Unlock()
+		return progress
 	}
+	r.mu.Unlock()
 	stage := position.Status
 	if stage == "" {
 		stage = "unknown"

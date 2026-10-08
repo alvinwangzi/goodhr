@@ -67,14 +67,18 @@ func TestHandleHealthExposesAutoReplyCapability(t *testing.T) {
 func TestStartOptionsFromPayloadCarriesTaskType(t *testing.T) {
 	s := newCapabilityTestServer(t)
 	options := s.startOptionsFromPayload(map[string]any{
-		"task_type":    "auto_reply",
-		"enable_greet": false,
+		"task_type":        "auto_reply",
+		"enable_greet":     false,
+		"prioritize_reply": true,
 	}, "machine-1")
 	if options.TaskType != "auto_reply" {
 		t.Fatalf("任务类型未透传：%q", options.TaskType)
 	}
 	if options.EnableGreet {
 		t.Fatal("明确关闭的打招呼开关被默认值覆盖")
+	}
+	if !options.PrioritizeReply {
+		t.Fatal("优先回复开关未透传")
 	}
 	if options.MachineID != "machine-1" {
 		t.Fatalf("设备编号未透传：%q", options.MachineID)

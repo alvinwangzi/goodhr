@@ -90,3 +90,28 @@ func TestReGreetDueSurvivesRestart(t *testing.T) {
 		t.Fatalf("新基准未更新: %v %v", due, err)
 	}
 }
+
+// TestLatestActionUsesStartSequence 验证旧更新和系统时间调整不能取代最近开始的运行。
+func TestLatestActionUsesStartSequence(t *testing.T) {
+	db, _ := openReplyDB(t)
+	first, err := db.CreateActionRun(t.Context(), ActionCheckpoint{PositionID: "p", ProfileScope: "s", Platform: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.CreateActionRun(t.Context(), ActionCheckpoint{PositionID: "p", ProfileScope: "s", Platform: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Greeted = 99
+	// 模拟先前运行时系统时间偏到未来，新运行仍必须排在最后。
+	if _, err = db.conn.Exec(`UPDATE action_runs SET created_at='3000-01-01T00:00:00Z' WHERE run_id=?`, first.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SaveActionCheckpoint(t.Context(), first); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := db.LatestActionCheckpoint(t.Context(), "p")
+	if err != nil || latest.RunID != second.RunID || latest.Greeted != 0 {
+		t.Fatalf("迟到覆盖了新运行 %+v %v", latest, err)
+	}
+}

@@ -466,6 +466,9 @@ scanLoop:
 				if err := r.saveScanCheckpoint(context.WithoutCancel(ctx), options, candidate, filtered[nextIndex:], totalResult.Greeted); err != nil {
 					return nil, fmt.Errorf("候选人安全边界检查点保存失败：%w", err)
 				}
+				if err := r.maybeRestAfterCandidate(ctx, position, platformRuntime, exec, platformConfig, options); err != nil {
+					return nil, err
+				}
 				if options.scanBoundary != nil {
 					rescan, boundaryErr := options.scanBoundary(ctx)
 					if boundaryErr != nil {
@@ -485,11 +488,11 @@ scanLoop:
 						}
 						queue = nil
 						emptyLoads = 0
+						if options.acknowledgeRescan != nil {
+							options.acknowledgeRescan()
+						}
 						continue scanLoop
 					}
-				}
-				if err := r.maybeRestAfterCandidate(ctx, position, platformRuntime, exec, platformConfig, options); err != nil {
-					return nil, err
 				}
 				if r.isUserStopped(position.ID) {
 					r.positionLog(position.ID, "info", "岗位运行停止：当前候选人处理完成，按停止请求结束岗位运行")

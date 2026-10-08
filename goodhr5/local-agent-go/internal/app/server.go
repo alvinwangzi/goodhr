@@ -533,6 +533,7 @@ func (s *Server) startOptionsFromPayload(payload map[string]any, machineID strin
 		Token:                  stringValue(payload["token"]),
 		MachineID:              machineID,
 		TaskType:               stringValue(payload["task_type"]),
+		PrioritizeReply:        boolValue(payload["prioritize_reply"]),
 		EnableGreet:            boolValueDefault(payload["enable_greet"], true),
 		GreetRetries:           0,
 		ScrollDelayMin:         3,

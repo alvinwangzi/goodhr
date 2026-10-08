@@ -18,6 +18,11 @@ var ErrIdentityConflict = errors.New("候选人身份映射冲突，需要核对
 
 // ActionCheckpoint 保存当前单岗位进度，不包含登录凭证或页面对象。
 type ActionCheckpoint struct {
+	TaskType         string           `json:"task_type"`                // 本次勾选的单岗位动作组合。
+	PrioritizeReply  bool             `json:"prioritize_reply"`         // 本次固定的优先回复开关。
+	LastMessageCheck time.Time        `json:"last_message_check"`       // 最近实际完成的消息检查时间。
+	ReplyStats       map[string]int   `json:"reply_stats,omitempty"`    // 本次回复、附件、失败与未知的分别统计。
+	ReGreetStats     map[string]int   `json:"re_greet_stats,omitempty"` // 本次复打动作的分别统计。
 	RunID            string           `json:"run_id"`
 	PositionID       string           `json:"position_id"`
 	ProfileScope     string           `json:"profile_scope"`
@@ -53,6 +58,10 @@ CREATE TABLE IF NOT EXISTS action_runs (
  platform TEXT NOT NULL,
  -- 检查点 JSON，不含凭证和 DOM 引用。
  checkpoint TEXT NOT NULL,
+ -- 原子递增的开始顺序，不受系统时间调整或旧进度补传影响。
+ start_seq INTEGER NOT NULL UNIQUE,
+ -- 首次创建时间，后续进度更新不改变运行排序。
+ created_at TEXT NOT NULL,
  -- 最近持久化时间。
  updated_at TEXT NOT NULL
 );
@@ -102,7 +111,45 @@ CREATE TABLE IF NOT EXISTS re_greet_schedules (
  due_at TEXT NOT NULL,
  PRIMARY KEY(profile_scope,platform,candidate_id)
 );`)
-	return err
+	if err != nil {
+		return err
+	}
+	rows, err := db.conn.Query(`PRAGMA table_info(action_runs)`)
+	if err != nil {
+		return err
+	}
+	found, sequenceFound := false, false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var defaultValue sql.NullString
+		if err = rows.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "created_at" {
+			found = true
+		}
+		if name == "start_seq" {
+			sequenceFound = true
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if !found {
+		if _, err = db.conn.Exec(`ALTER TABLE action_runs ADD COLUMN created_at TEXT NOT NULL DEFAULT ''; UPDATE action_runs SET created_at=updated_at WHERE created_at='';`); err != nil {
+			return err
+		}
+	}
+	if !sequenceFound {
+		if _, err = db.conn.Exec(`ALTER TABLE action_runs ADD COLUMN start_seq INTEGER NOT NULL DEFAULT 0; UPDATE action_runs SET start_seq=rowid; CREATE UNIQUE INDEX IF NOT EXISTS action_runs_sequence ON action_runs(start_seq);`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CreateActionRun 保存新的单岗位运行，调用方仅提供不含 Token 的岗位快照。
@@ -115,8 +162,17 @@ func (db *DB) CreateActionRun(ctx context.Context, checkpoint ActionCheckpoint) 
 	if err != nil {
 		return ActionCheckpoint{}, err
 	}
-	_, err = db.conn.ExecContext(ctx, `INSERT INTO action_runs(run_id,position_id,profile_scope,platform,checkpoint,updated_at) VALUES(?,?,?,?,?,?)`, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, string(raw), time.Now().UTC().Format(time.RFC3339Nano))
-	return checkpoint, err
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return ActionCheckpoint{}, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `INSERT INTO action_runs(run_id,position_id,profile_scope,platform,checkpoint,start_seq,created_at,updated_at) SELECT ?,?,?,?,?,COALESCE(MAX(start_seq),0)+1,?,? FROM action_runs`, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, string(raw), now, now)
+	if err != nil {
+		return ActionCheckpoint{}, err
+	}
+	return checkpoint, tx.Commit()
 }
 
 // LoadActionCheckpoint 读取持久化检查点，重新打开数据库后仍可核对进度。
@@ -124,6 +180,18 @@ func (db *DB) LoadActionCheckpoint(ctx context.Context, runID string) (ActionChe
 	var raw string
 	var checkpoint ActionCheckpoint
 	err := db.conn.QueryRowContext(ctx, `SELECT checkpoint FROM action_runs WHERE run_id=?`, runID).Scan(&raw)
+	if err != nil {
+		return checkpoint, err
+	}
+	err = json.Unmarshal([]byte(raw), &checkpoint)
+	return checkpoint, err
+}
+
+// LatestActionCheckpoint 按原子开始顺序读取最近一轮，时钟调整和旧补传不能取代新运行。
+func (db *DB) LatestActionCheckpoint(ctx context.Context, positionID string) (ActionCheckpoint, error) {
+	var raw string
+	var checkpoint ActionCheckpoint
+	err := db.conn.QueryRowContext(ctx, `SELECT checkpoint FROM action_runs WHERE position_id=? ORDER BY start_seq DESC LIMIT 1`, positionID).Scan(&raw)
 	if err != nil {
 		return checkpoint, err
 	}

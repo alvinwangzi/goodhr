@@ -321,6 +321,30 @@ func (r *Runner) maybeRestAfterCandidate(ctx context.Context, position localdb.P
 // waitForSimulatedRest 等待模拟休息结束；窗口内优先检查候选人回复并回到岗位列表页，剩余时间继续等待。
 // 检查耗时计入休息时长，总休息节奏保持不变；浮层调用始终异步且忽略错误，页面展示异常不会影响岗位运行主流程。
 func (r *Runner) waitForSimulatedRest(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, options StartOptions, restIndex int, duration time.Duration, endsAt time.Time) error {
+	if options.scanBoundary != nil {
+		for time.Until(endsAt) > 0 {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if r.isUserStopped(position.ID) {
+				return context.Canceled
+			}
+			if _, err := options.scanBoundary(ctx); err != nil {
+				return err
+			}
+			remaining := time.Until(endsAt)
+			if remaining <= 0 {
+				return nil
+			}
+			if remaining > time.Second {
+				remaining = time.Second
+			}
+			if err := sleepWithContext(ctx, remaining); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	positionID := position.ID
 	r.updateRestDisplay(positionID, exec, restIndex, duration, endsAt)
 	if r.checkResumeRequestsDuringRest(ctx, position, platformRuntime, exec, platformConfig, options, endsAt) {

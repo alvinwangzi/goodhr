@@ -18,6 +18,7 @@ const (
 type Work struct {
 	Greeting, Reply, ReGreet bool
 	ReGreetDue               time.Time
+	ReGreetWaitingSince      time.Time // 进入本次活跃队列的时间，停机期间不算调度等待。
 }
 
 // Scheduler 保存公平性与消息检查时间；调用方只在安全边界调用 Next。
@@ -71,7 +72,11 @@ func (s *Scheduler) Next(now time.Time, w Work) Action {
 	if w.Greeting && s.messageBatches >= 2 {
 		return Greeting
 	}
-	overdue := w.ReGreet && !w.ReGreetDue.IsZero() && !now.Before(w.ReGreetDue.Add(s.Interval))
+	waitingSince := w.ReGreetWaitingSince
+	if waitingSince.IsZero() {
+		waitingSince = w.ReGreetDue
+	}
+	overdue := w.ReGreet && !waitingSince.IsZero() && !now.Before(waitingSince.Add(s.Interval))
 	if overdue && (s.lastMessage != ReGreet || !w.Reply) {
 		return ReGreet
 	}

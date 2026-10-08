@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"goodhr5/local-agent-go/internal/actiondispatch"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localai"
 	"goodhr5/local-agent-go/internal/localdb"
@@ -58,7 +59,15 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	totalRounds := scanRounds(options)
 	prefs := extractReGreetPrefs(options)
 	stats := reGreetStats{}
+	if options.reGreetTotals != nil {
+		stats = *options.reGreetTotals
+	}
 	defer func() { r.updateReGreetStats(positionID, stats) }()
+	defer func() {
+		if options.reGreetTotals != nil {
+			*options.reGreetTotals = stats
+		}
+	}()
 	r.updateReGreetStats(positionID, stats)
 
 	stopped := func(message string) {
@@ -142,7 +151,25 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		return false
 	}
 	r.positionLog(positionID, "info", fmt.Sprintf("复打招呼名单拉取完成：共 %d 人", len(candidates)))
-	stats.total = len(candidates)
+	if options.reGreetBatch != nil {
+		latest := map[string]cloudapi.ReGreetCandidate{}
+		for _, candidate := range candidates {
+			latest[candidate.PlatformCandidateID] = candidate
+		}
+		filtered := []cloudapi.ReGreetCandidate{}
+		for _, expected := range options.reGreetBatch {
+			if candidate, ok := latest[expected.PlatformCandidateID]; ok && expected.ReGreetCount == candidate.ReGreetCount && expected.GreetedAt == candidate.GreetedAt && expected.LastReGreetedAt == candidate.LastReGreetedAt {
+				filtered = append(filtered, candidate)
+			}
+		}
+		candidates = filtered
+	}
+	if options.reGreetTotals == nil {
+		stats.total = len(candidates)
+	}
+	if options.reGreetRemaining != nil {
+		*options.reGreetRemaining = candidates
+	}
 	r.updateReGreetStats(positionID, stats)
 	if len(candidates) == 0 {
 		r.positionLog(positionID, "info", "复打招呼：当前没有符合条件的候选人，任务结束")
@@ -152,12 +179,23 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	r.updateProgress(positionID, Progress{Stage: "running", Message: fmt.Sprintf("正在对 %d 位候选人执行复打招呼", len(candidates)), TotalRounds: totalRounds})
 
 	reGreetPrompt := positionReGreetPrompt(position, "")
+	now := time.Now
+	if options.actionNow != nil {
+		now = options.actionNow
+	}
+	batchStarted := now()
 	for i, candidate := range candidates {
+		if options.reGreetRemaining != nil && actiondispatch.BatchLimit(batchStarted, now(), i) {
+			break
+		}
 		if r.isUserStopped(positionID) || ctx.Err() != nil {
 			stopped("复打招呼已停止")
 			return false
 		}
 		candidateName := candidate.CandidateName
+		if options.reGreetRemaining != nil {
+			*options.reGreetRemaining = candidates[i+1:]
+		}
 		r.positionLog(positionID, "info", fmt.Sprintf("复打招呼进度 [%d/%d]：候选人=%s（%s）", i+1, len(candidates), candidateName, candidate.PlatformCandidateID))
 
 		// 联系基准来自云端事实，到期时间独立保存，不等待上一位候选人的间隔。
@@ -172,7 +210,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			r.failStart(positionID, "复打到期安排保存失败", options)
 			return false
 		}
-		if time.Now().Before(due) {
+		if now().Before(due) {
 			continue
 		}
 		pending, pendingErr := r.db.PendingReGreetForCandidate(ctx, platformcore.ReplyHash(profileName), platform, candidate.PlatformCandidateID)
@@ -344,11 +382,11 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		}
 		if sendErr := runtime.SendReGreet(ctx, exec, target, conversation, beforeCtx, text); sendErr != nil {
 			_ = r.db.TransitionAutoReply(context.WithoutCancel(ctx), record.ID, "sending", "unknown", "send_failed")
+			stats.unknown++
 			if fatal(sendErr) {
 				return false
 			}
 			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼发送失败（%s）：%v", candidateName, sendErr))
-			stats.failed++
 			reportSkip(candidate, "send_failed")
 			r.updateReGreetStats(positionID, stats)
 			continue
@@ -356,11 +394,11 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		confirmed, confirmErr := runtime.ConfirmReGreet(ctx, exec, target, conversation, beforeCtx, text)
 		if confirmErr != nil || !confirmed {
 			_ = r.db.TransitionAutoReply(context.WithoutCancel(ctx), record.ID, "sending", "unknown", "send_unconfirmed")
+			stats.unknown++
 			if fatal(confirmErr) {
 				return false
 			}
 			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼发送未确认（%s）：err=%v", candidateName, confirmErr))
-			stats.failed++
 			reportSkip(candidate, "send_unconfirmed")
 			r.updateReGreetStats(positionID, stats)
 			continue
@@ -449,6 +487,7 @@ func randomInterval(minMinutes, maxMinutes int) time.Duration {
 
 // reGreetStats 记录复打招呼本轮的累计计数，用于前端进度面板与云端状态同步。
 type reGreetStats struct {
+	unknown        int // 已进入发送但结果尚未确认，不能算成功或自动重发。
 	total          int
 	sent           int
 	skipped        int
@@ -526,7 +565,7 @@ func (r *Runner) currentReGreetStats(positionID string) (map[string]int, bool) {
 		return nil, false
 	}
 	s := state.reGreetStats
-	return map[string]int{"total": s.total, "sent": s.sent, "skipped": s.skipped, "failed": s.failed, "skipped_replied": s.skippedReplied, "skipped_refused": s.skippedRefused, "skipped_resume_received": s.skippedResume}, true
+	return map[string]int{"total": s.total, "sent": s.sent, "skipped": s.skipped, "failed": s.failed, "unknown": s.unknown, "skipped_replied": s.skippedReplied, "skipped_refused": s.skippedRefused, "skipped_resume_received": s.skippedResume}, true
 }
 
 // positionReGreetSkipRefused 读取岗位级拒绝检测开关，缺失时按前端默认值关闭。
