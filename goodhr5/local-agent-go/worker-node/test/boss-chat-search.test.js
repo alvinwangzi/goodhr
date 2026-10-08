@@ -20,7 +20,8 @@ before(async () => {
   server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     if (req.url.startsWith("/state")) res.end('<section id="candidate"><button>继续沟通</button><span>已获取简历</span></section><section id="fresh"><button>打招呼</button><span hidden>已获取简历</span></section>');
-    else if (req.url.startsWith("/panel")) res.end('<div class="chat-conversation"><span class="base-name">张三</span></div>');
+    else if (req.url.startsWith("/panel")) res.end(`<div class="user-list"><div class="geek-item selected" data-id="${req.url.includes('id=correct')?'right-0':'other-0'}">张三</div></div><div class="chat-conversation"><span class="base-name">张三</span></div><button class="chat-search-btn" onclick="location.href='/identity'">搜索</button>`);
+    else if (req.url.startsWith("/identity")) res.end('<div class="chat-job-search"><input class="search-input"></div><div class="geek-search-list"><ul><li><a style="display:block;padding:15px" href="/panel?id=duplicate"><span>张三</span></a></li><li><a style="display:block;padding:15px" href="/panel?id=correct"><span>张三</span></a></li></ul></div><div class="user-list"><div class="geek-item selected" data-id="old-0">张三</div></div><div class="chat-conversation"><span class="base-name">张三</span></div>');
     else res.end(searchFixture(req.url.includes("duplicate"), req.url.includes("decorated")));
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -72,4 +73,14 @@ test("多个同名结果不允许点击", async () => {
     assert.ok(result.error.includes("多个"));
     assert.equal(page.url(), baseURL + "/duplicate");
   } finally { await page.close(); }
+});
+
+test("已知会话 ID 时逐个核对同名结果，不能采信旧 selected",async()=>{
+ const page=await browser.newPage();try{
+  await page.goto(baseURL+"/identity");
+  const result=await searchBossChatSessionOnPage(page,{candidate_name:"张三",conversation_id:"right-0"});
+  assert.equal(result.found,true);assert.equal(result.conversation_id,"right-0");
+  assert.equal(await page.locator(".geek-item.selected").getAttribute("data-id"),"right-0");
+  assert.ok(page.url().includes("id=correct"));
+ }finally{await page.close()}
 });

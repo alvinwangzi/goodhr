@@ -1,4 +1,5 @@
 // 本文件负责提供 HRPlus 5 Node Browser Worker HTTP 服务。
+import { readBossRecommendationID, matchBossRecommendationID } from "./boss-candidate-identity.js";
 import fs from "node:fs/promises";
 import { searchBossChatSessionOnPage } from "./boss-chat-search.js";
 import { readBossCandidateState } from "./boss-candidate-state.js";
@@ -1589,6 +1590,8 @@ async function extractBossCandidates(payload) {
   for (const item of findResp.items || []) {
     try {
       const fields = item.fields || {};
+      const recommendationID = await readBossRecommendationID(locatorByRef(await ensurePage(), item.ref || item.element_ref));
+      if (!recommendationID) throw new Error("推荐卡片缺少真实候选人 ID");
       if (!fields.basic_info && item.text) fields.basic_info = item.text;
       const rawText = candidateRawText(fields);
       candidates.push({
@@ -1598,12 +1601,14 @@ async function extractBossCandidates(payload) {
         raw_text: rawText,
         filter_text: rawText,
         platform_id: platformID,
+        id: recommendationID,
+        recommendation_candidate_id: recommendationID,
         card_index: item.index,
         element_ref: item.ref || item.element_ref,
         fields,
       });
-    } catch {
-      continue;
+    } catch (error) {
+      throw new Error("推荐卡片读取失败，不能当作空名单：" + error.message);
     }
   }
   return {
@@ -2837,6 +2842,7 @@ async function candidateWheelAnchor(cards, cardIndex, options = {}) {
  * @returns {Promise<{index:number,score:number}|null>} 匹配结果。
  */
 async function candidateCardIdentityMatch(cards, payload) {
+  if (payload.recommendation_candidate_id) return matchBossRecommendationID(cards, String(payload.recommendation_candidate_id));
   const candidateName = String(payload.candidate_name || "").trim();
   const candidateText = String(payload.candidate_match_text || "").trim();
   if (!candidateName && !candidateText) return null;

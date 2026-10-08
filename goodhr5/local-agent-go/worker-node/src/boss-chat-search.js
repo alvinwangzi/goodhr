@@ -4,6 +4,7 @@ export async function searchBossChatSessionOnPage(currentPage, payload) {
   const startedAt = Date.now();
   const name = String(payload.candidate_name || payload.name || "").trim();
   if (!name) throw new Error("候选人姓名不能为空");
+  if (payload.conversation_id) return locateBossConversationByID(currentPage, name, String(payload.conversation_id));
 
   // 已在搜索态则复用输入框，否则点击搜索按钮打开。
   let searchInput = currentPage
@@ -87,4 +88,61 @@ export function bossSearchNameMatches(displayName, expectedName) {
   const display = String(displayName || "").trim();
   const name = String(expectedName || "").trim();
   return Boolean(name) && (display === name || display.startsWith(name + "_"));
+}
+
+/** waitBossSelectedID 只在唯一选中 ID 和面板姓名均匹配时返回，不采信旧 selected 或同名面板。 */
+async function waitBossSelectedID(page, name, expectedID, timeout = 6000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const selected = page.locator(".user-list .geek-item.selected");
+    const panel = page.locator(".chat-conversation .base-name");
+    if (await selected.count() === 1 && await selected.getAttribute("data-id") === expectedID && await panel.count() === 1 && (await panel.innerText()).trim() === name) {
+      return { found: true, panel_name: name, conversation_id: expectedID };
+    }
+    await page.waitForTimeout(200);
+  }
+  return { found: false, panel_name: "", conversation_id: "", error: "会话真实 ID 未匹配，已停止定位" };
+}
+
+/** locateBossConversationByID 按预期 ID 打开已加载会话；搜索同名结果只能逐个核对，不能输入或发送消息。 */
+export async function locateBossConversationByID(page, name, expectedID) {
+  const rows = page.locator(".user-list .geek-item");
+  const direct = [];
+  for (let i = 0; i < await rows.count(); i++) {
+    if (await rows.nth(i).getAttribute("data-id") === expectedID) direct.push(rows.nth(i));
+  }
+  if (direct.length > 1) throw new Error("会话真实 ID 对应多个入口，已停止定位");
+  if (direct.length === 1) {
+    await direct[0].click({ timeout: 3000 });
+    return waitBossSelectedID(page, name, expectedID);
+  }
+  // 每次重新打开搜索并读取结果，跳转后不复用旧 Locator 和旧 selected。
+  for (let index = 0; index < 20; index++) {
+    let input = page.locator(".chat-job-search .search-input").first();
+    if (!(await input.isVisible().catch(() => false))) {
+      await page.locator(".chat-search-btn").first().click({ timeout: 5000 });
+      await input.waitFor({ state: "visible", timeout: 5000 });
+    }
+    await input.fill(name);
+    const items = page.locator(".geek-search-list ul li");
+    const deadline = Date.now() + 6000;
+    let matches = [];
+    while (Date.now() < deadline) {
+      matches = [];
+      for (let i = 0; i < await items.count(); i++) {
+        const item = items.nth(i);
+        if (!(await item.isVisible())) continue;
+        const field = item.locator(".search-right .content-text");
+        const match = await field.count() === 1 ? bossSearchNameMatches(await field.innerText(), name) : await item.getByText(name, { exact: true }).count() === 1;
+        if (match) matches.push(item);
+      }
+      if (matches.length) break;
+      await page.waitForTimeout(200);
+    }
+    if (index >= matches.length) break;
+    await matches[index].click({ timeout: 3000 });
+    const selected = await waitBossSelectedID(page, name, expectedID);
+    if (selected.found) return selected;
+  }
+  return { found: false, panel_name: "", conversation_id: "", error: "未找到预期会话 ID，不能按姓名发送" };
 }

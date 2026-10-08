@@ -23,7 +23,7 @@ func replyTestConfig() replyPageConfig {
 	for _, key := range []string{"id", "direction", "kind", "timestamp", "text"} {
 		messageFields[key] = platformcore.SelectorField{Attribute: key}
 	}
-	return replyPageConfig{Jobs: spec("jobs"), JobFields: map[string]platformcore.SelectorField{"id": {Attribute: "id"}, "name": {Attribute: "name"}}, Verified: true, MessagesURL: "https://fixture.invalid/chat", Unread: spec("unread"), UnreadFilter: spec("unread_filter"), Conversation: spec("conversation"), Active: spec("active"), Messages: spec("messages"), Input: spec("input"), Send: spec("send"), IdentityAttribute: "id", ConversationFields: fields, MessageFields: messageFields, Directions: map[string]string{"in": "inbound", "out": "outbound"}, Kinds: map[string]string{"text": "text", "file": "attachment"}}
+	return replyPageConfig{Jobs: spec("jobs"), JobFields: map[string]platformcore.SelectorField{"id": {Attribute: "id"}, "name": {Attribute: "name"}}, Verified: true, MessagesURL: "https://fixture.invalid/chat", Unread: spec("unread"), UnreadFilter: spec("unread_filter"), Conversation: spec("conversation"), Selected: spec("selected"), Active: spec("active"), Messages: spec("messages"), Input: spec("input"), Send: spec("send"), IdentityAttribute: "id", ConversationFields: fields, MessageFields: messageFields, Directions: map[string]string{"in": "inbound", "out": "outbound"}, Kinds: map[string]string{"text": "text", "file": "attachment"}}
 }
 
 // replyPage 模拟会话点击后列表重排和已读，不模拟业务决策。
@@ -111,6 +111,11 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 				fields = append(fields, identity(id))
 			}
 			return pageItems(fields...), nil
+		case "selected":
+			if p.active == "" {
+				return pageItems(), nil
+			}
+			return pageItems(identity(p.active)), nil
 		case "active":
 			if _, ok := request.Fields["text"]; ok {
 				if p.resumeMalformed == "text" {
@@ -183,7 +188,7 @@ func TestContactConfirmRejectsChangedCandidate(t *testing.T) {
 	runtime := &Runtime{replyConfig: &cfg}
 	page := newReplyPage()
 	page.active = "a"
-	conversation := platformcore.ReplyConversation{Name: "同名"}
+	conversation := platformcore.ReplyConversation{ID: "a", Name: "同名"}
 	target := platformcore.ReplyTarget{PositionName: "Go"}
 	// 测试已有模拟器将通用弹窗选择器视为没有弹窗，入口后打开电话确认。
 	prepared, err := runtime.PrepareCandidateInfoRequest(t.Context(), page, target, conversation, "phone")
@@ -215,7 +220,7 @@ func TestReGreetRechecksMessages(t *testing.T) {
 	page := newReplyPage()
 	page.active = "a"
 	page.messages["a"] = []map[string]string{{"id": "first", "direction": "out", "kind": "text", "text": "首次招呼"}}
-	conversation := platformcore.ReplyConversation{Name: "同名"}
+	conversation := platformcore.ReplyConversation{ID: "a", Name: "同名"}
 	target := platformcore.ReplyTarget{PositionName: "Go"}
 	before, err := runtime.ReadOpenedReplyContext(t.Context(), page, target, conversation)
 	if err != nil {
@@ -237,7 +242,7 @@ func TestReGreetWaitsForConfirmation(t *testing.T) {
 	page := newReplyPage()
 	page.active = "a"
 	page.messages["a"] = []map[string]string{{"id": "old", "direction": "out", "kind": "text", "text": "复打消息"}}
-	conversation := platformcore.ReplyConversation{Name: "同名"}
+	conversation := platformcore.ReplyConversation{ID: "a", Name: "同名"}
 	target := platformcore.ReplyTarget{PositionName: "Go"}
 	before, err := runtime.ReadOpenedReplyContext(t.Context(), page, target, conversation)
 	if err != nil {

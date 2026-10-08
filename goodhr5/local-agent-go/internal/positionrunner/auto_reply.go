@@ -36,6 +36,7 @@ type replyGenerator interface {
 
 // replyFlow 保存本轮固定依赖，不在公共流程按平台名称分支。
 type replyFlow struct {
+	consecutiveFailures                int // 跨消息批次保留连续失败计数，切换不能绕过停止保护。
 	db                                 *localdb.DB
 	runtime                            platformcore.AutoReplyRuntime
 	exec                               platformcore.Executor
@@ -762,7 +763,6 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 	}
 	flow.flushResumeTracking()
 	defer flow.flushResumeTracking()
-	failures := 0
 	for round := 1; round <= totalRounds; round++ {
 		if err := ctx.Err(); err != nil {
 			stopped("自动回复已按停止请求结束")
@@ -779,76 +779,25 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 			convNames = append(convNames, c.Name)
 		}
 		r.positionLog(positionID, "info", fmt.Sprintf("自动回复扫描到 %d 个未读会话：%v", len(conversations), convNames))
-		for _, conversation := range conversations {
-			if err := ctx.Err(); err != nil {
-				stopped("自动回复已按停止请求结束")
-				return stats
-			}
-			current, err := runtime.ReadReplyContext(ctx, exec, target, conversation)
-			if err != nil {
-				stats.Checked++
-				stats.Failed++
-				failures++
-				r.updateReplyStats(positionID, stats)
-				r.positionLog(positionID, "warning", fmt.Sprintf("自动回复：会话读取失败，已跳过（候选人=%s，错误=%s）", conversation.Name, err.Error()))
-				if fatal(err) {
-					return stats
-				}
-			} else {
-				outcome, err := flow.process(ctx, current)
-				stats.Checked++
-				switch outcome {
-				case "sent":
-					stats.Replied++
-					failures = 0
-					// 回复成功后判断是否需要索要简历
-					if resumeAction, resumeErr := flow.resumeAfterReplyIfNeeded(ctx, current.Conversation); resumeErr != nil {
-						r.positionLog(positionID, "warning", fmt.Sprintf("自动回复索要简历：候选人=%s，动作=%s，错误=%s", current.Conversation.Name, resumeAction, resumeErr.Error()))
-					} else if resumeAction != "" {
-						r.positionLog(positionID, "info", fmt.Sprintf("自动回复索要简历：动作=%s，候选人=%s", resumeAction, current.Conversation.Name))
-					}
-				case "accepted_resume":
-					stats.Replied++
-					failures = 0
-					r.positionLog(positionID, "info", fmt.Sprintf("已直接接受候选人附件简历：候选人=%s", current.Conversation.Name))
-				case "skipped":
-					stats.Skipped++
-					// 调试：输出跳过原因（消息方向、数量、去重状态）
-					msgSummary := make([]string, 0, len(current.Messages))
-					for _, m := range current.Messages {
-						msgSummary = append(msgSummary, fmt.Sprintf("%s/%s", m.Direction, m.Kind))
-					}
-					if err != nil {
-						r.positionLog(positionID, "info", fmt.Sprintf("自动回复跳过（候选人=%s，错误=%s，消息=%v）", current.Conversation.Name, err.Error(), msgSummary))
-					} else {
-						r.positionLog(positionID, "info", fmt.Sprintf("自动回复跳过（候选人=%s，消息=%v，草稿=%q）", current.Conversation.Name, msgSummary, current.Draft))
-					}
-				case "unknown":
-					stats.Unknown++
-				default:
-					stats.Failed++
-					failures++
-					if err != nil {
-						r.positionLog(positionID, "error", fmt.Sprintf("自动回复处理失败：候选人=%s，错误=%s，连续失败=%d", current.Conversation.Name, err.Error(), failures))
-					} else {
-						r.positionLog(positionID, "error", fmt.Sprintf("自动回复处理失败：候选人=%s，outcome=%s，连续失败=%d", current.Conversation.Name, outcome, failures))
-					}
-				}
-				r.updateReplyStats(positionID, stats)
-				// 自动回复流程：上报所有遇到的候选人扫描记录。
+		remaining := conversations
+		for len(remaining) > 0 {
+			batch, batchErr := processReplyBatch(ctx, flow, remaining, time.Now, func() bool { return r.isUserStopped(positionID) }, func(conversation platformcore.ReplyConversation, outcome string) {
 				r.reportAutoReplyScreening(ctx, position, options, conversation, outcome)
-				if errors.Is(err, errReplyStorage) {
-					r.failStart(positionID, err.Error(), options)
-					return stats
+			})
+			stats.Checked += batch.Stats.Checked
+			stats.Replied += batch.Stats.Replied
+			stats.AcceptedResume += batch.Stats.AcceptedResume
+			stats.Skipped += batch.Stats.Skipped
+			stats.Failed += batch.Stats.Failed
+			stats.Unknown += batch.Stats.Unknown
+			r.updateReplyStats(positionID, stats)
+			if batchErr != nil {
+				if !fatal(batchErr) {
+					r.failStart(positionID, batchErr.Error(), options)
 				}
-				if fatal(err) {
-					return stats
-				}
-			}
-			if failures >= 3 {
-				r.failStart(positionID, "自动回复连续处理失败，任务已停止", options)
 				return stats
 			}
+			remaining = batch.Remaining
 		}
 		if len(conversations) == 0 {
 			break

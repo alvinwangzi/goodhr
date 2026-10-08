@@ -86,10 +86,12 @@ type Runner struct {
 	powerGuard     power.Inhibitor
 	sleepCancel    context.CancelFunc
 	browserLease   *browserLease
+	uploadToken    string // 仅保存在当前进程，不写入检查点。
+	uploadActive   bool   // 补传器独立于招聘页面租约，单实例串行补传。
 }
 
 // browserLease 由主任务和收尾任务共同持有，全部退出后才释放浏览器。
-type browserLease struct { refs int }
+type browserLease struct{ refs int }
 
 // runState 保存单个运行岗位运行的控制句柄。
 type runState struct {
@@ -186,6 +188,8 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 
 // StartOptions 表示本地岗位运行启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
+	// LocalRunID 独立标识本次单岗位运行，不包含登录凭证，每次明确开始重新生成。
+	LocalRunID     string `json:"local_run_id,omitempty"`
 	TaskType       string `json:"task_type"` // greeting 或 auto_reply，支持逗号分隔多选，省略时打招呼
 	CloudAPIBase   string
 	Token          string
@@ -354,7 +358,9 @@ func minInt(a int, b int) int {
 // options 为岗位运行启动参数，保留该函数用于兼容前端旧进度字段。
 func scanRounds(options StartOptions) int {
 	if options.ScanRounds <= 0 {
-		if hasTaskType(parseTaskTypes(options.TaskType), "auto_reply") { return 1 }
+		if hasTaskType(parseTaskTypes(options.TaskType), "auto_reply") {
+			return 1
+		}
 		return defaultScanRounds
 	}
 	if options.ScanRounds > 20 {

@@ -33,6 +33,14 @@ func (f *reGreetFixture) LocateReplyConversation(context.Context, platformcore.E
 	return f.current.Conversation, nil
 }
 
+// LocateReplyConversationByID 模拟真实 ID 核对，错误目标不返回可发送会话。
+func (f *reGreetFixture) LocateReplyConversationByID(_ context.Context, _ platformcore.Executor, _ string, id string) (platformcore.ReplyConversation, error) {
+	if id != f.current.Conversation.ID {
+		return platformcore.ReplyConversation{}, platformcore.ErrReplyUnsafe
+	}
+	return f.current.Conversation, nil
+}
+
 // ReadOpenedReplyContext 返回当前页面的副本，以便发现生成期间的新消息。
 func (f *reGreetFixture) ReadOpenedReplyContext(context.Context, platformcore.Executor, platformcore.ReplyTarget, platformcore.ReplyConversation) (platformcore.ReplyContext, error) {
 	c := f.current
@@ -89,7 +97,7 @@ func TestRunReGreetSafety(t *testing.T) {
 			var observations []map[string]any
 			cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				if strings.HasSuffix(req.URL.Path, "/re-greet-candidates") {
-					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "items": []map[string]any{{"platform_candidate_id": "candidate1", "candidate_name": "候选人"}}})
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "re_greet_receipts": true, "items": []map[string]any{{"platform_candidate_id": "candidate1", "candidate_name": "候选人", "greeted_at": time.Now().Add(-3 * time.Hour).UTC().Truncate(time.Hour).Format(time.RFC3339Nano)}}})
 					return
 				}
 				var payload map[string]any
@@ -113,6 +121,9 @@ func TestRunReGreetSafety(t *testing.T) {
 				t.Fatal(err)
 			}
 			position.PositionSnapshot = map[string]any{"ai_config": map[string]any{"re_greet_prompt": "岗位复打规则", "re_greet_skip_refused": true}}
+			if err := r.db.SaveCandidateIdentity(t.Context(), localdb.CandidateIdentity{ProfileScope: platformcore.ReplyHash("profile:" + positionProfileName(position)), Platform: "boss", RecommendationID: "candidate1", ConversationID: "c1", Source: "controlled-direct-transition", Status: "verified"}); err != nil {
+				t.Fatal(err)
+			}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			options := StartOptions{CloudAPIBase: cloud.URL, Token: "test", CloudRunID: "run1", TaskType: "re_greet"}

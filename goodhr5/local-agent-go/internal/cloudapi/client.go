@@ -552,6 +552,8 @@ func (c *Client) FindScreeningByName(ctx context.Context, token string, position
 
 // ReGreetCandidate 表示云端返回的复打招呼候选人。
 type ReGreetCandidate struct {
+	GreetedAt           string `json:"greeted_at"`
+	LastReGreetedAt     string `json:"last_re_greeted_at"`
 	ID                  string `json:"id"`
 	PositionID          string `json:"position_id"`
 	Platform            string `json:"platform"`
@@ -562,7 +564,7 @@ type ReGreetCandidate struct {
 
 // FetchReGreetCandidates 从云端拉取当前岗位的复打招呼候选名单。
 // timeRangeDays 为复打时间范围（天），intervalMinMinutes 为最小间隔（分钟），maxCount 为复打次数上限。
-func (c *Client) FetchReGreetCandidates(ctx context.Context, token string, positionID string, platform string, timeRangeDays int, intervalMinMinutes int, maxCount int) ([]ReGreetCandidate, error) {
+func (c *Client) FetchReGreetCandidates(ctx context.Context, token string, positionID string, platform string, timeRangeDays int, intervalMinMinutes int, maxCount int, requireReceipt ...bool) ([]ReGreetCandidate, error) {
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
 		return nil, fmt.Errorf("岗位 ID 不能为空")
@@ -584,6 +586,9 @@ func (c *Client) FetchReGreetCandidates(ctx context.Context, token string, posit
 		return nil, fmt.Errorf("%s", cloudMessage(payload, "拉取复打名单失败"))
 	}
 	rawItems, _ := payload["items"].([]any)
+	if len(requireReceipt) > 0 && requireReceipt[0] && payload["re_greet_receipts"] != true {
+		return nil, fmt.Errorf("云端版本尚不支持可靠复打收据，请更新后重试")
+	}
 	items := make([]ReGreetCandidate, 0, len(rawItems))
 	for _, raw := range rawItems {
 		data, ok := raw.(map[string]any)
@@ -591,6 +596,8 @@ func (c *Client) FetchReGreetCandidates(ctx context.Context, token string, posit
 			continue
 		}
 		items = append(items, ReGreetCandidate{
+			GreetedAt:           stringFromMap(data, "greeted_at"),
+			LastReGreetedAt:     stringFromMap(data, "last_re_greeted_at"),
 			ID:                  stringFromMap(data, "id"),
 			PositionID:          stringFromMap(data, "position_id"),
 			Platform:            stringFromMap(data, "platform"),

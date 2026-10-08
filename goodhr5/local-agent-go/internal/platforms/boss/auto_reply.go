@@ -32,6 +32,7 @@ type replyPageConfig struct {
 	UnreadFilter        platformcore.SelectorSpec             `json:"unread_filter"`
 	Conversation        platformcore.SelectorSpec             `json:"conversation"`
 	Active              platformcore.SelectorSpec             `json:"active"`
+	Selected            platformcore.SelectorSpec             `json:"selected"`
 	Messages            platformcore.SelectorSpec             `json:"messages"`
 	Input               platformcore.SelectorSpec             `json:"input"`
 	Send                platformcore.SelectorSpec             `json:"send"`
@@ -302,14 +303,35 @@ func (r *Runtime) ReadReplyContext(ctx context.Context, exec platformcore.Execut
 	return r.readCurrentReply(ctx, exec, target, conversation)
 }
 
+// verifySelectedConversation 读取唯一选中会话的完整 ID，不用同名面板或旧搜索结果代替身份。
+func (r *Runtime) verifySelectedConversation(ctx context.Context, exec platformcore.Executor, expectedID string) error {
+	if strings.TrimSpace(expectedID) == "" {
+		return platformcore.ErrReplyUnsafe
+	}
+	cfg := r.replyPageSettings()
+	if len(cfg.Selected.Selectors) == 0 {
+		return platformcore.ErrReplyUnsafe
+	}
+	items, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.Selected, Fields: map[string]platformcore.SelectorField{"id": {Attribute: cfg.IdentityAttribute}}, MaxItems: 2})
+	if err != nil {
+		return fmt.Errorf("选中会话身份读取失败：%w", err)
+	}
+	if len(items) != 1 || items[0]["id"] != expectedID {
+		return platformcore.ErrReplyUnsafe
+	}
+	return nil
+}
+
 // readCurrentReply 读取已打开的面板，不在复核时自动切回原会话。
-// Boss 的展开面板 (.chat-conversation) 没有 data-id 属性，
-// 因此直接用面板专属选择器读取姓名和岗位来验证身份。
+// Boss 面板没有 data-id，必须先核对聊天列表唯一选中项的真实 ID，再辅助核对面板姓名和岗位。
 func (r *Runtime) readCurrentReply(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget, conversation platformcore.ReplyConversation) (platformcore.ReplyContext, error) {
 	if err := r.AutoReplyAvailable(); err != nil {
 		return platformcore.ReplyContext{}, err
 	}
 	cfg := r.replyPageSettings()
+	if err := r.verifySelectedConversation(ctx, exec, conversation.ID); err != nil {
+		return platformcore.ReplyContext{}, err
+	}
 
 	// 从展开面板读取姓名和岗位验证身份
 	panelFields := map[string]platformcore.SelectorField{

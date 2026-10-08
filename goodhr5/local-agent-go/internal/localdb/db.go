@@ -230,7 +230,13 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	if err := db.migrateCandidateInfoQueue(); err != nil {
 		return err
 	}
-	return db.migrateAutoReply()
+	if err := db.migrateAutoReply(); err != nil {
+		return err
+	}
+	if err := db.migrateActionCheckpoint(); err != nil {
+		return err
+	}
+	return db.migrateReGreetOutbox()
 }
 
 // migrateDownloadSources 为既有下载记录添加来源摘要，保留原有文件和记录，不根据文件名猜测候选人。

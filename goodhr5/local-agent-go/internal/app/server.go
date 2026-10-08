@@ -257,6 +257,7 @@ func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadGateway, cloudapi.ErrorMessage(resp, "设备绑定失败"))
 		return
 	}
+	s.runner.BindReGreetUploadSession(token)
 	response.Success(w, resp)
 }
 

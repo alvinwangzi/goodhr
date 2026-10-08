@@ -83,11 +83,12 @@ type ReplyContext struct {
 
 // ReplyStats 保存自动回复统计，不计入打招呼数量。
 type ReplyStats struct {
-	Checked int `json:"checked"`
-	Replied int `json:"replied"`
-	Skipped int `json:"skipped"`
-	Failed  int `json:"failed"`
-	Unknown int `json:"unknown"`
+	AcceptedResume int `json:"accepted_resume"` // 接受附件人数，不算成功文字回复。
+	Checked        int `json:"checked"`
+	Replied        int `json:"replied"`
+	Skipped        int `json:"skipped"`
+	Failed         int `json:"failed"`
+	Unknown        int `json:"unknown"`
 }
 
 // AutoReplyRuntime 是可选平台能力；未实现的平台继续使用原打招呼流程。
@@ -132,6 +133,11 @@ type ReGreetRuntime interface {
 	// ConfirmReGreet 发送后核对面板新增了本次出站文本。
 	// before 为发送前上下文，用于区分"本次新增"与"历史同文"。
 	ConfirmReGreet(ctx context.Context, exec Executor, target ReplyTarget, conversation ReplyConversation, before ReplyContext, text string) (bool, error)
+}
+
+// IdentityConversationLocator 提供按已验证会话 ID 定位的可选平台能力，不能凭姓名代替。
+type IdentityConversationLocator interface {
+	LocateReplyConversationByID(context.Context, Executor, string, string) (ReplyConversation, error)
 }
 
 // ReplyHash 返回正文或已规范化数据的摘要，不保留原文。

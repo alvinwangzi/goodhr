@@ -9,33 +9,35 @@ import (
 	"goodhr5/local-agent-go/internal/platformcore"
 )
 
-// TestCandidateFingerprintUsesOnlyNameAndAge 验证 Boss 候选人 ID 只由姓名和年龄决定。
-func TestCandidateFingerprintUsesOnlyNameAndAge(t *testing.T) {
+// TestCandidateFingerprintUsesRealID 验证同名同龄者使用各自完整页面标识，资料变化不改变身份。
+func TestCandidateFingerprintUsesRealID(t *testing.T) {
 	runtime := NewRuntime()
 	first := platformcore.Candidate{
-		"candidate_name": "范召",
-		"raw_text":       "范召 29岁 本科 5年 带货主播",
-		"fields":         map[string]any{"name": "范召", "basic_info": "29岁 本科 5年 带货主播"},
+		"recommendation_candidate_id": "opaque-A-0",
+		"candidate_name":              "范召",
+		"raw_text":                    "范召 29岁 本科 5年 带货主播",
+		"fields":                      map[string]any{"name": "范召", "basic_info": "29岁 本科 5年 带货主播"},
 	}
 	second := platformcore.Candidate{
-		"candidate_name": "范召",
-		"raw_text":       "范召 29岁 大专 8年 直播运营",
-		"fields":         map[string]any{"name": "范召", "basic_info": "29岁 大专 8年 直播运营"},
+		"recommendation_candidate_id": "opaque-B-0",
+		"candidate_name":              "范召",
+		"raw_text":                    "范召 29岁 大专 8年 直播运营",
+		"fields":                      map[string]any{"name": "范召", "basic_info": "29岁 大专 8年 直播运营"},
 	}
-	if runtime.CandidateFingerprint(first) != "boss_范召_29" {
-		t.Fatalf("候选人 ID 应只包含姓名年龄：%s", runtime.CandidateFingerprint(first))
+	if runtime.CandidateFingerprint(first) != "opaque-A-0" {
+		t.Fatalf("必须保留完整页面 ID：%s", runtime.CandidateFingerprint(first))
 	}
-	if runtime.CandidateFingerprint(first) != runtime.CandidateFingerprint(second) {
-		t.Fatalf("同名同年龄应生成相同 ID：first=%s second=%s", runtime.CandidateFingerprint(first), runtime.CandidateFingerprint(second))
+	if runtime.CandidateFingerprint(first) == runtime.CandidateFingerprint(second) {
+		t.Fatalf("同名同年龄不能合并：first=%s second=%s", runtime.CandidateFingerprint(first), runtime.CandidateFingerprint(second))
 	}
 }
 
-// TestCandidateFingerprintRequiresAge 验证缺少年龄时不生成 Boss 候选人 ID。
-func TestCandidateFingerprintRequiresAge(t *testing.T) {
+// TestCandidateFingerprintRequiresPageID 验证旧姓名年龄记录不会被伪造成真实平台 ID。
+func TestCandidateFingerprintRequiresPageID(t *testing.T) {
 	runtime := NewRuntime()
-	candidate := platformcore.Candidate{"candidate_name": "范召", "raw_text": "范召 本科 5年"}
+	candidate := platformcore.Candidate{"id": "boss_范召_29", "candidate_name": "范召", "raw_text": "范召 29岁 本科 5年"}
 	if id := runtime.CandidateFingerprint(candidate); id != "" {
-		t.Fatalf("缺少年龄时不应生成 ID：%s", id)
+		t.Fatalf("缺少页面真实 ID 不应猜测：%s", id)
 	}
 }
 

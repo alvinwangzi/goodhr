@@ -74,13 +74,7 @@ func (r *Runtime) CandidateFilterText(candidate platformcore.Candidate) string {
 }
 
 // CandidateFingerprint 返回 Boss 候选人去重指纹。
-// candidate 为候选人，仅使用姓名和年龄生成稳定 ID。
+// candidate 为候选人，只接受从推荐页面读取的完整 data-geekid，不推断旧姓名年龄标识。
 func (r *Runtime) CandidateFingerprint(candidate platformcore.Candidate) string {
-	fields := mapFromAny(candidate["fields"])
-	name := firstNonEmpty(stringFromMap(candidate, "candidate_name"), stringFromMap(candidate, "name"), stringFromMap(fields, "name"))
-	age := candidateAge(candidate)
-	if strings.TrimSpace(name) == "" || strings.TrimSpace(age) == "" {
-		return ""
-	}
-	return "boss_" + normalizeCandidateIDPart(name) + "_" + normalizeCandidateIDPart(age)
+	return stringFromMap(candidate, "recommendation_candidate_id")
 }

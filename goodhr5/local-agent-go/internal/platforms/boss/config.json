@@ -24,6 +24,9 @@
   "active": {
     "selectors": [".chat-conversation"]
   },
+  "selected": {
+    "selectors": [".user-list .geek-item.selected"]
+  },
 
   "messages": {
     "selectors": [".chat-message-list .message-item"]

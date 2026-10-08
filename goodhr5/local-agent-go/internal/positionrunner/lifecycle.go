@@ -140,6 +140,20 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		r.positionLog(positionID, "info", "岗位运行启动：本次执行任务记录 ID="+syncResult.RunID)
 	}
 	syncCancel()
+	checkpoint, checkpointErr := r.db.CreateActionRun(ctx, localdb.ActionCheckpoint{
+		PositionID: positionID, Platform: position.PlatformID,
+		ProfileScope: platformcore.ReplyHash("profile:" + safePathName(positionProfileName(position))),
+		CloudRunID:   options.CloudRunID, PositionSnapshot: position.PositionSnapshot,
+	})
+	if checkpointErr != nil {
+		cancel()
+		r.failStart(positionID, "单岗位检查点创建失败："+checkpointErr.Error(), options)
+		r.clear(positionID)
+		return nil, checkpointErr
+	}
+	options.LocalRunID = checkpoint.RunID
+	snapshot.Options.LocalRunID = checkpoint.RunID
+	r.BindReGreetUploadSession(options.Token)
 	r.positionLog(positionID, "info", "岗位运行启动：已进入后台运行")
 	go r.runPosition(runCtx, position, options, snapshot)
 	return map[string]any{"position": updated, "running": true}, nil
