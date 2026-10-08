@@ -445,7 +445,8 @@ async function startBrowser(payload) {
   const launch = cloak.launch;
   const options = {
     headless: Boolean(payload.headless),
-    humanize: payload.humanize !== false,
+    // SDK 人性化层会注入页面脚本；HRPlus 只使用标准 Locator、真实鼠标键盘和现有分段输入。
+    humanize: false,
     acceptDownloads: true,
     downloadsPath: payload.downloads_path || downloadDir(),
     windowsHide: true,

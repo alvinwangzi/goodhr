@@ -1,0 +1,45 @@
+// 本文件只在独立 Worker 测试进程中包装真实 CloakBrowser 启动，全部请求由虚构页面接管，不连接 Boss 或读取用户登录数据。
+import { registerHooks } from "node:module";
+import { writeFileSync } from "node:fs";
+
+const ledger = { launches: [], requests: [], clicks: 0 };
+let account = 901;
+const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
+
+/** saveLedger 保存虚构运行证据，不包含 Cookie、令牌或真实候选人内容。 */
+function saveLedger() { writeFileSync(process.env.HRPLUS_M1_FIXTURE_LEDGER, JSON.stringify(ledger)); }
+
+/** fixtureRoute 接管隔离浏览器的全部请求，已知路径返回受控页面，其他请求全部中止。 */
+async function fixtureRoute(route) {
+  const url = new URL(route.request().url());
+  if (url.hostname !== "www.zhipin.com") return route.abort();
+  ledger.requests.push(url.pathname); saveLedger();
+  if (url.pathname === accountPath) return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { userId: account } }) });
+  if (url.pathname === "/wapi/zpjob/rec/geek/list") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { geekList: ["A", "B", "C", "D"].map((suffix, i) => ({ encryptGeekId: "opaque-" + suffix, geekCard: { geekId: 123 + i, encGeekId: "opaque-" + suffix } })) } }) });
+  if (url.pathname === "/wapi/zprelation/friend/getBossFriendListV2.json") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }] } }) });
+  if (url.pathname === "/fixture/click") { ledger.clicks++; saveLedger(); return route.fulfill({ contentType: "application/json", body: "{}" }); }
+  if (url.pathname === "/web/frame/recommend/") return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<style>.candidate-card-wrap{height:120px;border:1px solid #ddd}</style>${["A", "B", "C", "D"].map(suffix => `<section class="candidate-card-wrap"><div class="card-inner" data-geekid="opaque-${suffix}">同名候选人 ${suffix}</div></section>`).join("")}<iframe src="/wapi/zpjob/rec/geek/list"></iframe>` });
+  if (!url.pathname.startsWith("/web/chat/")) return route.abort();
+  if (url.searchParams.has("fixtureAccount")) account = Number(url.searchParams.get("fixtureAccount"));
+  const content = url.pathname.includes("recommend") ? '<iframe name="recommendFrame" style="width:900px;height:640px" src="/web/frame/recommend/?jobid=job1&status=0&filterParams=&source=0"></iframe>' : '<div class="user-list"><div class="geek-item selected" data-id="123-0">同名候选人 A</div></div><div class="chat-conversation"><span class="base-name">同名候选人 A</span></div><input id="draft"><button id="send" onclick="fetch(\'/fixture/click\')">虚构发送</button><iframe src="/wapi/zprelation/friend/getBossFriendListV2.json"></iframe>';
+  return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<dl><a href="/web/chat/recommend">推荐牛人</a><a href="/web/chat/index">沟通</a></dl>${content}<iframe src="${accountPath}"></iframe>` });
+}
+
+/** prepareContext 在真实浏览器的标准路由层安装受控响应，不执行页面脚本。 */
+export async function prepareContext(context, options) {
+  ledger.launches.push({ humanize: options.humanize, headless: options.headless }); saveLedger();
+  await context.route("**/*", fixtureRoute);
+  return context;
+}
+
+registerHooks({
+  /** load 仅包装 SDK 的启动边界，实际浏览器与 Worker HTTP 路由保持生产实现。 */
+  load(url, context, nextLoad) {
+    if (!url.endsWith("/cloakbrowser/dist/index.js")) return nextLoad(url, context);
+    const original = new URL("./playwright.js", url).href;
+    const harness = import.meta.url;
+    return { format: "module", shortCircuit: true, source: `import * as actual from ${JSON.stringify(original)}; import {prepareContext} from ${JSON.stringify(harness)};
+      export async function launchPersistentContext(options){if(options.humanize!==false)throw new Error('禁止安装 SDK 页面脚本人性化层');const context=await actual.launchPersistentContext(options);return prepareContext(context,options)}
+      export async function launch(options){if(options.humanize!==false)throw new Error('禁止安装 SDK 页面脚本人性化层');const browser=await actual.launch(options);const create=browser.newContext.bind(browser);browser.newContext=async settings=>prepareContext(await create(settings),options);return browser}` };
+  },
+});
