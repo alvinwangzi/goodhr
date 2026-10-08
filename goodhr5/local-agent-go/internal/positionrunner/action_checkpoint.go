@@ -38,7 +38,7 @@ func appendCompletedAnchor(anchors []string, id string) []string {
 }
 
 // saveScanCheckpoint 在候选人已确认结束后原子保存实际结果、队列和本次计数。
-func (r *Runner) saveScanCheckpoint(ctx context.Context, options StartOptions, candidate map[string]any, queue []map[string]any, greeted int) error {
+func (r *Runner) saveScanCheckpoint(ctx context.Context, options StartOptions, candidate map[string]any, queue []map[string]any, greeted int, counts ...batchProcessResult) error {
 	if options.LocalRunID == "" {
 		return nil
 	}
@@ -62,6 +62,11 @@ func (r *Runner) saveScanCheckpoint(ctx context.Context, options StartOptions, c
 		status = "completed"
 	}
 	checkpoint.Greeted = greeted
+	if len(counts) > 0 {
+		checkpoint.Scanned = counts[0].Scanned
+		checkpoint.Skipped = counts[0].Skipped
+		checkpoint.Failed = counts[0].Failed
+	}
 	checkpoint.Queue = checkpointQueue(queue)
 	checkpoint.CurrentAction = "greeting"
 	if stats, ok := r.currentReplyStats(checkpoint.PositionID); ok {

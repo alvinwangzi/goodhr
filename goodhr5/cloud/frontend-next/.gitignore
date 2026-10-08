@@ -1,5 +1,7 @@
 # 本文件负责排除 Next.js 构建缓存、本地配置和设计检查产物。
 .next/
+# 本地控制台静态导出产物由打包流程生成，不提交编译后的页面。
+out/
 node_modules/
 .npm-cache/
 artifacts/

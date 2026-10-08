@@ -33,6 +33,9 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 	_ = taskType
 	taskTypes := parseTaskTypes(options.TaskType)
 	needsAutoReply := hasTaskType(taskTypes, "auto_reply")
+	if options.PrioritizeReply && !needsAutoReply {
+		return nil, fmt.Errorf("选择自动回复后才能启用优先回复")
+	}
 	needsReGreet := hasTaskType(taskTypes, "re_greet")
 	client := cloudapi.New(options.CloudAPIBase)
 	cloudPosition, err := client.FetchPosition(ctx, options.Token, positionID)
@@ -392,7 +395,9 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 		positionMap["re_greet_stats"] = stats
 	}
 	var dispatch map[string]any
+	scanned, greeted, skipped, failed := position.ScannedCount, position.GreetedCount, position.SkippedCount, position.FailedCount
 	if checkpoint, ok := r.actionStatusCheckpoint(positionID); ok {
+		scanned, greeted, skipped, failed = checkpoint.Scanned, checkpoint.Greeted, checkpoint.Skipped, checkpoint.Failed
 		dispatch = dispatchStatusMap(checkpoint, running)
 		if checkpoint.TaskType != "" {
 			positionMap["task_type"] = checkpoint.TaskType
@@ -415,10 +420,10 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 		"logs":            logs,
 		"status":          position.Status,
 		"current_step":    progress.Message,
-		"scanned_count":   position.ScannedCount,
-		"greeted_count":   position.GreetedCount,
-		"skipped_count":   position.SkippedCount,
-		"failed_count":    position.FailedCount,
+		"scanned_count":   scanned,
+		"greeted_count":   greeted,
+		"skipped_count":   skipped,
+		"failed_count":    failed,
 		"analysis":        analysis,
 	}, nil
 }

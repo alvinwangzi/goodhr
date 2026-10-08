@@ -32,6 +32,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
+import SinglePositionActionStatus from "@/components/admin/SinglePositionActionStatus";
+import { agentSupportsCooperativeActions, normalizeActionDispatch, normalizeReGreetStats, type ActionDispatchStatus, type ReGreetStats } from "@/lib/single-position-actions";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
@@ -130,6 +132,10 @@ export default function PositionsPage() {
   const [allLogLoading, setAllLogLoading] = useState(false);
   const [startPositionItem, setStartPositionItem] = useState<any | null>(null);
   const [startTaskType, setStartTaskType] = useState<string[]>(["greeting"]);
+  const [startPrioritizeReply,setStartPrioritizeReply]=useState(false);
+  const [cooperativeSupported,setCooperativeSupported]=useState<boolean|null>(null);
+  const [dispatchStats,setDispatchStats]=useState<Record<string,ActionDispatchStatus>>({});
+  const [reGreetStats,setReGreetStats]=useState<Record<string,ReGreetStats>>({});
   const [replyStats, setReplyStats] = useState<Record<string, ReplyStats>>({});
   const [startLoading, setStartLoading] = useState(false);
   const [startOpeningPlatform, setStartOpeningPlatform] = useState(false);
@@ -270,6 +276,7 @@ export default function PositionsPage() {
           `/api/v1/local/positions/${encodeURIComponent(positionID)}/status`,
         );
         if (disposed) return;
+        updateActionStats(positionID,task);
         const status = normalizeFloatingTaskStatus(task?.status);
         setFloatingPositionTask((current) =>
           current && current.id === positionID
@@ -452,6 +459,7 @@ export default function PositionsPage() {
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
     setStartTaskType(["greeting"]);
+    setStartPrioritizeReply(false);
     setStartPositionItem(item);
   }
 
@@ -464,6 +472,22 @@ export default function PositionsPage() {
     setStartOpeningPlatform(false);
     setStartRequiresUpdate(false);
     setStartTaskType(["greeting"]);
+    setStartPrioritizeReply(false);
+  }
+
+  useEffect(()=>{
+    if(!startPositionItem?.id||!agentBase)return;
+    let disposed=false;setCooperativeSupported(null);
+    void localRequest(agentBase,"/health").then(health=>{if(!disposed)setCooperativeSupported(agentSupportsCooperativeActions(health))}).catch(()=>{if(!disposed)setCooperativeSupported(false)});
+    return()=>{disposed=true};
+  },[agentBase,startPositionItem?.id]);
+
+  /** updateActionStats 使用同一次本地响应更新动作与独立计数，不额外轮询页面。 */
+  function updateActionStats(positionID:string,task:any){
+    const source=task?.position||task;
+    if(source?.reply_stats)setReplyStats(current=>({...current,[positionID]:normalizeReplyStats(source.reply_stats)}));
+    if(source?.re_greet_stats)setReGreetStats(current=>({...current,[positionID]:normalizeReGreetStats(source.re_greet_stats)}));
+    const dispatch=normalizeActionDispatch(task?.action_dispatch);if(dispatch)setDispatchStats(current=>({...current,[positionID]:dispatch}));
   }
 
   /** openStartPlatformForFiltering 打开当前岗位对应的招聘平台页面，供用户先手动设置基础筛选条件。 */
@@ -574,6 +598,11 @@ export default function PositionsPage() {
       }
       const health = await checkPositionStartGuard(item);
       if (!health) return;
+      setCooperativeSupported(agentSupportsCooperativeActions(health));
+      if((startPrioritizeReply||startTaskType.length>1)&&!agentSupportsCooperativeActions(health)){
+        const message="当前本地程序不支持优先回复和运行期间消息检查，请更新本地程序后重试。";
+        setStartStatus(message);setStartError(message);return;
+      }
       const subscriptionData = await cloudRequest("/api/subscription/status");
       const currentSubscription = normalizeSubscription(
         subscriptionData.subscription,
@@ -645,6 +674,7 @@ export default function PositionsPage() {
         body: {
           token: getToken(),
           enable_greet: true,
+          prioritize_reply:startTaskType.includes("auto_reply")&&startPrioritizeReply,
           ...(taskTypePayload ? { task_type: taskTypePayload } : {}),
         },
       });
@@ -759,6 +789,7 @@ export default function PositionsPage() {
       setLogs((current) => ({ ...current, [item.id]: data.logs || [] }));
       const task = data.task;
       if (task) {
+        updateActionStats(item.id,task);
         setLatestTaskStats((current) => ({
           ...current,
           [item.id]: normalizePositionTaskStats(task),
@@ -812,6 +843,8 @@ export default function PositionsPage() {
     if (!agentBase) return;
     const next: Record<string, PositionTaskStats> = {};
     const nextReplyStats: Record<string, ReplyStats> = {};
+    const nextReGreetStats:Record<string,ReGreetStats>={};
+    const nextDispatchStats:Record<string,ActionDispatchStatus>={};
     await Promise.all(
       positionItems.filter((item) => isCurrentUserPosition(item, user?.email)).map(async (item) => {
         try {
@@ -820,9 +853,12 @@ export default function PositionsPage() {
             `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
           );
           next[item.id] = normalizePositionTaskStats(task);
-          if (task?.reply_stats) {
-            nextReplyStats[item.id] = normalizeReplyStats(task.reply_stats);
+          const source=task?.position||task;
+          if (source?.reply_stats) {
+            nextReplyStats[item.id] = normalizeReplyStats(source.reply_stats);
           }
+          if(source?.re_greet_stats)nextReGreetStats[item.id]=normalizeReGreetStats(source.re_greet_stats);
+          const dispatch=normalizeActionDispatch(task?.action_dispatch);if(dispatch)nextDispatchStats[item.id]=dispatch;
         } catch {
           // 没有本地任务记录时保留零值，不能影响岗位列表加载。
         }
@@ -830,6 +866,7 @@ export default function PositionsPage() {
     );
     setLatestTaskStats(next);
     setReplyStats(nextReplyStats);
+    setReGreetStats(nextReGreetStats);setDispatchStats(nextDispatchStats);
   }
 
   /** clearPositionLogs 二次确认后清空指定岗位保存在本地程序中的日志。 */
@@ -1150,6 +1187,7 @@ export default function PositionsPage() {
                   AI 回复（{replyStatsText(replyStats[item.id])}）
                 </Typography>
               ) : null}
+              <SinglePositionActionStatus dispatch={dispatchStats[item.id]} reGreet={reGreetStats[item.id]} running={item.status==="running"}/>
               <Collapse in={isCurrentUserPosition(item, user?.email) && expandedLogPositionID === item.id}>
                 <PositionLogPanel
                   logs={logs[item.id] || []}
@@ -1216,13 +1254,14 @@ export default function PositionsPage() {
                     size='small'
                     checked={startTaskType.includes("auto_reply")}
                     disabled={!startAutoReplyOptionEnabled}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      if(!e.target.checked)setStartPrioritizeReply(false);
                       setStartTaskType((prev) =>
                         e.target.checked
                           ? [...prev, "auto_reply"]
                           : prev.filter((t) => t !== "auto_reply"),
-                      )
-                    }
+                      );
+                    }}
                   />
                 }
                 label={
@@ -1277,6 +1316,12 @@ export default function PositionsPage() {
                 }
               />
             </Stack>
+            {startTaskType.includes("auto_reply") ? <Box sx={{mt:1}}>
+              <FormControlLabel control={<Switch size="small" checked={startPrioritizeReply} disabled={cooperativeSupported!==true} onChange={event=>setStartPrioritizeReply(event.target.checked)}/>} label="优先回复"/>
+              <Typography sx={{fontSize:12,color:"text.secondary"}}>开启后，先处理已发现的新消息，再继续找简历；复打招呼按每个人的到期时间穿插执行。</Typography>
+              {cooperativeSupported===false ? <Alert severity="warning" sx={{mt:1}}>当前本地程序不支持运行期间消息检查，请更新后使用。<Link href="/download" target="_blank">下载本地程序</Link></Alert> : null}
+              {cooperativeSupported===null ? <Typography sx={{fontSize:12,color:"text.secondary"}}>正在检查本地程序能力...</Typography> : null}
+            </Box> : null}
             {!startAutoReplyOptionEnabled && !startReGreetOptionEnabled ? (
               <Typography sx={{ fontSize: 12, color: "text.secondary", mt: 0.25 }}>
                 {!startAutoReplyOptionEnabled ? startAutoReplyDescription : startReGreetDescription}

@@ -16,6 +16,16 @@ func TestActionStatusAfterCompletion(t *testing.T) {
 	if _, err := s.service(t.Context(), true, true); err != nil {
 		t.Fatal(err)
 	}
+	checkpoint, err := s.runner.db.LoadActionCheckpoint(t.Context(), s.options.LocalRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint.Scanned = 18
+	checkpoint.Skipped = 9
+	checkpoint.Failed = 1
+	if err = s.runner.db.SaveActionCheckpoint(t.Context(), checkpoint); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.runner.db.UpdatePositionStatus(s.position.ID, "completed"); err != nil {
 		t.Fatal(err)
 	}
@@ -25,6 +35,9 @@ func TestActionStatusAfterCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	position := status["position"].(map[string]any)
+	if status["scanned_count"] != 18 || status["greeted_count"] != 7 || status["skipped_count"] != 9 || status["failed_count"] != 1 {
+		t.Fatalf("状态接口仍用累计值冒充本次 %+v", status)
+	}
 	if status["running"] != false || position["current_run_greeted_count"] != 7 || position["reply_stats"].(map[string]int)["replied"] != 1 || position["task_type"] != "greeting,auto_reply" {
 		t.Fatalf("结束后丢失或重置本次状态 %+v", status)
 	}

@@ -27,17 +27,17 @@ test("首批只有 Boss 平台开放自动回复入口", () => {
 test("回复统计转换为安全非负整数", () => {
   assert.deepEqual(
     normalizeReplyStats({ checked: 3, replied: 2, skipped: 1, failed: -5, unknown: "4" }),
-    { checked: 3, replied: 2, skipped: 1, failed: 0, unknown: 4 },
+    { accepted_resume:0,checked: 3, replied: 2, skipped: 1, failed: 0, unknown: 4 },
   );
-  assert.deepEqual(normalizeReplyStats(undefined), { checked: 0, replied: 0, skipped: 0, failed: 0, unknown: 0 });
-  assert.deepEqual(normalizeReplyStats({ checked: 1.9 }), { checked: 1, replied: 0, skipped: 0, failed: 0, unknown: 0 });
+  assert.deepEqual(normalizeReplyStats(undefined), { accepted_resume:0,checked: 0, replied: 0, skipped: 0, failed: 0, unknown: 0 });
+  assert.deepEqual(normalizeReplyStats({ checked: 1.9 }), { accepted_resume:0,checked: 1, replied: 0, skipped: 0, failed: 0, unknown: 0 });
 });
 
 test("回复统计展示文本包含全部分类", () => {
   const text = replyStatsText({ checked: 3, replied: 2, skipped: 1, failed: 0, unknown: 1 });
   assert.match(text, /检查 3/);
   assert.match(text, /回复 2/);
-  assert.match(text, /未知 1/);
+  assert.match(text, /待核对 1/);
 });
 
 test("合并回复提示词时保留其他配置键", () => {

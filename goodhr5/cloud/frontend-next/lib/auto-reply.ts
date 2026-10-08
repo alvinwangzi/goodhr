@@ -1,6 +1,7 @@
 /** 本文件负责 AI 自动回复入口的平台支持、本地程序能力和回复统计判断。 */
 
 export type ReplyStats = {
+	accepted_resume?: number;
   checked: number;
   replied: number;
   skipped: number;
@@ -35,7 +36,8 @@ export function normalizeReplyStats(value: unknown): ReplyStats {
     const parsed = Number(source[key] || 0);
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
   };
-  return {
+	return {
+		accepted_resume: read("accepted_resume"),
     checked: read("checked"),
     replied: read("replied"),
     skipped: read("skipped"),
@@ -46,7 +48,7 @@ export function normalizeReplyStats(value: unknown): ReplyStats {
 
 /** replyStatsText 把回复统计转换为状态区展示文本。 */
 export function replyStatsText(stats: ReplyStats) {
-  return `检查 ${stats.checked} · 回复 ${stats.replied} · 跳过 ${stats.skipped} · 失败 ${stats.failed} · 未知 ${stats.unknown}`;
+  return `检查 ${stats.checked} · 回复 ${stats.replied} · 接受附件 ${stats.accepted_resume || 0} · 跳过 ${stats.skipped} · 失败 ${stats.failed} · 待核对 ${stats.unknown}`;
 }
 
 /** FAQEntry 表示岗位常见问答的一条语料。 */

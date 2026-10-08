@@ -224,14 +224,14 @@ scanLoop:
 		candidates := queue
 		queue = nil
 		filtered, skipped := r.prepareCandidatesForFirstStage(position, candidates)
+		totalResult.Skipped += skipped
 		for _, candidate := range candidates {
 			if stringFromMap(candidate, "status") == "skipped" {
-				if err := r.saveScanCheckpoint(ctx, options, candidate, filtered, totalResult.Greeted); err != nil {
+				if err := r.saveScanCheckpoint(ctx, options, candidate, filtered, totalResult.Greeted, totalResult); err != nil {
 					return nil, fmt.Errorf("扫描跳过记录保存失败：%w", err)
 				}
 			}
 		}
-		totalResult.Skipped += skipped
 		flushPositionCounts(ctx)
 		r.positionLog(position.ID, "info", fmt.Sprintf("列表过滤：完成，保留=%d，跳过=%d", len(filtered), skipped))
 		if skipped > 0 {
@@ -296,14 +296,14 @@ scanLoop:
 					batchResult.Failed++
 					totalResult.Failed++
 					flushPositionCounts(ctx)
-					if err := r.saveScanCheckpoint(ctx, options, item.Candidate, filtered[nextIndex:], totalResult.Greeted); err != nil {
+					if err := r.saveScanCheckpoint(ctx, options, item.Candidate, filtered[nextIndex:], totalResult.Greeted, totalResult); err != nil {
 						return nil, fmt.Errorf("扫描重试记录保存失败：%w", err)
 					}
 					continue
 				}
 
 				candidate := item.Candidate
-				if err := r.saveScanCheckpoint(ctx, options, map[string]any{"id": stringFromMap(candidate, "id"), "status": "processing"}, filtered[nextIndex-1:], totalResult.Greeted); err != nil {
+				if err := r.saveScanCheckpoint(ctx, options, map[string]any{"id": stringFromMap(candidate, "id"), "status": "processing"}, filtered[nextIndex-1:], totalResult.Greeted, totalResult); err != nil {
 					return nil, fmt.Errorf("候选人处理意图保存失败：%w", err)
 				}
 				processedCount++
@@ -463,7 +463,7 @@ scanLoop:
 				// 打招呼流程：评分 >= 50 的候选人异步上报扫描记录，供自动回复查表分流。
 				r.reportCandidateScreening(ctx, position, candidate, options, "greeting")
 				candidateCancel()
-				if err := r.saveScanCheckpoint(context.WithoutCancel(ctx), options, candidate, filtered[nextIndex:], totalResult.Greeted); err != nil {
+				if err := r.saveScanCheckpoint(context.WithoutCancel(ctx), options, candidate, filtered[nextIndex:], totalResult.Greeted, totalResult); err != nil {
 					return nil, fmt.Errorf("候选人安全边界检查点保存失败：%w", err)
 				}
 				if err := r.maybeRestAfterCandidate(ctx, position, platformRuntime, exec, platformConfig, options); err != nil {

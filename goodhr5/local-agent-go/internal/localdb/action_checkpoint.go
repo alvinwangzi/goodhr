@@ -18,6 +18,9 @@ var ErrIdentityConflict = errors.New("候选人身份映射冲突，需要核对
 
 // ActionCheckpoint 保存当前单岗位进度，不包含登录凭证或页面对象。
 type ActionCheckpoint struct {
+	Scanned          int              `json:"scanned"`                  // 本次实际读取的去重数量。
+	Skipped          int              `json:"skipped"`                  // 本次明确跳过的数量。
+	Failed           int              `json:"failed"`                   // 本次扫描环节失败数量。
 	TaskType         string           `json:"task_type"`                // 本次勾选的单岗位动作组合。
 	PrioritizeReply  bool             `json:"prioritize_reply"`         // 本次固定的优先回复开关。
 	LastMessageCheck time.Time        `json:"last_message_check"`       // 最近实际完成的消息检查时间。

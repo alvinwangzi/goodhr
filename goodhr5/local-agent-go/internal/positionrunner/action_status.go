@@ -29,6 +29,7 @@ func (r *Runner) actionStatusCheckpoint(positionID string) (localdb.ActionCheckp
 
 // dispatchStatusMap 将已保存事实用于现有状态接口，不用前端计时器启动任务。
 func dispatchStatusMap(checkpoint localdb.ActionCheckpoint, running bool) map[string]any {
+	messageActions := hasTaskType(parseTaskTypes(checkpoint.TaskType), "auto_reply") || hasTaskType(parseTaskTypes(checkpoint.TaskType), "re_greet")
 	var last, next any
 	if !checkpoint.LastMessageCheck.IsZero() {
 		last = checkpoint.LastMessageCheck.Format(time.RFC3339)
@@ -36,5 +37,5 @@ func dispatchStatusMap(checkpoint localdb.ActionCheckpoint, running bool) map[st
 	if !checkpoint.NextMessageCheck.IsZero() {
 		next = checkpoint.NextMessageCheck.Format(time.RFC3339)
 	}
-	return map[string]any{"local_run_id": checkpoint.RunID, "current_action": checkpoint.CurrentAction, "prioritize_reply": checkpoint.PrioritizeReply, "last_message_check": last, "next_message_check": next, "waiting_for_check": running && !checkpoint.NextMessageCheck.IsZero() && time.Now().Before(checkpoint.NextMessageCheck)}
+	return map[string]any{"local_run_id": checkpoint.RunID, "message_actions_enabled": messageActions, "current_action": checkpoint.CurrentAction, "prioritize_reply": checkpoint.PrioritizeReply, "last_message_check": last, "next_message_check": next, "waiting_for_check": running && !checkpoint.NextMessageCheck.IsZero() && time.Now().Before(checkpoint.NextMessageCheck)}
 }

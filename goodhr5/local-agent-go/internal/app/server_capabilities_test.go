@@ -61,6 +61,9 @@ func TestHandleHealthExposesAutoReplyCapability(t *testing.T) {
 	if payload.Data.Capabilities == nil || payload.Data.Capabilities["auto_reply"] != true {
 		t.Fatalf("健康响应缺少 auto_reply 能力标志：%s", recorder.Body.String())
 	}
+	if payload.Data.Capabilities["cooperative_actions"] != true {
+		t.Fatal("缺少单岗位协同动作能力标志")
+	}
 }
 
 // TestStartOptionsFromPayloadCarriesTaskType 验证启动请求中的任务类型和打招呼开关被完整透传。
