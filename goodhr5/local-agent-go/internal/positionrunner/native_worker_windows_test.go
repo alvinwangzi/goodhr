@@ -10,6 +10,7 @@ import (
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/platformcore"
+	"goodhr5/local-agent-go/internal/platforms"
 	"io"
 	"net"
 	"net/http"
@@ -112,6 +113,9 @@ func TestNativeWorkerLegacyReGreetProtection(t *testing.T) {
 	runNativeWorkerPosition(t, "regreet-legacy-job")
 }
 
+// TestNativeWorkerVerifiedGreetFollowup 验证完整浏览器中的追加问候真实 ID、确认、恢复与重复禁止。
+func TestNativeWorkerVerifiedGreetFollowup(t *testing.T) { runNativeWorkerPosition(t, "followup-job") }
+
 // runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
 func runNativeWorkerPosition(t *testing.T, mode string) {
 	timed := mode == "triple-timed-job" || mode == "triple-rescan-job"
@@ -147,6 +151,9 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	command.Stdout = logFile
 	command.Stderr = logFile
 	fixtureMode := mode
+	if mode == "followup-job" {
+		fixtureMode = "reply-job"
+	}
 	if mode == "window-reply-job" {
 		fixtureMode = "reply-job"
 	}
@@ -455,6 +462,42 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	}
 	if runner.IsRunning("native-position") {
 		t.Fatal("当前工作结束后仍占用运行")
+	}
+	if mode == "followup-job" {
+		runtime, lookupErr := platforms.RuntimeFor("boss")
+		if lookupErr != nil {
+			t.Fatal(lookupErr)
+		}
+		_, openErr := worker.CallOnce(t.Context(), "/api/v1/page/open", map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "no_script": true})
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		position, readErr := db.GetPosition("native-position")
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		followupOptions := options
+		followupOptions.LocalRunID = checkpoint.RunID
+		followupOptions.CloudRunID = checkpoint.CloudRunID
+		candidate := map[string]any{"id": "opaque-A", "candidate_name": "同名候选人 A"}
+		executor := platformExecutor{runner: runner, positionID: position.ID, once: true}
+		if err = runner.sendVerifiedGreetFollowup(t.Context(), position, followupOptions, runtime, executor, cloudapi.PlatformConfig{}, candidate, "岗位追加介绍"); err != nil {
+			t.Fatal(err)
+		}
+		if err = runner.sendVerifiedGreetFollowup(t.Context(), position, followupOptions, runtime, executor, cloudapi.PlatformConfig{}, candidate, "岗位追加介绍"); err == nil {
+			t.Fatal("追加问候重复调用仍放行")
+		}
+		raw, readErr := os.ReadFile(filepath.Join(directory, "ledger.json"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var ledger struct {
+			Clicks int `json:"clicks"`
+		}
+		_ = json.Unmarshal(raw, &ledger)
+		if ledger.Clicks != 2 {
+			t.Fatalf("首次回复与追加问候发送次数不正确 clicks=%d", ledger.Clicks)
+		}
 	}
 	if mode == "reply-job" || mode == "window-reply-job" {
 		if checkpoint.Replied != 1 {
