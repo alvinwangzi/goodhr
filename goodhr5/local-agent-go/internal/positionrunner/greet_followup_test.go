@@ -16,6 +16,16 @@ type followupFixture struct {
 	returned int
 }
 
+// GreetCandidate 模拟明确的首次招呼成功，后续追加流程和数据库仍使用生产实现。
+func (f *followupFixture) GreetCandidate(context.Context, platformcore.Executor, cloudapi.PlatformConfig, platformcore.Candidate) error {
+	return nil
+}
+
+// ReadCandidateState 提供未联系页面事实，不用姓名推断已有沟通。
+func (f *followupFixture) ReadCandidateState(context.Context, platformcore.Executor, cloudapi.PlatformConfig, platformcore.Candidate) (platformcore.CandidatePageState, error) {
+	return platformcore.CandidatePageState{ResumeStatus: "none"}, nil
+}
+
 // PrepareCandidateFollowup 表示已安全进入可核对 ID 的消息页。
 func (f *followupFixture) PrepareCandidateFollowup(context.Context, platformcore.Executor) error {
 	return nil
@@ -81,6 +91,25 @@ func TestVerifiedGreetFollowup(t *testing.T) {
 			}
 			if fixture.returned == 0 {
 				t.Fatal("追加流程没有恢复推荐页面")
+			}
+			if correct {
+				position.PositionSnapshot["greet_message"] = "岗位追加内容"
+				position.PositionSnapshot["common_config"] = map[string]any{"request_phone": true}
+				freshCandidate := map[string]any{"id": "opaque-second", "candidate_name": "张三", "status": "passed", "ai_greet_score": 90}
+				fixture.current.Conversation.ID = "c2"
+				if err = db.SaveCandidateIdentity(t.Context(), localdb.CandidateIdentity{ProfileScope: "scope", Platform: "boss", RecommendationID: "opaque-second", ConversationID: "c2", Status: "verified", Source: "controlled-direct-id"}); err != nil {
+					t.Fatal(err)
+				}
+				if err = db.SaveActionCandidate(t.Context(), cp, "opaque-second", "processing", "candidate_processing"); err != nil {
+					t.Fatal(err)
+				}
+				greeted, _, _, callerErr := runner.consumeCandidateForGreet(t.Context(), position, fixture, exec, cloudapi.PlatformConfig{}, freshCandidate, 0, options)
+				if callerErr != nil || greeted != 1 || freshCandidate["greet_message_sent"] != "岗位追加内容" {
+					t.Fatalf("原候选人入口追加未确认 greeted=%d err=%v candidate=%v", greeted, callerErr, freshCandidate)
+				}
+				if freshCandidate["requested_phone"] == true {
+					t.Fatal("追加消息误记电话已索要")
+				}
 			}
 		})
 	}
