@@ -3,7 +3,7 @@ import { registerHooks } from "node:module";
 import { writeFileSync } from "node:fs";
 import { combinedChatFixture } from "./combined-chat-fixture.mjs";
 
-const ledger = { launches: [], requests: [], clicks: 0, sendOrder: [] };
+const ledger = { launches: [], requests: [], clicks: 0, sendOrder: [], greetOrder: [], timeline: [] };
 let account = 901;
 const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
 
@@ -19,11 +19,14 @@ async function fixtureRoute(route) {
   if (url.pathname === "/wapi/zpjob/rec/geek/list") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { geekList: ["A", "B", "C", "D"].map((suffix, i) => ({ encryptGeekId: "opaque-" + suffix, geekCard: { geekId: 123 + i, encGeekId: "opaque-" + suffix } })) } }) });
   if (url.pathname === "/wapi/zprelation/friend/getBossFriendListV2.json") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }, { uid: 124, encryptUid: "opaque-B" }] } }) });
   if (url.pathname === "/wapi/zpjob/chat/geek/info") { const uid=Number(url.searchParams.get('uid')); return route.fulfill({contentType:'application/json',body:JSON.stringify({code:0,zpData:{data:{uid,encryptUid:uid===123?'opaque-A':'opaque-B'}}})}); }
-  if (url.pathname === "/fixture/click") { ledger.clicks++; if(url.searchParams.has('uid'))ledger.sendOrder.push(Number(url.searchParams.get('uid'))); saveLedger(); return route.fulfill({ contentType: "application/json", body: "{}" }); }
+  if (url.pathname === "/fixture/click") { ledger.clicks++; if(url.searchParams.has('uid')){ledger.sendOrder.push(Number(url.searchParams.get('uid')));ledger.timeline.push('message:'+url.searchParams.get('uid'));} saveLedger(); return route.fulfill({ contentType: "application/json", body: "{}" }); }
+  if (url.pathname === '/fixture/greet') {ledger.greetOrder.push(url.searchParams.get('id'));ledger.timeline.push('greet:'+url.searchParams.get('id'));saveLedger();return route.fulfill({contentType:'application/json',body:'{}'});}
+  if (url.pathname === '/web/frame/recommend/' && process.env.HRPLUS_M1_FIXTURE_MODE?.startsWith('triple')) return route.fulfill({contentType:'text/html; charset=utf-8',body:`<style>body{margin:0}.candidate-card-wrap{height:100px;border:1px solid #ddd}</style>${['C','D','E'].map(id=>`<section class="candidate-card-wrap"><div class="card-inner" data-geekid="opaque-${id}"><span class="candidate-name">虚构候选人 ${id}</span><button class="greet-btn" onclick="this.textContent='继续沟通';this.className='continue-btn';fetch('/fixture/greet?id=opaque-${id}')">打招呼</button></div></section>`).join('')}`});
   if (url.pathname === "/web/frame/recommend/") return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<style>.candidate-card-wrap{height:120px;border:1px solid #ddd}</style>${["A", "B", "C", "D"].map(suffix => `<section class="candidate-card-wrap"><div class="card-inner" data-geekid="opaque-${suffix}">同名候选人 ${suffix}</div></section>`).join("")}<iframe src="/wapi/zpjob/rec/geek/list"></iframe>` });
   if (!url.pathname.startsWith("/web/chat/")) return route.abort();
   if (url.searchParams.has("fixtureAccount")) account = Number(url.searchParams.get("fixtureAccount"));
-  if (process.env.HRPLUS_M1_FIXTURE_MODE === 'combined-job' && !url.pathname.includes('recommend')) return route.fulfill({contentType:'text/html; charset=utf-8',body:combinedChatFixture()});
+  if ((process.env.HRPLUS_M1_FIXTURE_MODE === 'combined-job' || process.env.HRPLUS_M1_FIXTURE_MODE?.startsWith('triple')) && !url.pathname.includes('recommend')) return route.fulfill({contentType:'text/html; charset=utf-8',body:combinedChatFixture({ready:process.env.HRPLUS_M1_FIXTURE_MODE !== 'triple-timed-job' || ledger.greetOrder.length>0})});
+  if (process.env.HRPLUS_M1_FIXTURE_MODE?.startsWith('triple') && url.pathname.includes('recommend')) return route.fulfill({contentType:'text/html; charset=utf-8',body:`<style>dl{position:fixed;top:0;left:0;z-index:10;background:white}body{padding-top:45px}</style><dl><a href="/web/chat/recommend">推荐牛人</a><a href="/web/chat/index">沟通</a></dl><div class="current-position">Go</div><button class="switch-position">岗位</button><div class="position-list"><div class="position-item"><span class="position-name">Go</span></div></div><iframe name="recommendFrame" style="width:700px;height:380px" src="/web/frame/recommend/?jobid=job1&status=0&filterParams=&source=0"></iframe><iframe src="${accountPath}"></iframe>`});
   if (process.env.HRPLUS_M1_FIXTURE_MODE === "empty-job" && !url.pathname.includes("recommend")) {
     return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<dl><a href="/web/chat/recommend">推荐牛人</a><a href="/web/chat/index">沟通</a></dl><div class="job-select"><ul class="ui-dropmenu-list"><li>Go</li></ul></div><div class="chat-message-filter-left"><span>未读</span></div><div class="user-list"></div><iframe src="${accountPath}"></iframe>` });
   }

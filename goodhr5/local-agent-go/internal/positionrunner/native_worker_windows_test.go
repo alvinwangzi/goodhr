@@ -91,9 +91,16 @@ func TestNativeWorkerReGreetLostReceipt(t *testing.T) { runNativeWorkerPosition(
 // TestNativeWorkerReplyAndReGreet 验证同一运行优先回复与到期复打共用通道和检查点，不重复处理。
 func TestNativeWorkerReplyAndReGreet(t *testing.T) { runNativeWorkerPosition(t, "combined-job") }
 
+// TestNativeWorkerThreeActions 验证实际岗位入口中的推荐扫描、回复和复打使用同一运行与计数。
+func TestNativeWorkerThreeActions(t *testing.T) { runNativeWorkerPosition(t, "triple-job") }
+
+// TestNativeWorkerTimedScanInterrupt 验证扫描中出现消息，经可控到期时钟触发实际切入并恢复同一队列和数量。
+func TestNativeWorkerTimedScanInterrupt(t *testing.T) { runNativeWorkerPosition(t, "triple-timed-job") }
+
 // runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
 func runNativeWorkerPosition(t *testing.T, mode string) {
-	combined := mode == "combined-job"
+	triple := strings.HasPrefix(mode, "triple")
+	combined := mode == "combined-job" || triple
 	regreet := strings.HasPrefix(mode, "regreet-") || combined
 	if os.Getenv("HRPLUS_M1_NATIVE_WORKER_TEST") != "1" {
 		t.Skip("需要显式启用 Windows 真实 Worker 受控验收")
@@ -129,6 +136,9 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	}
 	if combined {
 		fixtureMode = "combined-job"
+	}
+	if triple {
+		fixtureMode = mode
 	}
 	if mode == "stop-reply-job" {
 		fixtureMode = "reply-job"
@@ -197,6 +207,8 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			result = map[string]any{"config": map[string]any{}}
 		case "/api/config/effective-ai":
 			result = map[string]any{"config": map[string]any{"base_url": ai.URL, "api_key": "fixture-key", "model": "fixture"}}
+		case "/api/platforms/config/":
+			result = map[string]any{"configs": []any{map[string]any{"config_key": "platform.boss", "config_value": `{"id":"boss","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]},"position":{"current":{"selector":".current-position"},"switchBtn":{"selector":".switch-position"},"list":{"selector":".position-list"},"item":{"selector":".position-item"},"itemText":{"selector":".position-name"}},"card":{"item":{"selector":".candidate-card-wrap"},"fields":{"name":{"selector":".candidate-name"}}},"actions":{"greetBtn":{"selector":".greet-btn"},"continueBtn":{"selector":".continue-btn"}}}`}}}
 		case "/api/positions/native-position/screenings/find":
 			result = map[string]any{"item": map[string]any{"id": "screen-A", "position_id": "native-position", "platform": "boss", "platform_candidate_id": "opaque-A", "candidate_name": "同名候选人 A", "score": 90}}
 		case "/api/positions/native-position/resume-requests", "/api/positions/native-position/screenings":
@@ -207,7 +219,16 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			if combined {
 				candidateID, name = "opaque-B", "同名候选人 B"
 			}
-			if receiptCount.Load() == 0 {
+			workReady := true
+			if mode == "triple-timed-job" {
+				raw, _ := os.ReadFile(filepath.Join(directory, "ledger.json"))
+				var ledger struct {
+					GreetOrder []string `json:"greetOrder"`
+				}
+				_ = json.Unmarshal(raw, &ledger)
+				workReady = len(ledger.GreetOrder) > 0
+			}
+			if receiptCount.Load() == 0 && workReady {
 				items = append(items, map[string]any{"id": "screen-A", "position_id": "native-position", "platform": "boss", "platform_candidate_id": candidateID, "candidate_name": name, "greeted_at": contactAt.Format(time.RFC3339Nano), "re_greet_count": 0})
 			}
 			result = map[string]any{"ok": true, "re_greet_receipts": true, "items": items}
@@ -238,7 +259,9 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			}
 			result = map[string]any{"receipt": cloudapi.ReGreetReceiptResponse{OperationID: request.OperationID, ResultCount: request.BaseCount + 1, SentAt: request.SentAt, ReceivedAt: time.Now()}}
 		case "/api/positions/native-position":
-			result = map[string]any{"position": map[string]any{"id": "native-position", "name": "Go", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "Go"}}}
+			result = map[string]any{"position": map[string]any{"id": "native-position", "name": "Go", "platform_id": "boss", "mode": "keyword", "common_config": map[string]any{"mode_default": "keyword"}, "match_limit": 3, "position": map[string]any{"name": "Go"}}}
+		case "/api/positions/native-position/candidates", "/api/positions/native-position/processed-resumes", "/api/positions/native-position/counts":
+			result = map[string]any{"ok": true}
 		case "/api/positions/native-position/status":
 			var status struct {
 				Status string `json:"status"`
@@ -274,7 +297,32 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		taskType = "auto_reply,re_greet"
 		priority = true
 	}
-	if _, err = runner.Start(t.Context(), "native-position", StartOptions{CloudAPIBase: cloud.URL, Token: "fixture-token", MachineID: "fixture-machine", TaskType: taskType, PrioritizeReply: priority}); err != nil {
+	if triple {
+		taskType = "greeting,auto_reply,re_greet"
+	}
+	options := StartOptions{CloudAPIBase: cloud.URL, Token: "fixture-token", MachineID: "fixture-machine", TaskType: taskType, PrioritizeReply: priority}
+	if triple {
+		options.EnableGreet = true
+		options.DetailOpenProbability = 0
+		options.detailOpenProbabilitySet = true
+		options.PageReadyDelay = 1
+	}
+	if mode == "triple-timed-job" {
+		baseClock := time.Now()
+		options.actionNow = func() time.Time {
+			raw, _ := os.ReadFile(filepath.Join(directory, "ledger.json"))
+			var ledger struct {
+				GreetOrder []string `json:"greetOrder"`
+			}
+			_ = json.Unmarshal(raw, &ledger)
+			if len(ledger.GreetOrder) > 0 {
+				return baseClock.Add(2 * time.Minute)
+			}
+			return baseClock
+		}
+		options.PrioritizeReply = false
+	}
+	if _, err = runner.Start(t.Context(), "native-position", options); err != nil {
 		t.Fatal(err)
 	}
 	expectedStatus := "completed"
@@ -291,6 +339,9 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		expectedStatus = "stopped"
 	}
 	deadline = time.Now().Add(40 * time.Second)
+	if triple {
+		deadline = time.Now().Add(75 * time.Second)
+	}
 	for {
 		position, readErr := db.GetPosition("native-position")
 		if readErr != nil {
@@ -300,6 +351,10 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			break
 		}
 		if position.Status == "failed" || time.Now().After(deadline) {
+			logs, _ := db.ListPositionLogs("native-position", 20)
+			for _, entry := range logs {
+				t.Log(entry.Message)
+			}
 			raw, _ := os.ReadFile(filepath.Join(directory, "worker.log"))
 			t.Fatalf("任务未正常结束 status=%s Worker=%s", position.Status, strings.TrimSpace(string(raw)))
 		}
@@ -440,14 +495,48 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			t.Fatal(readErr)
 		}
 		var ledger struct {
-			Clicks    int   `json:"clicks"`
-			SendOrder []int `json:"sendOrder"`
+			Clicks    int      `json:"clicks"`
+			SendOrder []int    `json:"sendOrder"`
+			Timeline  []string `json:"timeline"`
 		}
 		if err = json.Unmarshal(raw, &ledger); err != nil {
 			t.Fatal(err)
 		}
-		if ledger.Clicks != 2 || len(ledger.SendOrder) != 2 || ledger.SendOrder[0] != 123 || ledger.SendOrder[1] != 124 {
+		if ledger.Clicks != 2 || len(ledger.SendOrder) != 2 || (mode != "triple-timed-job" && (ledger.SendOrder[0] != 123 || ledger.SendOrder[1] != 124)) {
 			t.Fatalf("优先回复与复打顺序错误 %+v", ledger)
+		}
+		if mode == "triple-timed-job" {
+			indices := map[string]int{}
+			for i, event := range ledger.Timeline {
+				indices[event] = i
+			}
+			for _, event := range []string{"greet:opaque-C", "message:123", "message:124", "greet:opaque-D", "greet:opaque-E"} {
+				if _, ok := indices[event]; !ok {
+					t.Fatalf("实际动作时间线缺少 %s: %v", event, ledger.Timeline)
+				}
+			}
+			if !(indices["greet:opaque-C"] < indices["message:123"] && indices["greet:opaque-C"] < indices["message:124"] && indices["message:123"] < indices["greet:opaque-D"] && indices["message:124"] < indices["greet:opaque-D"]) {
+				t.Fatalf("未在扫描安全边界穿插消息 %v", ledger.Timeline)
+			}
+			logs, _ := db.ListPositionLogs("native-position", 200)
+			matched := false
+			for _, entry := range logs {
+				if strings.Contains(entry.Message, "resume_anchor_match") {
+					matched = true
+				}
+			}
+			if !matched {
+				t.Fatal("返回推荐没有匹配局部锚点")
+			}
+		}
+		if triple {
+			var details struct {
+				GreetOrder []string `json:"greetOrder"`
+			}
+			_ = json.Unmarshal(raw, &details)
+			if checkpoint.Greeted != 3 || len(details.GreetOrder) != 3 {
+				t.Fatalf("扫描计数或打招呼次数错误 %+v %+v", checkpoint, details)
+			}
 		}
 	}
 }
