@@ -14,6 +14,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -74,6 +76,9 @@ func TestNativeWorkerEmptyPositionEnd(t *testing.T) {
 // TestNativeWorkerReplyPositionEnd 验证真实消息读取、模型 HTTP、标准输入发送、确认与本次计数。
 func TestNativeWorkerReplyPositionEnd(t *testing.T) { runNativeWorkerPosition(t, "reply-job") }
 
+// TestNativeWorkerStopDuringGeneration 验证真实页面读取后、AI 返回前停止，之后不输入、不发送且释放运行。
+func TestNativeWorkerStopDuringGeneration(t *testing.T) { runNativeWorkerPosition(t, "stop-reply-job") }
+
 // runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
 func runNativeWorkerPosition(t *testing.T, mode string) {
 	if os.Getenv("HRPLUS_M1_NATIVE_WORKER_TEST") != "1" {
@@ -104,7 +109,11 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	command.Dir = root
 	command.Stdout = logFile
 	command.Stderr = logFile
-	command.Env = append(os.Environ(), fmt.Sprintf("GOODHR_WORKER_ADDR=127.0.0.1:%d", port), fmt.Sprintf("GOODHR_WORKER_PORT_END=%d", port), "CLOAKBROWSER_BINARY_PATH="+binary, "HRPLUS_M1_FIXTURE_MODE="+mode, "HRPLUS_M1_FIXTURE_LEDGER="+filepath.Join(directory, "ledger.json"))
+	fixtureMode := mode
+	if mode == "stop-reply-job" {
+		fixtureMode = "reply-job"
+	}
+	command.Env = append(os.Environ(), fmt.Sprintf("GOODHR_WORKER_ADDR=127.0.0.1:%d", port), fmt.Sprintf("GOODHR_WORKER_PORT_END=%d", port), "CLOAKBROWSER_BINARY_PATH="+binary, "HRPLUS_M1_FIXTURE_MODE="+fixtureMode, "HRPLUS_M1_FIXTURE_LEDGER="+filepath.Join(directory, "ledger.json"))
 	if err = command.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -126,10 +135,27 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	generationStarted := make(chan struct{}, 1)
+	releaseGeneration := make(chan struct{})
+	var releaseOnce sync.Once
+	finishGeneration := func() { releaseOnce.Do(func() { close(releaseGeneration) }) }
 	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mode == "stop-reply-job" {
+			select {
+			case generationStarted <- struct{}{}:
+			default:
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			case <-releaseGeneration:
+			}
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"action":"reply","text":"岗位仍在招聘，欢迎沟通。","reason":"回答岗位状态","request_resume":false}`}}}})
 	}))
 	defer ai.Close()
+	defer finishGeneration()
+	var runCounter atomic.Int32
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var result any
 		switch r.URL.Path {
@@ -150,9 +176,18 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		case "/api/positions/native-position/status":
 			var status struct {
 				Status string `json:"status"`
+				RunID  string `json:"run_id"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&status)
-			result = map[string]any{"ok": true, "status": status.Status, "run_id": "native-run", "task_run": map[string]any{"id": "native-run"}}
+			runID := status.RunID
+			if runID == "" {
+				index := runCounter.Add(1)
+				runID = "native-run"
+				if index > 1 {
+					runID = fmt.Sprintf("native-run-%d", index)
+				}
+			}
+			result = map[string]any{"ok": true, "status": status.Status, "run_id": runID, "task_run": map[string]any{"id": runID}}
 		default:
 			t.Errorf("unexpected cloud path %s", r.URL.Path)
 			w.WriteHeader(404)
@@ -166,13 +201,26 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	if _, err = runner.Start(t.Context(), "native-position", StartOptions{CloudAPIBase: cloud.URL, Token: "fixture-token", MachineID: "fixture-machine", TaskType: "auto_reply", PrioritizeReply: true}); err != nil {
 		t.Fatal(err)
 	}
+	expectedStatus := "completed"
+	if mode == "stop-reply-job" {
+		select {
+		case <-generationStarted:
+		case <-time.After(35 * time.Second):
+			t.Fatal("真实流程未到达 AI 边界")
+		}
+		if _, err = runner.Stop("native-position"); err != nil {
+			t.Fatal(err)
+		}
+		finishGeneration()
+		expectedStatus = "stopped"
+	}
 	deadline = time.Now().Add(40 * time.Second)
 	for {
 		position, readErr := db.GetPosition("native-position")
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		if position.Status == "completed" {
+		if position.Status == expectedStatus {
 			break
 		}
 		if position.Status == "failed" || time.Now().After(deadline) {
@@ -208,6 +256,62 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		}
 		if ledger.Clicks != 1 {
 			t.Fatalf("虚构页面重复发送或未发送 clicks=%d", ledger.Clicks)
+		}
+	}
+	if mode == "stop-reply-job" {
+		time.Sleep(500 * time.Millisecond)
+		raw, readErr := os.ReadFile(filepath.Join(directory, "ledger.json"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var ledger struct {
+			Clicks int `json:"clicks"`
+		}
+		if err = json.Unmarshal(raw, &ledger); err != nil {
+			t.Fatal(err)
+		}
+		if ledger.Clicks != 0 || checkpoint.Replied != 0 {
+			t.Fatalf("停止后仍发送或误记成功 clicks=%d replied=%d", ledger.Clicks, checkpoint.Replied)
+		}
+		draftResult, draftErr := worker.CallOnce(t.Context(), "/api/v1/page/extract-text", map[string]any{"no_script": true, "selector_spec": map[string]any{"selectors": []string{".boss-chat-editor-input"}}, "editable": true})
+		if draftErr != nil {
+			t.Fatal(draftErr)
+		}
+		draftData, _ := draftResult["data"].(map[string]any)
+		if draftData["text"] != "" {
+			t.Fatalf("停止后仍输入了草稿 %v", draftData["text"])
+		}
+		originalRunID := checkpoint.RunID
+		if _, err = runner.Start(t.Context(), "native-position", StartOptions{CloudAPIBase: cloud.URL, Token: "fixture-token", MachineID: "fixture-machine", TaskType: "auto_reply", PrioritizeReply: true}); err != nil {
+			t.Fatal(err)
+		}
+		deadline = time.Now().Add(35 * time.Second)
+		for {
+			position, readErr := db.GetPosition("native-position")
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if position.Status == "completed" {
+				break
+			}
+			if position.Status == "failed" || time.Now().After(deadline) {
+				t.Fatalf("停止后重新开始未结束 status=%s", position.Status)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		second, readErr := db.LatestActionCheckpoint(t.Context(), "native-position")
+		if readErr != nil || second.RunID == originalRunID || second.CloudRunID == checkpoint.CloudRunID || second.Replied != 1 {
+			t.Fatalf("重新开始混用了旧运行 %+v %v", second, readErr)
+		}
+		raw, readErr = os.ReadFile(filepath.Join(directory, "ledger.json"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err = json.Unmarshal(raw, &ledger); err != nil {
+			t.Fatal(err)
+		}
+		if ledger.Clicks != 1 {
+			t.Fatalf("停止与重新开始造成重复发送 clicks=%d", ledger.Clicks)
 		}
 	}
 }
