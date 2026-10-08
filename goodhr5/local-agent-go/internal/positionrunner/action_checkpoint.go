@@ -3,6 +3,8 @@ package positionrunner
 
 import (
 	"context"
+	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/platformcore"
 	"strings"
 )
 
@@ -20,6 +22,55 @@ func checkpointQueue(queue []map[string]any) []map[string]any {
 		result = append(result, item)
 	}
 	return result
+}
+
+// recheckUnknownScanCandidates 在列表返回时核对未知目标，只有已有沟通事实可标记明确跳过；未确认的绝不重发。
+func (r *Runner) recheckUnknownScanCandidates(ctx context.Context, positionID string, options StartOptions, runtime platformcore.Runtime, exec platformExecutor, cfg cloudapi.PlatformConfig, candidates []map[string]any) ([]map[string]any, error) {
+	if options.LocalRunID == "" {
+		return candidates, nil
+	}
+	checkpoint, err := r.db.LoadActionCheckpoint(ctx, options.LocalRunID)
+	if err != nil {
+		return nil, err
+	}
+	eligible := []map[string]any{}
+	for _, candidate := range candidates {
+		id := stringFromMap(candidate, "id")
+		unresolved, lookupErr := r.db.UnresolvedActionCandidates(ctx, checkpoint.ProfileScope, checkpoint.Platform, id)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		if len(unresolved) == 0 {
+			eligible = append(eligible, candidate)
+			continue
+		}
+		reader, ok := runtime.(platformcore.CandidateStateReader)
+		if !ok {
+			r.positionLog(positionID, "warning", "未知发送保留待核对，当前平台缺少页面事实读取能力")
+			continue
+		}
+		observed, readErr := reader.ReadCandidateState(ctx, exec, cfg, platformcore.Candidate(candidate))
+		if readErr != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			r.positionLog(positionID, "warning", "未知发送页面读取失败，保留待核对："+candidateLogName(candidate))
+			continue
+		}
+		if observed.ContactObserved || observed.ResumeStatus == "received" {
+			for _, original := range unresolved {
+				if err := r.db.ResolveObservedActionCandidate(ctx, original.RunID, original.PositionID, id, true); err != nil {
+					return nil, err
+				}
+			}
+			candidate["status"] = "skipped"
+			candidate["skip_reason"] = "未知发送核对后发现已有沟通，不重复打招呼"
+			// 不再进入关键词和评分流程，避免其把已核对跳过重新覆盖为 passed。
+		} else {
+			r.positionLog(positionID, "warning", "未知发送没有取得新证据，保留待核对："+candidateLogName(candidate))
+		}
+	}
+	return eligible, nil
 }
 
 // appendCompletedAnchor 保留最近三个已安全处理的完整 ID，不记录未知结果。
@@ -57,6 +108,7 @@ func (r *Runner) saveScanCheckpoint(ctx context.Context, options StartOptions, c
 		status = "unknown"
 	case "processing":
 		status = "processing"
+		reason = "candidate_processing"
 	}
 	if !options.EnableGreet && (stringFromMap(candidate, "status") == "passed" || stringFromMap(candidate, "status") == "ai_passed" || stringFromMap(candidate, "status") == "detail_fetched") {
 		status = "completed"

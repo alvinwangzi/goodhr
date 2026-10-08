@@ -223,6 +223,10 @@ scanLoop:
 		}
 		candidates := queue
 		queue = nil
+		candidates, recheckErr := r.recheckUnknownScanCandidates(ctx, position.ID, options, platformRuntime, exec, platformConfig, candidates)
+		if recheckErr != nil {
+			return nil, recheckErr
+		}
 		filtered, skipped := r.prepareCandidatesForFirstStage(position, candidates)
 		totalResult.Skipped += skipped
 		for _, candidate := range candidates {
@@ -482,7 +486,7 @@ scanLoop:
 						}
 						seen = map[string]struct{}{}
 						for id, state := range states {
-							if state == "completed" || state == "skipped" || state == "unknown" || state == "processing" {
+							if state == "completed" || state == "skipped" {
 								seen[id] = struct{}{}
 							}
 						}

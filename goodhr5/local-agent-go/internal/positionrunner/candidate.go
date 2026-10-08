@@ -214,6 +214,11 @@ func (r *Runner) tryGreet(ctx context.Context, positionID string, platformRuntim
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if options.LocalRunID != "" {
+			if err := r.db.MarkActionGreetingSending(ctx, options.LocalRunID, positionID, stringFromMap(candidate, "id")); err != nil {
+				return err
+			}
+		}
 		r.positionLog(positionID, "info", fmt.Sprintf("打招呼执行：准备调用平台接口，第%d次", attempt+1))
 		err := r.withOperationTimeout(ctx, positionID, candidateLogName(candidate), fmt.Sprintf("调用打招呼接口第%d次", attempt+1), greetActionTimeout, func(greetCtx context.Context) error {
 			return platformRuntime.GreetCandidate(greetCtx, exec, platformConfig, platformcore.Candidate(candidate))

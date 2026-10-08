@@ -241,7 +241,7 @@ func (s *PostgresCandidateStore) SaveCandidateEvent(item CandidateEvent) (Candid
 	}
 	var saved CandidateEvent
 	eventID := ""
-	if item.Metadata["source"] == "candidate_info_request" {
+	if item.Metadata["source"] == "candidate_info_request" || item.Metadata["source"] == "re_greet_receipt" {
 		eventID = item.ID
 	}
 	err = s.db.QueryRowContext(

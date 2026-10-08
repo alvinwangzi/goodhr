@@ -29,6 +29,13 @@ func TestReGreetReceiptHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	profile, err := service.candidateStore.SaveCandidateProfile(CandidateProfileInput{UserEmail: email, PlatformID: "boss", PlatformCandidateID: "candidate", CandidateName: "候选人"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.candidateStore.UpsertCandidateEngagement(CandidateEngagement{CandidateID: profile.ID, PositionID: positionID, PlatformID: "boss", UserEmail: email}); err != nil {
+		t.Fatal(err)
+	}
 	request := reportReGreetRequest{MachineID: positionTestMachineID, OperationID: "http-operation", Platform: "boss", PlatformCandidateID: "candidate", Success: true, RunID: run.ID, BaseContactAt: *candidate.GreetedAt, SentAt: time.Now(), MessageText: "复打消息"}
 	post := func(in reportReGreetRequest) int {
 		raw, _ := json.Marshal(in)
@@ -51,6 +58,49 @@ func TestReGreetReceiptHTTP(t *testing.T) {
 	current, err := service.screeningStore.FindScreening(t.Context(), positionID, "boss", "candidate")
 	if err != nil || current.ReGreetCount != 1 {
 		t.Fatalf("重复记账 %+v %v", current, err)
+	}
+	value, err := service.candidateStore.GetPositionCandidate(tenantID, profile.ID, "", email, false)
+	if err != nil || len(value.Events) != 1 || value.Events[0].MessageText != "复打消息" || !value.Events[0].CreatedAt.Equal(request.SentAt) {
+		t.Fatalf("内存事件遗漏、重复或时间错误 %+v %v", value.Events, err)
+	}
+}
+
+// TestMemoryReceiptDisplayRetry 验证展示失败保留待办，不回滚或重复增加核心计数。
+func TestMemoryReceiptDisplayRetry(t *testing.T) {
+	store := NewMemoryCandidateScreeningStore()
+	candidate, err := store.UpsertScreening(t.Context(), CandidateScreeningUpsert{Platform: "boss", PlatformCandidateID: "candidate", SetGreetedAt: true}, "position")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := ReGreetReceiptInput{OperationID: "event-retry", OwnerEmail: "owner@example.com", PositionID: "position", Platform: "boss", CandidateID: "candidate", BaseContactAt: *candidate.GreetedAt, SentAt: time.Now(), MessageText: "消息"}
+	if _, err = store.CommitReGreetReceipt(t.Context(), in); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.deliverReceiptEffects(in.OperationID, func(ReGreetReceiptInput, bool, bool) (bool, bool, error) {
+		return true, false, errors.New("展示暂不可用")
+	}); err == nil {
+		t.Fatal("未保存失败待办")
+	}
+	if _, err = store.CommitReGreetReceipt(t.Context(), in); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.deliverReceiptEffects(in.OperationID, func(_ ReGreetReceiptInput, logged, eventSaved bool) (bool, bool, error) {
+		if !logged || eventSaved {
+			t.Fatal("未保留已成功部分")
+		}
+		return true, true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.deliverReceiptEffects(in.OperationID, func(ReGreetReceiptInput, bool, bool) (bool, bool, error) {
+		t.Fatal("已完成展示被重复投递")
+		return false, false, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.FindScreening(t.Context(), "position", "boss", "candidate")
+	if err != nil || current.ReGreetCount != 1 {
+		t.Fatal("展示重试改变了计数")
 	}
 }
 

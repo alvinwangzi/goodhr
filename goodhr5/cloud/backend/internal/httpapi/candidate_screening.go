@@ -290,6 +290,7 @@ func (s *PositionExecutionService) ListReGreetCandidates(w http.ResponseWriter, 
 		req.MaxCount = 1
 	}
 	items, err := s.screeningStore.ListReGreetCandidates(r.Context(), position.ID, platform, req.TimeRangeDays, req.IntervalMinMinutes, req.MaxCount)
+	s.retryMemoryReceiptDisplays()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list re-greet candidates: "+err.Error())
 		return
@@ -427,7 +428,8 @@ func (s *PositionExecutionService) ReportReGreet(w http.ResponseWriter, r *http.
 			writeError(w, http.StatusInternalServerError, "复打收据保存失败")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "affected": 1, "receipt": receipt})
+		displayErr := s.saveMemoryReceiptDisplay(req.OperationID)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "affected": 1, "receipt": receipt, "display_pending": displayErr != nil})
 		return
 	}
 	if req.Success {

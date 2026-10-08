@@ -154,12 +154,89 @@ func (s *MemoryCandidateScreeningStore) CommitReGreetReceipt(_ context.Context, 
 	item.LastReGreetedAt = &sent
 	item.UpdatedAt = time.Now().UTC()
 	receipt := ReGreetReceipt{OperationID: in.OperationID, ResultCount: item.ReGreetCount, SentAt: sent, ReceivedAt: item.UpdatedAt}
-	s.receipts[in.OperationID] = memoryReGreetReceipt{digest: digest, receipt: receipt}
+	s.receipts[in.OperationID] = memoryReGreetReceipt{digest: digest, receipt: receipt, input: in}
 	return receipt, nil
 }
 
 // memoryReGreetReceipt 保存不可变摘要和原返回结果，不复用当前候选人计数。
 type memoryReGreetReceipt struct {
-	digest  string
-	receipt ReGreetReceipt
+	digest             string
+	receipt            ReGreetReceipt
+	input              ReGreetReceiptInput // 与计数同一互斥区间保存的必要业务事件事实。
+	logged, eventSaved bool                // 展示投递失败保留待办，不把核心收据提交误报为失败。
+}
+
+// deliverReceiptEffects 在收据之外投递展示，分别记住成功项；重试不能重复记账或重复写事件。
+func (s *MemoryCandidateScreeningStore) deliverReceiptEffects(operationID string, deliver func(ReGreetReceiptInput, bool, bool) (bool, bool, error)) error {
+	s.deliveryMu.Lock()
+	defer s.deliveryMu.Unlock()
+	s.mu.Lock()
+	item, ok := s.receipts[operationID]
+	s.mu.Unlock()
+	if !ok {
+		return ErrNotFound
+	}
+	if item.logged && item.eventSaved {
+		return nil
+	}
+	logged, eventSaved, err := deliver(item.input, item.logged, item.eventSaved)
+	item.logged = logged
+	item.eventSaved = eventSaved
+	s.mu.Lock()
+	s.receipts[operationID] = item
+	s.mu.Unlock()
+	return err
+}
+
+// retryMemoryReceiptDisplays 在数据查询时补投递内存待办，不重新发送消息或修改已提交联系次数。
+func (s *PositionExecutionService) retryMemoryReceiptDisplays() {
+	store, ok := s.screeningStore.(*MemoryCandidateScreeningStore)
+	if !ok {
+		return
+	}
+	store.mu.Lock()
+	ids := []string{}
+	for id, item := range store.receipts {
+		if !item.logged || !item.eventSaved {
+			ids = append(ids, id)
+		}
+	}
+	store.mu.Unlock()
+	for _, id := range ids {
+		_ = s.saveMemoryReceiptDisplay(id)
+	}
+}
+
+// saveMemoryReceiptDisplay 将已提交的内存业务事实写到日志和简历时间线，失败只保留待办。
+func (s *PositionExecutionService) saveMemoryReceiptDisplay(operationID string) error {
+	store, ok := s.screeningStore.(*MemoryCandidateScreeningStore)
+	if !ok {
+		return nil
+	}
+	return store.deliverReceiptEffects(operationID, func(in ReGreetReceiptInput, logged, eventSaved bool) (bool, bool, error) {
+		if !logged {
+			if err := s.positionLogs.WriteLog(in.PositionID, in.OwnerEmail, "info", "复打发送已确认，收据="+in.OperationID); err != nil {
+				return logged, eventSaved, err
+			}
+			logged = true
+		}
+		if !eventSaved && s.candidateStore != nil {
+			engagement, err := s.candidateStore.FindEngagementByPlatformCandidate(in.PositionID, in.Platform, in.CandidateID)
+			if errors.Is(err, ErrNotFound) {
+				return logged, true, nil
+			}
+			if err != nil {
+				return logged, eventSaved, err
+			}
+			eventID := candidateInfoEventID(in.PositionID, engagement.CandidateID, CandidateInfoFeedback{RequestID: in.OperationID, Action: "re_greet", State: "sent"})
+			_, err = s.candidateStore.SaveCandidateEvent(CandidateEvent{ID: eventID, CandidateID: engagement.CandidateID, EngagementID: engagement.ID, TaskID: in.RunID, PositionID: in.PositionID, PlatformID: in.Platform, EventType: "re_greeted_sent", MessageText: in.MessageText, CreatedAt: in.SentAt, Metadata: map[string]any{"source": "re_greet_receipt", "operation_id": in.OperationID, "platform_candidate_id": in.CandidateID}})
+			if err != nil {
+				return logged, eventSaved, err
+			}
+			eventSaved = true
+		} else if s.candidateStore == nil {
+			eventSaved = true
+		}
+		return logged, eventSaved, nil
+	})
 }

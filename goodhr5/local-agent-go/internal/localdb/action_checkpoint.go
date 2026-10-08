@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS candidate_identities (
  updated_at TEXT NOT NULL,
  PRIMARY KEY(profile_scope,platform,recommendation_id)
 );
+-- 未确认发送按候选人查找，不遍历全部已完成历史。
+CREATE INDEX IF NOT EXISTS action_candidates_unresolved ON action_candidates(recommendation_id,run_id,position_id) WHERE status IN ('unknown','processing');
 CREATE UNIQUE INDEX IF NOT EXISTS candidate_verified_conversation ON candidate_identities(profile_scope,platform,conversation_id) WHERE status='verified';
 CREATE TABLE IF NOT EXISTS re_greet_schedules (
  -- 浏览器账号作用域摘要。
@@ -303,6 +305,25 @@ func (db *DB) ActionCandidateStatus(ctx context.Context, runID, positionID, cand
 	var status string
 	err := db.conn.QueryRowContext(ctx, `SELECT status FROM action_candidates WHERE run_id=? AND position_id=? AND recommendation_id=?`, runID, positionID, candidateID).Scan(&status)
 	return status, err
+}
+
+// ResolveObservedActionCandidate 只凭平台已核实存在沟通的正向事实解除未知，不推断本次发送成功或增加数量。
+func (db *DB) ResolveObservedActionCandidate(ctx context.Context, runID, positionID, candidateID string, contactObserved bool) error {
+	if !contactObserved {
+		return fmt.Errorf("缺少平台已沟通事实，未知发送不能解除")
+	}
+	result, err := db.conn.ExecContext(ctx, `UPDATE action_candidates SET status='skipped',reason='observed_contact_after_unknown',updated_at=? WHERE run_id=? AND position_id=? AND recommendation_id=? AND status IN ('unknown','processing')`, time.Now().UTC().Format(time.RFC3339Nano), runID, positionID, candidateID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return fmt.Errorf("候选人未知状态已变化")
+	}
+	return nil
 }
 
 // SaveCandidateIdentity 保存明确验证的映射；冲突会持久标记，不能悄悄覆盖原对应关系。

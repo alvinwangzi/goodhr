@@ -4,6 +4,7 @@ package positionrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/platformcore"
@@ -62,8 +63,85 @@ func (f *failingGreetingRuntime) GreetCandidate(context.Context, platformcore.Ex
 func TestCheckpointGreetingNoBlindRetry(t *testing.T) {
 	runner := newTestRunner(t, openRunnerTestDB(t), &onceWorker{})
 	runtime := &failingGreetingRuntime{}
-	err := runner.tryGreet(t.Context(), "position", runtime, platformExecutor{runner: runner, positionID: "position"}, cloudapi.PlatformConfig{}, map[string]any{"id": "real-ID"}, StartOptions{LocalRunID: "local-run", GreetRetries: 5})
+	checkpoint, err := runner.db.CreateActionRun(t.Context(), localdb.ActionCheckpoint{PositionID: "position", ProfileScope: "scope", Platform: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = runner.db.SaveActionCandidate(t.Context(), checkpoint, "real-ID", "processing", "candidate_processing"); err != nil {
+		t.Fatal(err)
+	}
+	err = runner.tryGreet(t.Context(), "position", runtime, platformExecutor{runner: runner, positionID: "position"}, cloudapi.PlatformConfig{}, map[string]any{"id": "real-ID"}, StartOptions{LocalRunID: checkpoint.RunID, GreetRetries: 5})
 	if !errors.Is(err, context.DeadlineExceeded) || runtime.calls != 1 {
 		t.Fatalf("结果未知仍重复发送：calls=%d err=%v", runtime.calls, err)
+	}
+}
+
+// TestUnknownScanProtectionAcrossRuns 验证重新开始不清空发送保护，纯读取中断可以重新处理，账号作用域互相隔离。
+func TestUnknownScanProtectionAcrossRuns(t *testing.T) {
+	db := openRunnerTestDB(t)
+	r := newTestRunner(t, db, &onceWorker{})
+	old, err := db.CreateActionRun(t.Context(), localdb.ActionCheckpoint{PositionID: "old-position", ProfileScope: "scope", Platform: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SaveActionCandidate(t.Context(), old, "uncertain", "processing", "greet_sending"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SaveActionCandidate(t.Context(), old, "read-only", "processing", "candidate_processing"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := db.CreateActionRun(t.Context(), localdb.ActionCheckpoint{PositionID: "new-position", ProfileScope: "scope", Platform: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := []map[string]any{{"id": "uncertain"}, {"id": "read-only"}}
+	eligible, err := r.recheckUnknownScanCandidates(t.Context(), current.PositionID, StartOptions{LocalRunID: current.RunID}, &observedCandidateRuntime{}, platformExecutor{runner: r, positionID: current.PositionID}, cloudapi.PlatformConfig{}, input)
+	if err != nil || len(eligible) != 1 || stringFromMap(eligible[0], "id") != "read-only" {
+		t.Fatalf("新运行丢保护或把读取当发送 %+v %v", eligible, err)
+	}
+	other, err := db.CreateActionRun(t.Context(), localdb.ActionCheckpoint{PositionID: "other-position", ProfileScope: "other-scope", Platform: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eligible, err = r.recheckUnknownScanCandidates(t.Context(), other.PositionID, StartOptions{LocalRunID: other.RunID}, &observedCandidateRuntime{}, platformExecutor{runner: r, positionID: other.PositionID}, cloudapi.PlatformConfig{}, input)
+	if err != nil || len(eligible) != 2 {
+		t.Fatal("跨账号错误套用了未知记录")
+	}
+}
+
+// TestUnknownScanRecheck 验证未知发送必须读取页面新事实，正向事实不当作本次确认成功，也不重新评分发送。
+func TestUnknownScanRecheck(t *testing.T) {
+	for _, observed := range []bool{false, true} {
+		t.Run(fmt.Sprint(observed), func(t *testing.T) {
+			db := openRunnerTestDB(t)
+			r := newTestRunner(t, db, &onceWorker{})
+			checkpoint, err := db.CreateActionRun(t.Context(), localdb.ActionCheckpoint{PositionID: "p", ProfileScope: "scope", Platform: "boss", Greeted: 2})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = db.SaveActionCandidate(t.Context(), checkpoint, "real-ID", "unknown", "send_unconfirmed"); err != nil {
+				t.Fatal(err)
+			}
+			runtime := &observedCandidateRuntime{state: platformcore.CandidatePageState{ContactObserved: observed}}
+			eligible, err := r.recheckUnknownScanCandidates(t.Context(), "p", StartOptions{LocalRunID: checkpoint.RunID, EnableGreet: true}, runtime, platformExecutor{runner: r, positionID: "p"}, cloudapi.PlatformConfig{}, []map[string]any{{"id": "real-ID", "status": "scanned"}})
+			if err != nil || len(eligible) != 0 {
+				t.Fatalf("未知目标重进了评分或发送队列 %v %+v", err, eligible)
+			}
+			status, err := db.ActionCandidateStatus(t.Context(), checkpoint.RunID, "p", "real-ID")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "unknown"
+			if observed {
+				want = "skipped"
+			}
+			if status != want {
+				t.Fatalf("%s != %s", status, want)
+			}
+			saved, err := db.LoadActionCheckpoint(t.Context(), checkpoint.RunID)
+			if err != nil || saved.Greeted != 2 {
+				t.Fatal("观察事实增加了成功数")
+			}
+		})
 	}
 }

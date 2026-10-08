@@ -298,10 +298,11 @@ func validateScreeningUpsert(item CandidateScreeningUpsert) error {
 
 // MemoryCandidateScreeningStore 提供开发期候选人扫描记录内存存储。
 type MemoryCandidateScreeningStore struct {
-	receipts map[string]memoryReGreetReceipt
-	mu       sync.Mutex
-	items    map[string]*CandidateScreening // key: positionID|platform|candidateID
-	nextID   int
+	deliveryMu sync.Mutex // 展示投递串行，业务计数锁不等待外部存储。
+	receipts   map[string]memoryReGreetReceipt
+	mu         sync.Mutex
+	items      map[string]*CandidateScreening // key: positionID|platform|candidateID
+	nextID     int
 }
 
 // NewMemoryCandidateScreeningStore 创建候选人扫描记录内存存储。
