@@ -298,6 +298,22 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		key := localdb.AutoReplyRecord{ProfileScope: sendScope, Platform: platform,
 			ConversationID: "re_greet:" + candidate.PlatformCandidateID, InboundFingerprint: platformcore.ReplyHash(fmt.Sprintf("%s:%d", positionID, candidate.ReGreetCount)),
 			PositionID: positionID, RunID: options.CloudRunID, ContextFingerprint: reGreetContextFingerprint(beforeCtx)}
+		if accountBound {
+			legacyKey := key
+			legacyKey.ProfileScope = legacySendScope
+			legacy, legacyErr := r.db.FindAutoReply(ctx, legacyKey)
+			if legacyErr != nil && !errors.Is(legacyErr, sql.ErrNoRows) {
+				r.failStart(positionID, "旧复打记录读取失败，保留发送保护", options)
+				return false
+			}
+			if legacyErr == nil && (legacy.Status == "sent" || legacy.Status == "sending" || legacy.Status == "unknown") {
+				stats.unknown++
+				reportSkip(candidate, "legacy_scope_needs_review")
+				r.positionLog(positionID, "warning", "旧复打发送记录的账号或上报状态待核对，不重新发送："+candidateName)
+				r.updateReGreetStats(positionID, stats)
+				continue
+			}
+		}
 		if existing, err := r.db.FindAutoReply(ctx, key); err == nil && (existing.Status == "sent" || existing.Status == "sending" || existing.Status == "unknown") {
 			stats.skipped++
 			r.positionLog(positionID, "warning", "复打招呼跳过：已有发送记录，请先核对云端次数，候选人="+candidateName)

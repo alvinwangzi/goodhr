@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/platformcore"
 	"io"
 	"net"
 	"net/http"
@@ -102,6 +104,14 @@ func TestNativeWorkerScanReorderRecovery(t *testing.T) {
 	runNativeWorkerPosition(t, "triple-rescan-job")
 }
 
+// TestNativeWorkerControlWindowClose 验证关闭真实受控网页不取消本地任务，重开只读取状态不重复启动。
+func TestNativeWorkerControlWindowClose(t *testing.T) { runNativeWorkerPosition(t, "window-reply-job") }
+
+// TestNativeWorkerLegacyReGreetProtection 验证旧已发送但无完整收据的记录，保留待核对且不重新发。
+func TestNativeWorkerLegacyReGreetProtection(t *testing.T) {
+	runNativeWorkerPosition(t, "regreet-legacy-job")
+}
+
 // runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
 func runNativeWorkerPosition(t *testing.T, mode string) {
 	timed := mode == "triple-timed-job" || mode == "triple-rescan-job"
@@ -137,6 +147,9 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	command.Stdout = logFile
 	command.Stderr = logFile
 	fixtureMode := mode
+	if mode == "window-reply-job" {
+		fixtureMode = "reply-job"
+	}
 	if regreet {
 		fixtureMode = "regreet-job"
 	}
@@ -176,7 +189,7 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	var releaseOnce sync.Once
 	finishGeneration := func() { releaseOnce.Do(func() { close(releaseGeneration) }) }
 	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if mode == "stop-reply-job" {
+		if mode == "stop-reply-job" || mode == "window-reply-job" {
 			select {
 			case generationStarted <- struct{}{}:
 			default:
@@ -244,6 +257,10 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 				t.Error(err)
 			}
 			if !request.Success || request.OperationID == "" || request.RunID == "" || request.MachineID != "fixture-machine" {
+				if mode == "regreet-legacy-job" && !request.Success {
+					result = map[string]any{"ok": true}
+					break
+				}
 				t.Errorf("未上报完整原收据 %+v", request)
 			}
 			index := receiptCount.Add(1)
@@ -292,6 +309,18 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	}))
 	defer cloud.Close()
 	db := openRunnerTestDB(t)
+	if mode == "regreet-legacy-job" {
+		record, seedErr := db.PrepareAutoReply(t.Context(), localdb.AutoReplyRecord{ProfileScope: platformcore.ReplyHash("default"), Platform: "boss", ConversationID: "re_greet:opaque-A", InboundFingerprint: platformcore.ReplyHash("native-position:0"), PositionID: "native-position", RunID: "old-task", ContextFingerprint: "old-context", ReplyFingerprint: "old-message"})
+		if seedErr != nil {
+			t.Fatal(seedErr)
+		}
+		if seedErr = db.TransitionAutoReply(t.Context(), record.ID, "prepared", "sending", ""); seedErr != nil {
+			t.Fatal(seedErr)
+		}
+		if seedErr = db.TransitionAutoReply(t.Context(), record.ID, "sending", "sent", ""); seedErr != nil {
+			t.Fatal(seedErr)
+		}
+	}
 	runner := newTestRunner(t, db, worker)
 	taskType := "auto_reply"
 	priority := true
@@ -328,7 +357,57 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		}
 		options.PrioritizeReply = false
 	}
-	if _, err = runner.Start(t.Context(), "native-position", options); err != nil {
+	var controlStarts atomic.Int32
+	if mode == "window-reply-job" {
+		control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/run":
+				controlStarts.Add(1)
+				result, startErr := runner.Start(r.Context(), "native-position", options)
+				if startErr != nil {
+					t.Error(startErr)
+					w.WriteHeader(500)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(result)
+			case "/status":
+				result, statusErr := runner.Status("native-position")
+				if statusErr != nil {
+					t.Error(statusErr)
+					w.WriteHeader(500)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(result)
+			default:
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = fmt.Fprint(w, `<h1>HRPlus 受控控制页</h1><button onclick="fetch('/run',{method:'POST'}).then(r=>r.json()).then(()=>document.querySelector('p').textContent='启动已确认')">开始任务</button><button onclick="fetch('/status').then(r=>r.json()).then(()=>document.querySelector('p').textContent='状态已读取')">读取状态</button><p></p>`)
+			}
+		}))
+		defer control.Close()
+		ui := func(operation string) {
+			command := exec.Command("node", filepath.Join(root, "test", "fixtures", "control-window.mjs"), control.URL, operation, filepath.Join(directory, "control-"+operation+".json"))
+			command.Dir = root
+			command.Env = append(os.Environ(), "CLOAKBROWSER_BINARY_PATH="+binary)
+			output, callErr := command.CombinedOutput()
+			if callErr != nil {
+				t.Fatalf("控制网页 %v %s", callErr, output)
+			}
+		}
+		ui("start")
+		select {
+		case <-generationStarted:
+		case <-time.After(35 * time.Second):
+			t.Fatal("网页关闭后后台任务没有到达模型请求")
+		}
+		if !runner.IsRunning("native-position") {
+			t.Fatal("关闭网页取消了本地任务")
+		}
+		ui("status")
+		if controlStarts.Load() != 1 {
+			t.Fatal("重开读取状态重复启动任务")
+		}
+		finishGeneration()
+	} else if _, err = runner.Start(t.Context(), "native-position", options); err != nil {
 		t.Fatal(err)
 	}
 	expectedStatus := "completed"
@@ -377,7 +456,7 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	if runner.IsRunning("native-position") {
 		t.Fatal("当前工作结束后仍占用运行")
 	}
-	if mode == "reply-job" {
+	if mode == "reply-job" || mode == "window-reply-job" {
 		if checkpoint.Replied != 1 {
 			t.Fatalf("真实回复未计入本次结果 %+v", checkpoint)
 		}
@@ -451,7 +530,23 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			t.Fatalf("停止与重新开始造成重复发送 clicks=%d", ledger.Clicks)
 		}
 	}
-	if regreet && !combined {
+	if mode == "regreet-legacy-job" {
+		if checkpoint.ReGreeted != 0 || checkpoint.ReGreetStats["unknown"] != 1 || receiptCount.Load() != 0 {
+			t.Fatalf("旧发送记录未保留待核对 %+v", checkpoint)
+		}
+		raw, readErr := os.ReadFile(filepath.Join(directory, "ledger.json"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var ledger struct {
+			Clicks int `json:"clicks"`
+		}
+		_ = json.Unmarshal(raw, &ledger)
+		if ledger.Clicks != 0 {
+			t.Fatalf("旧记录被重复发送 clicks=%d", ledger.Clicks)
+		}
+	}
+	if regreet && !combined && mode != "regreet-legacy-job" {
 		wantedReceipts := int32(1)
 		if mode == "regreet-loss-job" {
 			wantedReceipts = 2
