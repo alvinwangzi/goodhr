@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/cloudapi"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -87,8 +88,13 @@ func TestNativeWorkerReGreetPositionEnd(t *testing.T) { runNativeWorkerPosition(
 func TestNativeWorkerReGreetLostReceipt(t *testing.T) { runNativeWorkerPosition(t, "regreet-loss-job") }
 
 // runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
+// TestNativeWorkerReplyAndReGreet 验证同一运行优先回复与到期复打共用通道和检查点，不重复处理。
+func TestNativeWorkerReplyAndReGreet(t *testing.T) { runNativeWorkerPosition(t, "combined-job") }
+
+// runNativeWorkerPosition 运行共用的独立 Windows 验收环境，模式只决定虚构页面数据。
 func runNativeWorkerPosition(t *testing.T, mode string) {
-	regreet := strings.HasPrefix(mode, "regreet-")
+	combined := mode == "combined-job"
+	regreet := strings.HasPrefix(mode, "regreet-") || combined
 	if os.Getenv("HRPLUS_M1_NATIVE_WORKER_TEST") != "1" {
 		t.Skip("需要显式启用 Windows 真实 Worker 受控验收")
 	}
@@ -120,6 +126,9 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	fixtureMode := mode
 	if regreet {
 		fixtureMode = "regreet-job"
+	}
+	if combined {
+		fixtureMode = "combined-job"
 	}
 	if mode == "stop-reply-job" {
 		fixtureMode = "reply-job"
@@ -162,7 +171,8 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			case <-releaseGeneration:
 			}
 		}
-		if regreet {
+		raw, _ := io.ReadAll(r.Body)
+		if regreet && (!combined || strings.Contains(string(raw), "should_send")) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"should_send":true,"message":"方便时可以继续了解岗位。","is_refused":false,"refuse_reason":""}`}}}})
 			return
 		}
@@ -193,8 +203,12 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			result = map[string]any{"ok": true}
 		case "/api/positions/native-position/re-greet-candidates":
 			items := []any{}
+			candidateID, name := "opaque-A", "同名候选人 A"
+			if combined {
+				candidateID, name = "opaque-B", "同名候选人 B"
+			}
 			if receiptCount.Load() == 0 {
-				items = append(items, map[string]any{"id": "screen-A", "position_id": "native-position", "platform": "boss", "platform_candidate_id": "opaque-A", "candidate_name": "同名候选人 A", "greeted_at": contactAt.Format(time.RFC3339Nano), "re_greet_count": 0})
+				items = append(items, map[string]any{"id": "screen-A", "position_id": "native-position", "platform": "boss", "platform_candidate_id": candidateID, "candidate_name": name, "greeted_at": contactAt.Format(time.RFC3339Nano), "re_greet_count": 0})
 			}
 			result = map[string]any{"ok": true, "re_greet_receipts": true, "items": items}
 		case "/api/positions/native-position/re-greet-report":
@@ -255,6 +269,10 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 	if regreet {
 		taskType = "re_greet"
 		priority = false
+	}
+	if combined {
+		taskType = "auto_reply,re_greet"
+		priority = true
 	}
 	if _, err = runner.Start(t.Context(), "native-position", StartOptions{CloudAPIBase: cloud.URL, Token: "fixture-token", MachineID: "fixture-machine", TaskType: taskType, PrioritizeReply: priority}); err != nil {
 		t.Fatal(err)
@@ -372,7 +390,7 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 			t.Fatalf("停止与重新开始造成重复发送 clicks=%d", ledger.Clicks)
 		}
 	}
-	if regreet {
+	if regreet && !combined {
 		wantedReceipts := int32(1)
 		if mode == "regreet-loss-job" {
 			wantedReceipts = 2
@@ -411,6 +429,25 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		pending, readErr := db.PendingReGreetForCandidate(t.Context(), checkpoint.ProfileScope, "boss", "opaque-A")
 		if readErr != nil || pending {
 			t.Fatalf("确认后仍有待补传 pending=%t err=%v", pending, readErr)
+		}
+	}
+	if combined {
+		if checkpoint.Replied != 1 || checkpoint.ReGreeted != 1 || receiptCount.Load() != 1 {
+			t.Fatalf("联合动作计数错误 %+v receipts=%d", checkpoint, receiptCount.Load())
+		}
+		raw, readErr := os.ReadFile(filepath.Join(directory, "ledger.json"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var ledger struct {
+			Clicks    int   `json:"clicks"`
+			SendOrder []int `json:"sendOrder"`
+		}
+		if err = json.Unmarshal(raw, &ledger); err != nil {
+			t.Fatal(err)
+		}
+		if ledger.Clicks != 2 || len(ledger.SendOrder) != 2 || ledger.SendOrder[0] != 123 || ledger.SendOrder[1] != 124 {
+			t.Fatalf("优先回复与复打顺序错误 %+v", ledger)
 		}
 	}
 }

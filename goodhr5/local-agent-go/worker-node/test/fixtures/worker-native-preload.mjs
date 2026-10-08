@@ -1,8 +1,9 @@
 // 本文件只在独立 Worker 测试进程中包装真实 CloakBrowser 启动，全部请求由虚构页面接管，不连接 Boss 或读取用户登录数据。
 import { registerHooks } from "node:module";
 import { writeFileSync } from "node:fs";
+import { combinedChatFixture } from "./combined-chat-fixture.mjs";
 
-const ledger = { launches: [], requests: [], clicks: 0 };
+const ledger = { launches: [], requests: [], clicks: 0, sendOrder: [] };
 let account = 901;
 const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
 
@@ -16,11 +17,13 @@ async function fixtureRoute(route) {
   ledger.requests.push(url.pathname); saveLedger();
   if (url.pathname === accountPath) return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { userId: account } }) });
   if (url.pathname === "/wapi/zpjob/rec/geek/list") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { geekList: ["A", "B", "C", "D"].map((suffix, i) => ({ encryptGeekId: "opaque-" + suffix, geekCard: { geekId: 123 + i, encGeekId: "opaque-" + suffix } })) } }) });
-  if (url.pathname === "/wapi/zprelation/friend/getBossFriendListV2.json") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }] } }) });
-  if (url.pathname === "/fixture/click") { ledger.clicks++; saveLedger(); return route.fulfill({ contentType: "application/json", body: "{}" }); }
+  if (url.pathname === "/wapi/zprelation/friend/getBossFriendListV2.json") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }, { uid: 124, encryptUid: "opaque-B" }] } }) });
+  if (url.pathname === "/wapi/zpjob/chat/geek/info") { const uid=Number(url.searchParams.get('uid')); return route.fulfill({contentType:'application/json',body:JSON.stringify({code:0,zpData:{data:{uid,encryptUid:uid===123?'opaque-A':'opaque-B'}}})}); }
+  if (url.pathname === "/fixture/click") { ledger.clicks++; if(url.searchParams.has('uid'))ledger.sendOrder.push(Number(url.searchParams.get('uid'))); saveLedger(); return route.fulfill({ contentType: "application/json", body: "{}" }); }
   if (url.pathname === "/web/frame/recommend/") return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<style>.candidate-card-wrap{height:120px;border:1px solid #ddd}</style>${["A", "B", "C", "D"].map(suffix => `<section class="candidate-card-wrap"><div class="card-inner" data-geekid="opaque-${suffix}">同名候选人 ${suffix}</div></section>`).join("")}<iframe src="/wapi/zpjob/rec/geek/list"></iframe>` });
   if (!url.pathname.startsWith("/web/chat/")) return route.abort();
   if (url.searchParams.has("fixtureAccount")) account = Number(url.searchParams.get("fixtureAccount"));
+  if (process.env.HRPLUS_M1_FIXTURE_MODE === 'combined-job' && !url.pathname.includes('recommend')) return route.fulfill({contentType:'text/html; charset=utf-8',body:combinedChatFixture()});
   if (process.env.HRPLUS_M1_FIXTURE_MODE === "empty-job" && !url.pathname.includes("recommend")) {
     return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<dl><a href="/web/chat/recommend">推荐牛人</a><a href="/web/chat/index">沟通</a></dl><div class="job-select"><ul class="ui-dropmenu-list"><li>Go</li></ul></div><div class="chat-message-filter-left"><span>未读</span></div><div class="user-list"></div><iframe src="${accountPath}"></iframe>` });
   }
