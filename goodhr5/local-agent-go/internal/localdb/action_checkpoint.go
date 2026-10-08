@@ -131,6 +131,44 @@ func (db *DB) LoadActionCheckpoint(ctx context.Context, runID string) (ActionChe
 	return checkpoint, err
 }
 
+// SaveActionCheckpoint 保存动作切换前的纯数据检查点，账号和岗位身份不允许改变。
+func (db *DB) SaveActionCheckpoint(ctx context.Context, checkpoint ActionCheckpoint) error {
+	raw, err := json.Marshal(checkpoint)
+	if err != nil {
+		return err
+	}
+	result, err := db.conn.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=?`, string(raw), time.Now().UTC().Format(time.RFC3339Nano), checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return fmt.Errorf("单岗位检查点身份不匹配")
+	}
+	return nil
+}
+
+// ActionCompletedIDs 只返回本次已完成或明确跳过的人，未知和待重试不能混入完成集合。
+func (db *DB) ActionCompletedIDs(ctx context.Context, runID, positionID string) ([]string, error) {
+	rows, err := db.conn.QueryContext(ctx, `SELECT recommendation_id FROM action_candidates WHERE run_id=? AND position_id=? AND status IN ('completed','skipped') ORDER BY recommendation_id`, runID, positionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // SaveActionCandidate 原子保存处理结果及检查点，结果不明不得进入完成锚点。
 func (db *DB) SaveActionCandidate(ctx context.Context, checkpoint ActionCheckpoint, candidateID, status, reason string) error {
 	if strings.TrimSpace(candidateID) == "" {

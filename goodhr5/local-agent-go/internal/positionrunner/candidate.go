@@ -81,6 +81,9 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 			return 0, 0, 1, nil
 		}
 		candidate["status"] = "failed"
+		if options.LocalRunID != "" {
+			candidate["status"] = "unknown"
+		}
 		candidate["error"] = greetErr.Error()
 		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), greetErr.Error()))
 		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: greetErr}
@@ -201,6 +204,11 @@ func candidateInfoScoreDecision(position localdb.Position, candidate map[string]
 // ctx 为请求上下文，platformConfig 为平台配置，candidate 为候选人。
 func (r *Runner) tryGreet(ctx context.Context, positionID string, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, options StartOptions) error {
 	retries := maxInt(0, options.GreetRetries)
+	// 新检查点路径不重试结果不明的发送，Worker 传输层也不能自动重复同一页面点击。
+	if options.LocalRunID != "" {
+		retries = 0
+		exec.once = true
+	}
 	var lastErr error
 	for attempt := 0; attempt <= retries; attempt++ {
 		if err := ctx.Err(); err != nil {
