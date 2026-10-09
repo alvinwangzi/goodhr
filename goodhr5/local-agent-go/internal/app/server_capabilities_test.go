@@ -33,12 +33,13 @@ func newCapabilityTestServer(t *testing.T) *Server {
 	t.Cleanup(func() { _ = db.Close() })
 	runtimeManager := runtime.NewManager(cfg)
 	return &Server{
-		cfg:     cfg,
-		runtime: runtimeManager,
-		worker:  browser.NewWorkerManager(runtimeManager),
-		ocr:     ocr.New(cfg),
-		db:      db,
-		runner:  positionrunner.New(db, browser.NewWorkerManager(runtimeManager), ocr.New(cfg), cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, cfg.DataDir, cfg.CloudAPIBase, cfg.DevScanLimit),
+		planUploadWake: make(chan struct{}, 1),
+		cfg:            cfg,
+		runtime:        runtimeManager,
+		worker:         browser.NewWorkerManager(runtimeManager),
+		ocr:            ocr.New(cfg),
+		db:             db,
+		runner:         positionrunner.New(db, browser.NewWorkerManager(runtimeManager), ocr.New(cfg), cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, cfg.DataDir, cfg.CloudAPIBase, cfg.DevScanLimit),
 	}
 }
 

@@ -123,9 +123,10 @@ func (s *Store) OriginalUpdate(ctx context.Context, scope, request string) (clou
 
 // Authority 是本轮上传的进程内登录证明，切换或退出后 StillCurrent 必须变为 false。
 type Authority struct {
-	Token        string `json:"-"`
-	OwnerScope   string
-	StillCurrent func() bool `json:"-"`
+	Token          string `json:"-"`
+	OwnerScope     string
+	StillCurrent   func() bool              `json:"-"`
+	ConfirmCurrent func(func() error) error `json:"-"`
 }
 
 // String 防止上传授权的日志输出登录令牌。
@@ -168,7 +169,13 @@ func (s *Store) UploadNext(ctx context.Context, client *cloudapi.Client, a Autho
 	if !a.StillCurrent() {
 		return false, errors.New("计划原回执已收到，等待同账号重新核对")
 	}
-	if err = s.db.ConfirmPlanOperation(ctx, a.OwnerScope, record.RequestID, record.BodyHash); err != nil {
+	confirm := func() error { return s.db.ConfirmPlanOperation(ctx, a.OwnerScope, record.RequestID, record.BodyHash) }
+	if a.ConfirmCurrent != nil {
+		err = a.ConfirmCurrent(confirm)
+	} else {
+		err = confirm()
+	}
+	if err != nil {
 		return false, err
 	}
 	return true, nil

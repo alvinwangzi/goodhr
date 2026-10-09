@@ -38,17 +38,21 @@ import (
 
 // Server 是 Go 版本 Local Agent HTTP 服务。
 type Server struct {
-	sessionMu      sync.Mutex
-	sessionOpMu    sync.Mutex
-	sessionVersion uint64
-	sessionCurrent *protectedsession.Session
-	sessionBlocked bool
-	cfg            *config.Config
-	runtime        *runtime.Manager
-	worker         *browser.WorkerManager
-	ocr            *ocr.Engine
-	db             *localdb.DB
-	runner         *positionrunner.Runner
+	sessionMu               sync.Mutex
+	sessionOpMu             sync.Mutex
+	sessionVersion          uint64
+	sessionCommittedVersion uint64
+	sessionCurrent          *protectedsession.Session
+	sessionBlocked          bool
+	planUploadCancel        context.CancelFunc
+	planUploadEpoch         uint64
+	planUploadWake          chan struct{}
+	cfg                     *config.Config
+	runtime                 *runtime.Manager
+	worker                  *browser.WorkerManager
+	ocr                     *ocr.Engine
+	db                      *localdb.DB
+	runner                  *positionrunner.Runner
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -62,12 +66,13 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	workerManager := browser.NewWorkerManager(runtimeManager)
 	ocrEngine := ocr.New(cfg)
 	return &Server{
-		cfg:     cfg,
-		runtime: runtimeManager,
-		worker:  workerManager,
-		ocr:     ocrEngine,
-		db:      db,
-		runner:  positionrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase, cfg.DevScanLimit),
+		planUploadWake: make(chan struct{}, 1),
+		cfg:            cfg,
+		runtime:        runtimeManager,
+		worker:         workerManager,
+		ocr:            ocrEngine,
+		db:             db,
+		runner:         positionrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase, cfg.DevScanLimit),
 	}, nil
 }
 
@@ -121,10 +126,16 @@ func (s *Server) Run() error {
 	log.Printf("HRPlus Local Agent started on http://%s", net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
 	s.openConsoleAfterStart(port)
 	background, stopBackground := context.WithCancel(context.Background())
-	defer stopBackground()
-	defer s.runner.ClearReGreetUploadSession()
-	defer s.runner.StopAll("本地服务已关闭，停止当前任务")
-	go s.restoreProtectedSession(background)
+	uploadDone, restoreDone := make(chan struct{}), make(chan struct{})
+	go func() { defer close(uploadDone); s.runPlanUploads(background) }()
+	go func() { defer close(restoreDone); s.restoreProtectedSession(background) }()
+	defer func() {
+		stopBackground()
+		<-uploadDone
+		<-restoreDone
+		s.runner.ClearReGreetUploadSession()
+		s.runner.StopAll("本地服务已关闭，停止当前任务")
+	}()
 	return server.Serve(ln)
 }
 

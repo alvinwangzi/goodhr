@@ -17,9 +17,15 @@ import (
 // beginProtectedSessionChange 使旧恢复或绑定结果失效，不把未通过核对的新用户写入当前身份。
 func (s *Server) beginProtectedSessionChange() uint64 {
 	s.sessionMu.Lock()
-	defer s.sessionMu.Unlock()
 	s.sessionVersion++
-	return s.sessionVersion
+	sequence := s.sessionVersion
+	cancel := s.planUploadCancel
+	s.planUploadCancel = nil
+	s.sessionMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return sequence
 }
 
 // commitProtectedSession 保证同一会话序号有效，切换前等待原页面收尾，再加密保存。
@@ -52,8 +58,10 @@ func (s *Server) commitProtectedSession(ctx context.Context, sequence uint64, va
 	}
 	copy := value
 	s.sessionCurrent = &copy
+	s.sessionCommittedVersion = sequence
 	s.sessionBlocked = false
 	s.runner.BindReGreetUploadSession(value.Token, positionrunner.CloudOwnerScope(value.CloudBase, value.UserEmail), value.CloudBase)
+	s.signalPlanUploads()
 	return nil
 }
 
@@ -95,20 +103,25 @@ func (s *Server) handleSessionUnbind(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, 405, "此接口只支持退出登录")
 		return
 	}
+	s.sessionOpMu.Lock()
+	defer s.sessionOpMu.Unlock()
 	s.sessionMu.Lock()
 	s.sessionVersion++
 	s.sessionCurrent = nil
 	s.sessionBlocked = true
+	cancel := s.planUploadCancel
+	s.planUploadCancel = nil
 	s.sessionMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	s.runner.ClearReGreetUploadSession()
-	s.sessionOpMu.Lock()
 	err := protectedsession.New(s.cfg.DataDir).Clear()
-	s.sessionOpMu.Unlock()
+	s.runner.StopAll("用户退出登录，停止原用户任务")
 	if err != nil && !os.IsNotExist(err) {
 		response.Error(w, 500, "受保护会话清除失败，请重试")
 		return
 	}
-	s.runner.StopAll("用户退出登录，停止原用户任务")
 	response.Success(w, map[string]any{"unbound": true, "settling": true})
 }
 
@@ -120,7 +133,8 @@ func (s *Server) handleProtectedSessionStatus(w http.ResponseWriter, r *http.Req
 	}
 	s.sessionMu.Lock()
 	defer s.sessionMu.Unlock()
-	data := map[string]any{"verified": s.sessionCurrent != nil, "sequence": s.sessionVersion}
+	verified := s.sessionCurrent != nil && !s.sessionBlocked && s.sessionVersion == s.sessionCommittedVersion
+	data := map[string]any{"verified": verified, "sequence": s.sessionVersion}
 	data["protected_persistence"] = protectedsession.Available()
 	if value := s.sessionCurrent; value != nil {
 		data["user_email"] = value.UserEmail

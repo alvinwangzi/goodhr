@@ -8,6 +8,8 @@ import (
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/planmodel"
+	"goodhr5/local-agent-go/internal/planoperations"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -39,11 +41,49 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 	directory := t.TempDir()
 	cfg := &config.Config{DataDir: filepath.Join(directory, "data")}
 	var calls atomic.Int32
+	var planCalls atomic.Int32
 	var accept atomic.Bool
 	var mu sync.Mutex
 	var receipts []cloudapi.ReGreetReceiptRequest
+	var planBodies []cloudapi.PlanRunUpdateRequest
+	var planPermit planmodel.Permit
+	if protectedRestore {
+		raw, e := os.ReadFile(filepath.Join("..", "planmodel", "testdata", "permit.json"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = json.Unmarshal(raw, &planPermit); e != nil {
+			t.Fatal(e)
+		}
+	}
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/execution-plan-runs/" + planPermit.Run.ID + "/release":
+			if !protectedRestore {
+				t.Error("M1 原生验收不应发送计划请求")
+			}
+			if r.Header.Get("Authorization") != "Bearer fixture-token" {
+				t.Error("计划补传缺少原登录证明")
+			}
+			var input cloudapi.PlanRunUpdateRequest
+			if e := json.NewDecoder(r.Body).Decode(&input); e != nil {
+				t.Error(e)
+			}
+			mu.Lock()
+			planBodies = append(planBodies, input)
+			mu.Unlock()
+			planCalls.Add(1)
+			if !accept.Load() {
+				w.WriteHeader(503)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "受控计划网络失败"})
+				return
+			}
+			result := planPermit
+			result.Run.Sequence = input.Sequence
+			result.Run.State = input.State
+			result.Owner.MachineID = input.MachineID
+			result.Owner.State = "released"
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": result})
 		case "/api/auth/me":
 			_ = json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{"email": "restart@example.com"}})
 		case "/api/agents/bind":
@@ -97,6 +137,13 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 	}{"position", original})
 	if err = db.ConfirmReGreetAndQueue(t.Context(), localdb.ReGreetOutbox{OperationID: record.ID, ProfileScope: record.ProfileScope, Platform: "boss", CandidateID: "opaque", APIBase: cloud.URL, Payload: payload}); err != nil {
 		t.Fatal(err)
+	}
+	planScope := cloudapi.SessionOwnerScope(cloud.URL, "restart@example.com")
+	planUpdate := cloudapi.PlanRunUpdateRequest{RunID: planPermit.Run.ID, Action: "release", RequestID: "60000000-0000-0000-0000-000000000007", OwnerID: planPermit.Owner.OwnerID, MachineID: "fixture-machine", Credential: "fixture-native-plan-secret-0123456789", Sequence: 2, State: "waiting_window", CleanupConfirmed: true}
+	if protectedRestore {
+		if _, err = planoperations.New(db).StageUpdate(t.Context(), planScope, planPermit.Run.PlanID, planUpdate); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_ = db.Close()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -159,22 +206,22 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 	}
 	first := start(true)
 	deadline := time.Now().Add(10 * time.Second)
-	for calls.Load() == 0 && time.Now().Before(deadline) {
+	for (calls.Load() == 0 || (protectedRestore && planCalls.Load() == 0)) && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	_ = first.Process.Kill()
 	_ = first.Wait()
-	if calls.Load() == 0 {
+	if calls.Load() == 0 || (protectedRestore && planCalls.Load() == 0) {
 		t.Fatal("退出前没有实际补传尝试")
 	}
 	accept.Store(true)
 	second := start(!protectedRestore)
 	defer func() { _ = second.Process.Kill(); _ = second.Wait() }()
 	deadline = time.Now().Add(12 * time.Second)
-	for calls.Load() < 2 && time.Now().Before(deadline) {
+	for (calls.Load() < 2 || (protectedRestore && planCalls.Load() < 2)) && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
 	}
-	if calls.Load() < 2 {
+	if calls.Load() < 2 || (protectedRestore && planCalls.Load() < 2) {
 		t.Fatal("进程重启未恢复补传")
 	}
 	mu.Lock()
@@ -183,6 +230,15 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 		actual, _ := json.Marshal(receipt)
 		if string(wanted) != string(actual) {
 			t.Error("重启改变了原编号或发送事实")
+		}
+	}
+	if protectedRestore {
+		for _, body := range planBodies {
+			wanted, _ := json.Marshal(planUpdate)
+			actual, _ := json.Marshal(body)
+			if string(wanted) != string(actual) {
+				t.Error("重启改变了原计划释放请求")
+			}
 		}
 	}
 	mu.Unlock()
@@ -202,5 +258,21 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 	}
 	if err != nil || pending {
 		t.Fatalf("重启回执未持久确认 pending=%t err=%v", pending, err)
+	}
+	if protectedRestore {
+		deadline = time.Now().Add(3 * time.Second)
+		for {
+			operation, e := db.PlanOperation(t.Context(), planScope, planUpdate.RequestID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if operation.State == "confirmed" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("实际进程重启后计划原回执未确认")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 }
