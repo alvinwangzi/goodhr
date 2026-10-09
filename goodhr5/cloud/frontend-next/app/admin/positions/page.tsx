@@ -33,7 +33,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import SinglePositionActionStatus from "@/components/admin/SinglePositionActionStatus";
-import { agentSupportsCooperativeActions, normalizeActionDispatch, normalizeReGreetStats, terminalLocalTaskStatus, type ActionDispatchStatus, type ReGreetStats } from "@/lib/single-position-actions";
+import { agentSupportsCooperativeActions, normalizeActionDispatch, normalizeReGreetStats, terminalLocalTaskStatus, canControlPositionRun, localTaskMatchesRun, mergeCloudRunStatus, type ActionDispatchStatus, type ReGreetStats } from "@/lib/single-position-actions";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
@@ -116,6 +116,7 @@ export default function PositionsPage() {
   const router = useRouter();
   const { user, subscription, notify, confirm, agentBase, onboardingConfig } = useAdmin();
   const [items, setItems] = useState<any[]>([]);
+  const [agentMachineID, setAgentMachineID] = useState("");
   const [loading, setLoading] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -195,7 +196,7 @@ export default function PositionsPage() {
         cloudRequest("/api/system/default-prompts"),
         cloudRequest("/api/platforms/config/", { auth: false }),
       ]);
-      setItems(sortTeamPositions(positions.positions || [], user?.email));
+      setItems((current) => sortTeamPositions((positions.positions || []).map((item: any) => mergeCloudRunStatus(item, current.find((old) => old.id === item.id), agentMachineID)), user?.email));
       setDefaults(normalizePrompts(prompts.prompts || prompts || {}));
       setPlatformConfigs(platformData.platforms || platformData.configs || []);
     } catch (error) {
@@ -212,16 +213,43 @@ export default function PositionsPage() {
     void load();
   }, []);
 
+  /** identifyLocalAgent 只读取设备编号，旧程序无证明时不允许控制其他电脑的任务。 */
+  useEffect(() => {
+    let disposed = false;
+    setAgentMachineID("");
+    if (agentBase) void localRequest(agentBase, "/health").then((health) => {
+      if (!disposed) setAgentMachineID(String(health?.machine_id || ""));
+    }).catch(() => {});
+    return () => { disposed = true; };
+  }, [agentBase]);
+
+  /** refreshCloudRuns 其他电脑的运行从云端读取，本地没有任务不能把远端任务改成停止。 */
+  useEffect(() => {
+    if (!items.some((item) => item.status === "running")) return;
+    let disposed = false;
+    let pending = false;
+    const timer = window.setInterval(async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const payload = await cloudRequest("/api/positions");
+        if (!disposed) setItems((current) => sortTeamPositions((payload.positions || []).map((item: any) => mergeCloudRunStatus(item, current.find((old) => old.id === item.id), agentMachineID)), user?.email));
+      } catch { /* 断线时保留上次事实，不推断远端已停止。 */ }
+      finally { pending = false; }
+    }, 15000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [items.some((item) => item.status === "running"), user?.email, agentMachineID]);
+
   useEffect(() => {
     if (!agentBase || items.length === 0) return;
     void loadLatestTaskStats(items);
-  }, [agentBase, items.map((item) => item.id).join(","), user?.email]);
+  }, [agentBase, items.map((item) => `${item.id}:${item.active_run?.id}`).join(","), user?.email, agentMachineID]);
 
   /** refreshRunningPositionStatus 持续读取本地结束事实，同步卡片按钮，不依赖日志或小窗是否打开。 */
   useEffect(() => {
     if (!agentBase || items.length === 0) return;
     const runningItems = items.filter(
-      (item) => item.status === "running" && item.id !== busyPositionID && isCurrentUserPosition(item, user?.email),
+      (item) => item.status === "running" && item.id !== busyPositionID && canControlPositionRun(item, agentMachineID) && isCurrentUserPosition(item, user?.email),
     );
     if (runningItems.length === 0) return;
     let cancelled = false;
@@ -239,6 +267,7 @@ export default function PositionsPage() {
               `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
             );
             if (cancelled) return;
+            if (!localTaskMatchesRun(item, agentMachineID, task)) return;
             updateActionStats(item.id, task);
             setLatestTaskStats((current) => ({ ...current, [item.id]: normalizePositionTaskStats(task) }));
             const localStatus = terminalLocalTaskStatus(task);
@@ -262,7 +291,7 @@ export default function PositionsPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [agentBase, items.map((item) => `${item.id}:${item.status}`).join(","), user?.email, busyPositionID]);
+  }, [agentBase, items.map((item) => `${item.id}:${item.status}:${item.active_run?.id}`).join(","), user?.email, busyPositionID, agentMachineID]);
 
   useEffect(() => {
     const expandedPosition = items.find((item) => item.id === expandedLogPositionID);
@@ -721,12 +750,13 @@ export default function PositionsPage() {
   /** stopPosition 停止本地岗位运行，但保持浏览器打开。 */
   async function stopPosition(item: any) {
     if (!agentBase) return notify("本地程序还没连上", "warning");
+    if (!canControlPositionRun(item, agentMachineID)) return notify("请到执行这次任务的电脑停止", "warning");
     setExpandedLogPositionID("");
     setBusyPositionID(item.id);
     try {
       await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
         method: "POST",
-        body: { token: getToken() },
+        body: { token: getToken(), run_id: item.active_run.id },
         timeoutMS: 220000,
       });
       setFloatingPositionTask((current) =>
@@ -748,20 +778,20 @@ export default function PositionsPage() {
   /** forceStopPosition 强制停止任务，直接取消 context 不等优雅结束。 */
   async function forceStopPosition(item: any) {
     if (!agentBase) return notify("本地程序还没连上", "warning");
+    if (!canControlPositionRun(item, agentMachineID)) return notify("请到执行这次任务的电脑停止", "warning");
     setExpandedLogPositionID("");
     setBusyPositionID(item.id);
     try {
       // 先获取当前任务 ID
       const taskData = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`);
-      const taskID = taskData?.task?.task_id || taskData?.task?.id;
-      if (!taskID) {
+      if (!taskData?.running || !localTaskMatchesRun(item, agentMachineID, taskData)) {
         notify("没找到运行中的任务", "warning");
         return;
       }
       // 调用强制停止 API
-      await localRequest(agentBase, `/api/v1/tasks/force-stop`, {
+      await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
         method: "POST",
-        body: { task_id: taskID },
+        body: { token: getToken(), run_id: item.active_run.id, force: true },
         timeoutMS: 30000,
       });
       setFloatingPositionTask((current) =>
@@ -862,6 +892,7 @@ export default function PositionsPage() {
             agentBase,
             `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
           );
+          if (item.active_run && !localTaskMatchesRun(item, agentMachineID, task)) return;
           next[item.id] = normalizePositionTaskStats(task);
           const source=task?.position||task;
           if (source?.reply_stats) {
@@ -1133,7 +1164,7 @@ export default function PositionsPage() {
                           color='error'
                           variant='contained'
                           startIcon={<StopRoundedIcon />}
-                          disabled={busyPositionID === item.id}
+                          disabled={busyPositionID === item.id || !canControlPositionRun(item, agentMachineID)}
                           onClick={() => void stopPosition(item)}
                         >
                           停止
@@ -1142,12 +1173,17 @@ export default function PositionsPage() {
                           color='error'
                           variant='outlined'
                           startIcon={<WarningRoundedIcon />}
-                          disabled={busyPositionID === item.id}
+                          disabled={busyPositionID === item.id || !canControlPositionRun(item, agentMachineID)}
                           onClick={() => void forceStopPosition(item)}
                           title="强制停止：直接中断任务，不等当前候选人处理完"
                         >
                           强制停止
                         </Button>
+                        {!canControlPositionRun(item, agentMachineID) && (
+                          <Typography variant="body2" sx={{ alignSelf: "center", color: "text.secondary" }}>
+                            {item.active_run?.machine_id ? "任务由其他电脑执行，请到执行电脑停止" : "执行电脑尚未确认，暂不能停止"}
+                          </Typography>
+                        )}
                       </>
                     ) : (
                       <Button

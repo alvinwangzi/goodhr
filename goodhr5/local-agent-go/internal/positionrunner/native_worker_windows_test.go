@@ -424,7 +424,14 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		case <-time.After(35 * time.Second):
 			t.Fatal("真实流程未到达 AI 边界")
 		}
-		if _, err = runner.Stop("native-position"); err != nil {
+		if _, err = runner.StopRun("native-position", "wrong-other-run", true); err == nil {
+			t.Fatal("其他运行编号被允许强制停止")
+		}
+		active, statusErr := db.LatestActionCheckpoint(t.Context(), "native-position")
+		if statusErr != nil {
+			t.Fatal(statusErr)
+		}
+		if _, err = runner.StopRun("native-position", active.CloudRunID, true); err != nil {
 			t.Fatal(err)
 		}
 		finishGeneration()

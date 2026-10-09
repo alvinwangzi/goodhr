@@ -34,6 +34,7 @@ type PositionService struct {
 	aiConfigStore AIConfigStore
 	userFlow      UserFlowStore
 	httpClient    *http.Client
+	runs          TaskRunStore
 }
 
 type positionRequest struct {
@@ -105,9 +106,18 @@ func (s *PositionService) List(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list positions")
 		return
 	}
+	publicItems := publicPositionsForUser(items, session.Email)
+	if s.runs != nil {
+		for index, item := range items {
+			if run, err := s.runs.ActiveTaskRunByPosition(item.ID); err == nil {
+				publicItems[index]["active_run"] = map[string]any{"id": run.ID, "machine_id": run.MachineID, "status": run.Status}
+				publicItems[index]["status"] = run.Status
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
-		"positions": publicPositionsForUser(items, session.Email),
+		"positions": publicItems,
 	})
 }
 

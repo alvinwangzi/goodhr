@@ -1,7 +1,7 @@
 /** 本文件验证 HRPlus 旧程序能力隔离、动作状态与待核对计数，不用页面启动定时任务。 */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { agentSupportsCooperativeActions, normalizeReGreetStats, normalizeActionDispatch, currentActionLabel, checkTimeLabel, terminalLocalTaskStatus } from "./single-position-actions.ts";
+import { agentSupportsCooperativeActions, normalizeReGreetStats, normalizeActionDispatch, currentActionLabel, checkTimeLabel, terminalLocalTaskStatus, canControlPositionRun, localTaskMatchesRun, mergeCloudRunStatus } from "./single-position-actions.ts";
 
 test("优先回复只接受明确能力标志，旧程序和字符串 true 均不假装支持",()=>{
  assert.equal(agentSupportsCooperativeActions({capabilities:{cooperative_actions:true}}),true);
@@ -23,6 +23,25 @@ test("缺失状态、连接失败和仍在运行不能把停止按钮误改为�
  for(const task of [null,{}, {logs:[]}, {status:"running"}, {status:"unknown"}, {status:"failed",running:true}]){
   assert.equal(terminalLocalTaskStatus(task),null);
  }
+});
+
+test("A 执行 B 查看：设备和运行编号必须同时匹配，旧记录不覆盖当前任务",()=>{
+ const position={active_run:{id:"run-current",machine_id:"A"}};
+ assert.equal(canControlPositionRun(position,"A"),true);
+ assert.equal(canControlPositionRun(position,"B"),false);
+ assert.equal(canControlPositionRun(position,""),false);
+ assert.equal(localTaskMatchesRun(position,"B",{status:"failed",cloud_run_id:"run-current"}),false);
+ assert.equal(localTaskMatchesRun(position,"A",{cloud_run_id:"run-old"}),false);
+ assert.equal(localTaskMatchesRun(position,"A",{cloud_run_id:"run-current"}),true);
+ assert.equal(canControlPositionRun({},"A"),false);
+});
+
+test("云端迟到的 running 不覆盖同一运行已失败，但新运行和异机仍服从云端",()=>{
+ const fresh={status:"running",active_run:{id:"current",machine_id:"A"}};
+ const previous={status:"failed",active_run:{id:"current",machine_id:"A"}};
+ assert.equal(mergeCloudRunStatus(fresh,previous,"A").status,"failed");
+ assert.equal(mergeCloudRunStatus(fresh,previous,"B").status,"running");
+ assert.equal(mergeCloudRunStatus({...fresh,active_run:{id:"new",machine_id:"A"}},previous,"A").status,"running");
 });
 test("动作状态缺少真实运行 ID 或检查时间时不编造运行事实",()=>{
  assert.equal(normalizeActionDispatch({current_action:"auto_reply"}),null);

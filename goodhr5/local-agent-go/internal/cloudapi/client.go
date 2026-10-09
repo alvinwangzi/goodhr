@@ -317,12 +317,16 @@ func (c *Client) SyncPositionCounts(ctx context.Context, token string, positionI
 
 // StopPosition 通知云端岗位运行已经停止。
 // ctx 为请求上下文，token 为登录令牌，positionID 为云端岗位运行 ID。
-func (c *Client) StopPosition(ctx context.Context, token string, positionID string) error {
+func (c *Client) StopPosition(ctx context.Context, token string, positionID string, identity ...map[string]any) error {
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
 		return fmt.Errorf("岗位运行 ID 不能为空")
 	}
-	payload, status, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/stop", map[string]any{})
+	request := map[string]any{}
+	if len(identity) > 0 {
+		request = identity[0]
+	}
+	payload, status, err := c.postAuthed(ctx, token, "/api/positions/"+url.PathEscape(positionID)+"/stop", request)
 	if err != nil {
 		return fmt.Errorf("通知云端停止岗位运行失败：%w", err)
 	}

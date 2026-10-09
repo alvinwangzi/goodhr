@@ -338,6 +338,44 @@ func (r *Runner) Stop(positionID string) (map[string]any, error) {
 	return map[string]any{"position": localPositionStatusMap(position), "running": r.hasRunningLock(positionID)}, nil
 }
 
+// StopRun 原子核对当前运行编号后停止，只取消这次运行的句柄，迟到请求不能停止新的运行。
+func (r *Runner) StopRun(positionID, runID string, force bool) (map[string]any, error) {
+	r.mu.Lock()
+	state := r.running[positionID]
+	if state == nil || runID == "" || state.options.CloudRunID != runID {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("任务已结束或属于其他运行，未执行停止")
+	}
+	r.userStopped[positionID] = true
+	_, err := r.db.UpdatePositionStatus(positionID, "stopped")
+	if err != nil {
+		r.mu.Unlock()
+		return nil, err
+	}
+	if force || hasTaskType(parseTaskTypes(state.options.TaskType), "auto_reply") || hasTaskType(parseTaskTypes(state.options.TaskType), "re_greet") {
+		if state.cancel != nil {
+			state.cancel()
+		}
+	}
+	done := state.done
+	r.mu.Unlock()
+	r.positionLog(positionID, "info", "已核对运行编号，停止当前任务")
+	if !force {
+		timer := time.NewTimer(stopGracefulTimeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.C:
+			r.mu.Lock()
+			if r.running[positionID] == state && state.cancel != nil {
+				state.cancel()
+			}
+			r.mu.Unlock()
+		}
+	}
+	return r.Status(positionID)
+}
+
 // StopAll 停止所有正在运行的本地岗位运行。
 // reason 为停止原因，返回停止的岗位运行数量。
 func (r *Runner) StopAll(reason string) int {
@@ -390,6 +428,12 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 		return nil, err
 	}
 	running := r.IsRunning(positionID)
+	r.mu.Lock()
+	cloudRunID := ""
+	if state := r.running[positionID]; state != nil {
+		cloudRunID = state.options.CloudRunID
+	}
+	r.mu.Unlock()
 	progress := r.Progress(positionID, position)
 	analysis := r.analysisSnapshot(positionID)
 	logs, _ := r.db.ListPositionLogs(positionID, 20)
@@ -405,6 +449,9 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 	var dispatch map[string]any
 	scanned, greeted, skipped, failed := position.ScannedCount, position.GreetedCount, position.SkippedCount, position.FailedCount
 	if checkpoint, ok := r.actionStatusCheckpoint(positionID); ok {
+		if cloudRunID == "" {
+			cloudRunID = checkpoint.CloudRunID
+		}
 		scanned, greeted, skipped, failed = checkpoint.Scanned, checkpoint.Greeted, checkpoint.Skipped, checkpoint.Failed
 		dispatch = dispatchStatusMap(checkpoint, running)
 		if checkpoint.TaskType != "" {
@@ -421,6 +468,7 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 		}
 	}
 	return map[string]any{
+		"cloud_run_id":    cloudRunID,
 		"action_dispatch": dispatch,
 		"position":        positionMap,
 		"running":         running,

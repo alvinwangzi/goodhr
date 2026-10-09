@@ -177,7 +177,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusMethodNotAllowed, "请求方法不支持")
 		return
 	}
+	machineID, err := s.ensureMachineID()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "无法读取执行电脑标识")
+		return
+	}
 	response.Success(w, map[string]any{
+		"machine_id":     machineID,
 		"status":         "ok",
 		"version":        version.Value,
 		"port":           s.cfg.Port,
@@ -573,7 +579,8 @@ func (s *Server) handleLocalPositionStop(w http.ResponseWriter, r *http.Request,
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := s.runner.Stop(positionID)
+	runID := stringValue(payload["run_id"])
+	result, err := s.runner.StopRun(positionID, runID, boolValue(payload["force"]))
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -584,7 +591,8 @@ func (s *Server) handleLocalPositionStop(w http.ResponseWriter, r *http.Request,
 	}
 	if token != "" {
 		client := cloudapi.New(s.cloudAPIBase(payload))
-		if err := client.StopPosition(r.Context(), token, positionID); err != nil {
+		machineID, _ := s.ensureMachineID()
+		if err := client.StopPosition(r.Context(), token, positionID, map[string]any{"run_id": runID, "machine_id": machineID}); err != nil {
 			result["cloud_sync_error"] = err.Error()
 			log.Printf("[本地岗位运行] 停止岗位运行已完成，但同步云端失败 position=%s err=%v", positionID, err)
 		}

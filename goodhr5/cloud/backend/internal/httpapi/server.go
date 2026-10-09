@@ -96,6 +96,8 @@ func NewServer() (*Server, error) {
 	adminEmails := NewAdminEmailService(auth, emailCampaignStore, mailer, systemConfigStore)
 	// 自动挽回邮件定时任务已关闭（To B 场景不向个人用户发送）。
 	// adminEmails.StartRecoveryScheduler()
+	positionService := NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore)
+	positionService.runs = taskRunStore
 	return &Server{
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
@@ -105,7 +107,7 @@ func NewServer() (*Server, error) {
 		aiWallet:            aiWalletService,
 		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
-		positions:           NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore),
+		positions:           positionService,
 		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, aiConfigStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore),
 		positionLogs:        positionLogs,
 		taskRuns:            NewTaskRunService(auth, taskRunStore, tenantStore),

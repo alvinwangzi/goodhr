@@ -13,6 +13,47 @@ import (
 
 const positionTestMachineID = "goodhr-device-v1-position-test"
 
+// TestPositionStopRunOwnership 验证列表保留执行电脑，停止和迟到状态不能作用于另一电脑或新运行。
+func TestPositionStopRunOwnership(t *testing.T) {
+	server := mustNewServer(t)
+	routes := server.Routes()
+	email := "cross-device@example.com"
+	token := loginForTest(t, routes, email)
+	id := createPositionWithConfigForTest(t, routes, token, "跨电脑岗位", `{"mode_default":"keyword"}`)
+	tenantID, _ := server.positionExecution.getTenantInfo(email)
+	run, err := server.positionExecution.runStore.CreateTaskRun(TaskRun{TenantID: tenantID, UserEmail: email, PositionID: id, MachineID: "A", TaskType: "greeting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/positions", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp := httptest.NewRecorder()
+	routes.ServeHTTP(resp, req)
+	var list struct {
+		Positions []struct {
+			Status    string `json:"status"`
+			ActiveRun struct {
+				ID        string `json:"id"`
+				MachineID string `json:"machine_id"`
+			} `json:"active_run"`
+		} `json:"positions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &list); err != nil || len(list.Positions) != 1 || list.Positions[0].ActiveRun.ID != run.ID || list.Positions[0].ActiveRun.MachineID != "A" || list.Positions[0].Status != "running" {
+		t.Fatalf("刷新后未提供真实执行绑定 %s", resp.Body.String())
+	}
+	for _, body := range []string{`{}`, `{"run_id":"` + run.ID + `","machine_id":"B"}`, `{"run_id":"old","machine_id":"A"}`} {
+		if response := postPositionExecutionForTest(t, routes, token, "/api/positions/"+id+"/stop", body); response.Code != http.StatusConflict {
+			t.Fatalf("异机或旧请求被接受 %s", response.Body.String())
+		}
+	}
+	if response := postPositionExecutionForTest(t, routes, token, "/api/positions/"+id+"/status", `{"status":"completed","run_id":"old","machine_id":"A"}`); response.Code != http.StatusConflict {
+		t.Fatalf("旧完成通知覆盖新运行 %s", response.Body.String())
+	}
+	if response := postPositionExecutionForTest(t, routes, token, "/api/positions/"+id+"/stop", `{"run_id":"`+run.ID+`","machine_id":"A"}`); response.Code != http.StatusOK {
+		t.Fatalf("本机明确停止失败 %s", response.Body.String())
+	}
+}
+
 // TestReGreetAndCombinedTasksRequireMembership 验证关键词岗位不能绕过复打与组合任务的 Pro 权限。
 func TestReGreetAndCombinedTasksRequireMembership(t *testing.T) {
 	for _, task := range []string{"re_greet", "greeting,re_greet", "auto_reply,re_greet"} {

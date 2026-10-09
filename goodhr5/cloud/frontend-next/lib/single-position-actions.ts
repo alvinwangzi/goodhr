@@ -13,6 +13,24 @@ export function terminalLocalTaskStatus(task: unknown): "completed" | "failed" |
   return status === "completed" || status === "failed" || status === "stopped" ? status : null;
 }
 
+/** canControlPositionRun 必须有云端当前运行和本机设备证明，缺失或异机时只能查看。 */
+export function canControlPositionRun(position: any, machineID: string): boolean {
+  return Boolean(machineID && position?.active_run?.id && position.active_run.machine_id === machineID);
+}
+
+/** localTaskMatchesRun 拒绝另一台电脑或旧运行的本地状态覆盖云端当前任务。 */
+export function localTaskMatchesRun(position: any, machineID: string, task: any): boolean {
+  return canControlPositionRun(position, machineID) && task?.cloud_run_id === position.active_run.id;
+}
+
+/** mergeCloudRunStatus 同一运行的本地明确结束不被迟到云端 running 覆盖，新运行仍采用云端事实。 */
+export function mergeCloudRunStatus(fresh: any, previous: any, machineID: string): any {
+  if (canControlPositionRun(fresh, machineID) && fresh.active_run.id === previous?.active_run?.id && terminalLocalTaskStatus(previous)) {
+    return { ...fresh, status: previous.status };
+  }
+  return fresh;
+}
+
 /** agentSupportsCooperativeActions 只接受本地程序明确声明的能力，缺字段和旧版本均不推断支持。 */
 export function agentSupportsCooperativeActions(health: unknown): boolean {
   return Boolean(health && typeof health === "object" && (health as { capabilities?: { cooperative_actions?: unknown } }).capabilities?.cooperative_actions === true);

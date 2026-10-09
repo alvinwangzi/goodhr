@@ -156,6 +156,18 @@ func (s *PositionExecutionService) Stop(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if position.Status != "stopped" {
+		if s.runStore != nil {
+			if active, activeErr := s.runStore.ActiveTaskRunByPosition(position.ID); activeErr == nil {
+				var identity struct {
+					RunID     string `json:"run_id"`
+					MachineID string `json:"machine_id"`
+				}
+				if json.NewDecoder(r.Body).Decode(&identity) != nil || identity.RunID != active.ID || identity.MachineID != active.MachineID || identity.MachineID == "" {
+					writeError(w, http.StatusConflict, "停止请求与执行电脑或运行编号不一致")
+					return
+				}
+			}
+		}
 		_ = s.store.UpdatePositionStatus(position.ID, "stopped")
 		_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
 		s.finishTaskRun(position, "stopped", "", 0, 0)
@@ -234,6 +246,13 @@ func (s *PositionExecutionService) SyncStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 	noticeSent := false
+	if payload.RunID != "" && s.runStore != nil {
+		active, activeErr := s.runStore.ActiveTaskRunByPosition(position.ID)
+		if activeErr == nil && (active.ID != payload.RunID || active.MachineID != payload.MachineID) {
+			writeError(w, http.StatusConflict, "状态上报与当前执行电脑或运行编号不一致")
+			return
+		}
+	}
 	statusChanged := position.Status != status
 	noticePosition := position
 	if statusChanged {

@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+// TestStopRunIdentity 验证错电脑、旧运行与缺失编号不取消当前句柄，明确强停才取消本次运行。
+func TestStopRunIdentity(t *testing.T) {
+	s, _, _ := cooperativeSessionFixture(t, true, 1)
+	called := false
+	state := s.runner.running[s.position.ID]
+	state.options.CloudRunID = "run-A"
+	state.cancel = func() { called = true }
+	for _, id := range []string{"", "run-B", "run-old"} {
+		if _, err := s.runner.StopRun(s.position.ID, id, true); err == nil || called {
+			t.Fatal("错误运行编号触发停止")
+		}
+	}
+	if _, err := s.runner.StopRun(s.position.ID, "run-A", true); err != nil || !called {
+		t.Fatalf("当前运行未被明确强停 %v", err)
+	}
+}
+
 // TestActionStatusAfterCompletion 验证清理内存运行后仍可读取本次回复和计数，不伪装新的运行。
 func TestActionStatusAfterCompletion(t *testing.T) {
 	s, _, _ := cooperativeSessionFixture(t, true, 1)
