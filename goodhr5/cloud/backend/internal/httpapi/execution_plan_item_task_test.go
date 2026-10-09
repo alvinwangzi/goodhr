@@ -58,12 +58,20 @@ func testPrepareItemContract(t *testing.T, s ExecutionPlanStore, tasks TaskRunSt
 	advance := planRunUpdateFixture(t, c, 4, "status", "running")
 	advance.CurrentItem = 1
 	advance.Items = completePlanItemsFixture(running.Run, 1)
+	// 已开始的消息服务继续携带原归属，但按编排主项完成自己的 TaskRun。
+	if progress, ok := advance.Items[0].Actions["auto_reply"]; ok {
+		progress.State = "active"
+		advance.Items[0].Actions["auto_reply"] = progress
+	}
 	if _, err = s.UpdateRun(t.Context(), p.TenantID, p.UserEmail, advance); err != nil {
 		t.Fatal(err)
 	}
 	second, err := s.PrepareItemTask(t.Context(), p.TenantID, p.UserEmail, future)
 	if err != nil || second.Run.Items[1].TaskRunID == task.ID || second.Run.Items[1].TaskRunID == "" {
 		t.Fatal("重复岗位覆盖任务", err)
+	}
+	if progress, ok := second.Run.Items[0].Actions["auto_reply"]; ok && progress.State != "active" {
+		t.Fatal("主项结束清掉了已激活消息")
 	}
 	finished, err := tasks.TaskRunByID(p.TenantID, task.ID)
 	if err != nil || finished.Status != "completed" || finished.FinishedAt == nil {

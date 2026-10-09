@@ -7,19 +7,11 @@ import (
 	"time"
 )
 
-// planItemTaskStatus 将主项和已激活动作一起映射到任务展示，窗口休息保留进度但不显示正在占用页面。
+// planItemTaskStatus 映射主项任务展示，窗口休息保留进度；主项完成后的消息仍归原任务但不重新标记运行。
 func planItemTaskStatus(r ExecutionPlanRun, item ExecutionPlanItemRun) string {
 	status := item.State
 	if status == "pending" {
 		return "starting"
-	}
-	if status == "completed" {
-		for _, progress := range item.Actions {
-			if progress.State == "active" {
-				status = "running"
-				break
-			}
-		}
 	}
 	if status == "running" && r.State == "waiting_window" {
 		return "waiting_window"
