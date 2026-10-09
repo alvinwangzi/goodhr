@@ -36,9 +36,11 @@ func New(db *localdb.DB, runner *positionrunner.Runner, client *cloudapi.Client,
 
 // Acquired 同时持有当前本地预留和已核对的原云端许可，后续仍需招聘账号及页面准备确认。
 type Acquired struct {
-	Reservation *positionrunner.PlanBrowserReservation
-	Permit      planmodel.Permit
-	canPrepare  func() bool
+	Reservation    *positionrunner.PlanBrowserReservation
+	Permit         planmodel.Permit
+	canPrepare     func() bool
+	scope          string
+	claimRequestID string
 }
 
 // CanPrepare 确认本进程仍有预留、原登录有效且在名义时段内，不把已收到许可当作永久页面授权。
@@ -154,14 +156,14 @@ func (c *Coordinator) Acquire(ctx context.Context, plan planmodel.Plan, input cl
 		return nil, err
 	}
 	if (permit.Run.State != "starting" && permit.Run.State != "running") || (permit.Owner.State != "starting" && permit.Owner.State != "running") {
-		return &Acquired{Permit: permit}, ErrPlanNeedsSettlement
+		return &Acquired{Permit: permit, scope: scope, claimRequestID: input.RequestID}, ErrPlanNeedsSettlement
 	}
 	if err = c.checkWindow(plan, original); err != nil {
 		// 已取得的云端占用不能忘掉；此结果只允许结算，不能准备页面。
-		return &Acquired{Permit: permit}, err
+		return &Acquired{Permit: permit, scope: scope, claimRequestID: input.RequestID}, err
 	}
 	accepted = true
-	result := &Acquired{Reservation: reservation, Permit: permit}
+	result := &Acquired{Reservation: reservation, Permit: permit, scope: scope, claimRequestID: input.RequestID}
 	result.canPrepare = func() bool { return reservation.Valid() && a.StillCurrent() && c.checkWindow(plan, original) == nil }
 	return result, nil
 }
