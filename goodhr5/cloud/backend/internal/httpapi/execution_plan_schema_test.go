@@ -26,7 +26,7 @@ func TestExecutionPlanSchemaPostgres(t *testing.T) {
 		}
 	}
 	var missing int
-	err = db.QueryRow(`SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('execution_plans','execution_plan_windows','execution_plan_items','execution_plan_runs','execution_plan_item_runs','execution_plan_requests','account_execution_owners','execution_plan_reports') AND a.attnum>0 AND NOT a.attisdropped AND (col_description(c.oid,a.attnum) IS NULL OR col_description(c.oid,a.attnum) !~ '[一-龥]')`).Scan(&missing)
+	err = db.QueryRow(`SELECT COUNT(*) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('execution_plans','execution_plan_windows','execution_plan_items','execution_plan_runs','execution_plan_item_runs','execution_plan_requests','account_execution_owners','account_execution_requests','execution_plan_reports') AND a.attnum>0 AND NOT a.attisdropped AND (col_description(c.oid,a.attnum) IS NULL OR col_description(c.oid,a.attnum) !~ '[一-龥]')`).Scan(&missing)
 	if err != nil || missing != 0 {
 		t.Fatalf("计划字段缺少中文说明 missing=%d err=%v", missing, err)
 	}

@@ -353,6 +353,13 @@ func (s *PostgresPositionStore) ClaimPositionStart(userEmail, positionID string)
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, userEmail); err != nil {
 		return err
 	}
+	var accountBusy bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_execution_owners WHERE account_key=$1)`, userEmail).Scan(&accountBusy); err != nil {
+		return err
+	}
+	if accountBusy {
+		return ErrPositionAlreadyRunning
+	}
 	var runningID string
 	err = tx.QueryRowContext(ctx, `
 		SELECT p.id
