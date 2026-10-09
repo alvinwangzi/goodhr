@@ -166,6 +166,11 @@ func (s *MemoryExecutionPlanStore) ClaimRun(ctx context.Context, tenant, email s
 			return ExecutionPlanRunPermit{}, ErrExecutionPlanRequest
 		}
 		run = ExecutionPlanRun{ID: c.RunID, PlanID: p.ID, ActivationID: p.ActivationID, ExecutionDate: c.ExecutionDate, ConfigVersion: p.Version, Sequence: 1, Snapshot: cloneExecutionPlan(p).Config}
+		var err error
+		run.Items, err = initialPlanItemRuns(run.Snapshot)
+		if err != nil {
+			return ExecutionPlanRunPermit{}, err
+		}
 	} else {
 		run.Sequence++
 	}
@@ -257,6 +262,9 @@ func (s *PostgresExecutionPlanStore) ClaimRun(ctx context.Context, tenant, email
 			return ExecutionPlanRunPermit{}, err
 		}
 		result.Run, err = scanPlanRun(tx.QueryRowContext(ctx, `SELECT `+executionPlanRunColumns+` FROM execution_plan_runs WHERE id=$1`, c.RunID))
+		if err == nil {
+			result.Run, err = loadPlanItemRuns(ctx, tx, result.Run)
+		}
 		return result, err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -288,7 +296,20 @@ func (s *PostgresExecutionPlanStore) ClaimRun(ctx context.Context, tenant, email
 	if err != nil {
 		return ExecutionPlanRunPermit{}, err
 	}
+	if newRun {
+		items, e := initialPlanItemRuns(p.Config)
+		if e != nil {
+			return ExecutionPlanRunPermit{}, e
+		}
+		if e = insertPlanItemRuns(ctx, tx, c.RunID, items); e != nil {
+			return ExecutionPlanRunPermit{}, e
+		}
+	}
 	run, err = scanPlanRun(tx.QueryRowContext(ctx, `SELECT `+executionPlanRunColumns+` FROM execution_plan_runs WHERE id=$1`, c.RunID))
+	if err != nil {
+		return ExecutionPlanRunPermit{}, err
+	}
+	run, err = loadPlanItemRuns(ctx, tx, run)
 	if err != nil {
 		return ExecutionPlanRunPermit{}, err
 	}

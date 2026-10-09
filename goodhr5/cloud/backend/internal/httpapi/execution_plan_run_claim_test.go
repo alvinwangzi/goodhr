@@ -286,6 +286,13 @@ func TestPlanRunClaimAPI(t *testing.T) {
 	if res := post(statusPath, status); res.Code != 200 || strings.Contains(res.Body.String(), input.Credential) {
 		t.Fatal("开始确认失败或泄露凭证", res.Body.String())
 	}
+	rawStatus, _ := json.Marshal(status)
+	var forgedStatus map[string]any
+	_ = json.Unmarshal(rawStatus, &forgedStatus)
+	forgedStatus["items"] = []map[string]any{{"snapshot": map[string]any{"position_id": "foreign-position"}}}
+	if res := post(statusPath, forgedStatus); res.Code != 400 {
+		t.Fatal("进度上报可修改岗位快照", res.Body.String())
+	}
 	if err := server.executionPlans.agents.DisableBindings(email); err != nil {
 		t.Fatal(err)
 	}

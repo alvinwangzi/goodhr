@@ -61,19 +61,20 @@ type ExecutionPlan struct {
 
 // ExecutionPlanRun 保存一批次一个本地执行日的运行，与长期计划状态分离。
 type ExecutionPlanRun struct {
-	ID            string              `json:"id"`
-	PlanID        string              `json:"plan_id"`
-	ActivationID  string              `json:"activation_id"`
-	ExecutionDate string              `json:"execution_date"`
-	ConfigVersion int64               `json:"config_version"`
-	Sequence      int64               `json:"sequence"`
-	State         string              `json:"state"`
-	CurrentItem   int                 `json:"current_item"`
-	Snapshot      ExecutionPlanConfig `json:"snapshot"`
-	EndReason     string              `json:"end_reason"`
-	OwnerID       string              `json:"owner_id,omitempty"`
-	StartedAt     *time.Time          `json:"started_at,omitempty"`
-	FinishedAt    *time.Time          `json:"finished_at,omitempty"`
+	ID            string                 `json:"id"`
+	PlanID        string                 `json:"plan_id"`
+	ActivationID  string                 `json:"activation_id"`
+	ExecutionDate string                 `json:"execution_date"`
+	ConfigVersion int64                  `json:"config_version"`
+	Sequence      int64                  `json:"sequence"`
+	State         string                 `json:"state"`
+	CurrentItem   int                    `json:"current_item"`
+	Snapshot      ExecutionPlanConfig    `json:"snapshot"`
+	EndReason     string                 `json:"end_reason"`
+	OwnerID       string                 `json:"owner_id,omitempty"`
+	StartedAt     *time.Time             `json:"started_at,omitempty"`
+	FinishedAt    *time.Time             `json:"finished_at,omitempty"`
+	Items         []ExecutionPlanItemRun `json:"items"`
 }
 
 // Validate 校验用户配置结构，岗位权限、设备和平台能力由计划服务读取真实数据后再校验。

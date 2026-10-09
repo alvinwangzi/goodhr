@@ -13,18 +13,19 @@ var ErrExecutionPlanSequence = errors.New("运行状态序号已过期或状态�
 
 // ExecutionPlanRunUpdate 将状态或收尾更新绑定实际占用者及原请求编号。
 type ExecutionPlanRunUpdate struct {
-	PlanID           string `json:"-"`
-	RunID            string `json:"-"`
-	Action           string `json:"-"`
-	RequestID        string `json:"request_id"`
-	OwnerID          string `json:"owner_id"`
-	MachineID        string `json:"machine_id"`
-	Credential       string `json:"credential"`
-	Sequence         int64  `json:"sequence"`
-	State            string `json:"state"`
-	CurrentItem      int    `json:"current_item"`
-	EndReason        string `json:"end_reason,omitempty"`
-	CleanupConfirmed bool   `json:"cleanup_confirmed"`
+	PlanID           string                    `json:"-"`
+	RunID            string                    `json:"-"`
+	Action           string                    `json:"-"`
+	RequestID        string                    `json:"request_id"`
+	OwnerID          string                    `json:"owner_id"`
+	MachineID        string                    `json:"machine_id"`
+	Credential       string                    `json:"credential"`
+	Sequence         int64                     `json:"sequence"`
+	State            string                    `json:"state"`
+	CurrentItem      int                       `json:"current_item"`
+	EndReason        string                    `json:"end_reason,omitempty"`
+	CleanupConfirmed bool                      `json:"cleanup_confirmed"`
+	Items            []ExecutionPlanItemUpdate `json:"items,omitempty"`
 }
 
 // validate 区分持有执行权的状态与收尾后释放的状态，不接受缺失收尾确认。
@@ -78,6 +79,11 @@ func applyPlanRunUpdate(p ExecutionPlan, r ExecutionPlanRun, u ExecutionPlanRunU
 	if u.State == "completed" && (u.CurrentItem != len(r.Snapshot.Items) || r.StartedAt == nil) {
 		return r, ErrExecutionPlanSequence
 	}
+	items, err := applyPlanItemUpdates(r, u)
+	if err != nil {
+		return r, err
+	}
+	r.Items = items
 	now := time.Now().UTC()
 	r.State = u.State
 	r.Sequence = u.Sequence
@@ -109,15 +115,31 @@ func (s *MemoryExecutionPlanStore) GetRun(ctx context.Context, tenant, email, id
 
 // GetRun 先核对计划归属再读取 PostgreSQL 历史运行，不通过设备在线状态猜测实际占用。
 func (s *PostgresExecutionPlanStore) GetRun(ctx context.Context, tenant, email, id string) (ExecutionPlanRun, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return ExecutionPlanRun{}, err
+	}
+	defer tx.Rollback()
 	var planID string
-	err := s.db.QueryRowContext(ctx, `SELECT r.plan_id FROM execution_plan_runs r JOIN execution_plans p ON p.id=r.plan_id WHERE r.id=$1 AND COALESCE(p.tenant_id::text,'')=$2 AND p.user_email=$3`, id, tenant, email).Scan(&planID)
+	err = tx.QueryRowContext(ctx, `SELECT r.plan_id FROM execution_plan_runs r JOIN execution_plans p ON p.id=r.plan_id WHERE r.id=$1 AND COALESCE(p.tenant_id::text,'')=$2 AND p.user_email=$3`, id, tenant, email).Scan(&planID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ExecutionPlanRun{}, ErrNotFound
 	}
 	if err != nil {
 		return ExecutionPlanRun{}, err
 	}
-	return scanPlanRun(s.db.QueryRowContext(ctx, `SELECT `+executionPlanRunColumns+` FROM execution_plan_runs WHERE id=$1 AND plan_id=$2`, id, planID))
+	run, err := scanPlanRun(tx.QueryRowContext(ctx, `SELECT `+executionPlanRunColumns+` FROM execution_plan_runs WHERE id=$1 AND plan_id=$2`, id, planID))
+	if err != nil {
+		return run, err
+	}
+	run, err = loadPlanItemRuns(ctx, tx, run)
+	if err != nil {
+		return run, err
+	}
+	if err = tx.Commit(); err != nil {
+		return run, err
+	}
+	return run, nil
 }
 
 // UpdateRun 在内存和岗位锁内同步状态或释放，状态上报不会自行解除账号占用。
@@ -242,8 +264,15 @@ func (s *PostgresExecutionPlanStore) UpdateRun(ctx context.Context, tenant, emai
 	if err != nil {
 		return ExecutionPlanRunPermit{}, err
 	}
+	r, err = loadPlanItemRuns(ctx, tx, r)
+	if err != nil {
+		return ExecutionPlanRunPermit{}, err
+	}
 	changed, err := applyPlanRunUpdate(p, r, u)
 	if err != nil {
+		return ExecutionPlanRunPermit{}, err
+	}
+	if err = savePlanItemRuns(ctx, tx, u.RunID, changed.Items); err != nil {
 		return ExecutionPlanRunPermit{}, err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE execution_plan_runs SET state=$2,sequence=$3,current_item=$4,end_reason=$5,started_at=$6,finished_at=$7 WHERE id=$1`, u.RunID, changed.State, changed.Sequence, changed.CurrentItem, changed.EndReason, changed.StartedAt, changed.FinishedAt)
@@ -268,6 +297,10 @@ func (s *PostgresExecutionPlanStore) UpdateRun(ctx context.Context, tenant, emai
 	}
 	// 读取数据库实际保存的时间精度，首次回执与后续重读必须使用同一开始时间。
 	changed, err = scanPlanRun(tx.QueryRowContext(ctx, `SELECT `+executionPlanRunColumns+` FROM execution_plan_runs WHERE id=$1`, u.RunID))
+	if err != nil {
+		return ExecutionPlanRunPermit{}, err
+	}
+	changed, err = loadPlanItemRuns(ctx, tx, changed)
 	if err != nil {
 		return ExecutionPlanRunPermit{}, err
 	}

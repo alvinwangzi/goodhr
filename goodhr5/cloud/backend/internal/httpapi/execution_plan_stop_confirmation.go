@@ -83,6 +83,17 @@ func (s *MemoryExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant, e
 	}
 	for runID, run := range s.runs {
 		if run.PlanID == id && run.ActivationID == c.ActivationID && activeExecutionPlanState(run.State) {
+			for index, item := range run.Items {
+				if item.State == "pending" || item.State == "running" {
+					run.Items[index].State = "stopped"
+				}
+				for action, progress := range item.Actions {
+					if progress.State == "active" {
+						progress.State = "stopped"
+						run.Items[index].Actions[action] = progress
+					}
+				}
+			}
 			run.State = "stopped"
 			run.Sequence++
 			run.EndReason = "user_stopped"
@@ -144,7 +155,7 @@ func (s *PostgresExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant,
 	if held {
 		return p, ErrExecutionPlanBusy
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE execution_plan_item_runs i SET state='stopped',updated_at=NOW() FROM execution_plan_runs r WHERE i.run_id=r.id AND r.plan_id=$1 AND r.activation_id=$2 AND i.state NOT IN ('completed','incomplete','stopped','blocked')`, id, c.ActivationID)
+	_, err = tx.ExecContext(ctx, `UPDATE execution_plan_item_runs i SET state=CASE WHEN i.state IN ('pending','running') THEN 'stopped' ELSE i.state END,action_states=(SELECT COALESCE(jsonb_object_agg(key,CASE WHEN value='active' THEN 'stopped' ELSE value END),'{}'::jsonb) FROM jsonb_each_text(i.action_states)),updated_at=NOW() FROM execution_plan_runs r WHERE i.run_id=r.id AND r.plan_id=$1 AND r.activation_id=$2`, id, c.ActivationID)
 	if err != nil {
 		return p, err
 	}

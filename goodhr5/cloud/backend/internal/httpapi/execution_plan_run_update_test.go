@@ -13,6 +13,23 @@ func planRunUpdateFixture(t *testing.T, c ExecutionPlanRunClaim, sequence int64,
 	return ExecutionPlanRunUpdate{PlanID: c.PlanID, RunID: c.RunID, Action: action, RequestID: request, OwnerID: c.OwnerID, MachineID: c.MachineID, Credential: c.Credential, Sequence: sequence, State: state, CleanupConfirmed: action == "release"}
 }
 
+// completePlanItemsFixture 标记模拟动作已无待处理工作，保留原计数，不制造发送数量。
+func completePlanItemsFixture(r ExecutionPlanRun, completed int) []ExecutionPlanItemUpdate {
+	items := clonePlanRunPermit(ExecutionPlanRunPermit{Run: r}).Run.Items
+	result := make([]ExecutionPlanItemUpdate, 0, len(items))
+	for index, item := range items {
+		if index < completed {
+			item.State = "completed"
+			for action, progress := range item.Actions {
+				progress.State = "completed"
+				item.Actions[action] = progress
+			}
+		}
+		result = append(result, ExecutionPlanItemUpdate{ID: item.ID, ItemID: item.ItemID, State: item.State, Actions: item.Actions})
+	}
+	return result
+}
+
 // testPlanRunUpdateContract 验证两个存储实现均保持原开始时间和游标，旧释放不影响新占用。
 func testPlanRunUpdateContract(t *testing.T, s ExecutionPlanStore) {
 	t.Helper()
@@ -37,6 +54,7 @@ func testPlanRunUpdateContract(t *testing.T, s ExecutionPlanStore) {
 	}
 	drain := planRunUpdateFixture(t, c, 3, "status", "draining")
 	drain.CurrentItem = 1
+	drain.Items = completePlanItemsFixture(running.Run, 1)
 	draining, err := s.UpdateRun(t.Context(), "", p.UserEmail, drain)
 	if err != nil || draining.Owner.State != "releasing" {
 		t.Fatal("收尾未继续占用", err)
@@ -84,6 +102,7 @@ func testPlanRunUpdateContract(t *testing.T, s ExecutionPlanStore) {
 	}
 	completed := planRunUpdateFixture(t, next, 7, "release", "completed")
 	completed.CurrentItem = len(p.Config.Items)
+	completed.Items = completePlanItemsFixture(current, len(p.Config.Items))
 	finished, err := s.UpdateRun(t.Context(), "", p.UserEmail, completed)
 	if err != nil || finished.Run.FinishedAt == nil || finished.Run.State != "completed" {
 		t.Fatal("正常结束未结算", err)
@@ -182,6 +201,11 @@ func TestPlanRunSequenceCompetitionPostgres(t *testing.T) {
 	low := planRunUpdateFixture(t, c, 2, "status", "running")
 	high := planRunUpdateFixture(t, c, 3, "status", "running")
 	high.CurrentItem = 1
+	initial, err := s.GetRun(t.Context(), "", p.UserEmail, c.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	high.Items = completePlanItemsFixture(initial, 1)
 	barrier := make(chan struct{})
 	results := make(chan error, 2)
 	for _, update := range []ExecutionPlanRunUpdate{low, high} {
