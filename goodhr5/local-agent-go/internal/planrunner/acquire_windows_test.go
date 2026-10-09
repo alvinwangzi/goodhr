@@ -47,6 +47,37 @@ func acquireFixture(t *testing.T, mode *atomic.Int32) (*Coordinator, planmodel.P
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "fixture@example.com"}})
 			return
 		}
+		if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/items/"+permit.Run.Items[0].ID+"/prepare" {
+			var input cloudapi.PlanItemTaskRequest
+			if e := json.NewDecoder(r.Body).Decode(&input); e != nil {
+				t.Error(e)
+			}
+			saved, e := db.PlanOperation(t.Context(), scope, input.RequestID)
+			if e != nil || saved.Kind != "prepare_item" || saved.RunID != permit.Run.ID {
+				t.Error("准备任务前没有保存原请求", e)
+			}
+			if other, e := runner.ReservePlanBrowser(t.Context(), "90000000-0000-0000-0000-000000000001"); e == nil {
+				_ = other.Release(true)
+				t.Error("准备时没有保留父预留")
+			}
+			if mode.Load() == 2 {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+				return
+			}
+			var result planmodel.Permit
+			raw, _ := json.Marshal(permit)
+			_ = json.Unmarshal(raw, &result)
+			result.Run.Sequence++
+			result.Run.Items[0].TaskRunID = "70000000-0000-0000-0000-000000000001"
+			if mode.Load() == 3 {
+				now.Store(time.Date(2026, 10, 10, 4, 0, 1, 0, time.UTC).UnixNano())
+			}
+			if mode.Load() == 5 {
+				result.Run.ActivationID = "30000000-0000-0000-0000-000000000099"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": result})
+			return
+		}
 		if r.URL.Path != "/api/execution-plan-runs/claim" {
 			t.Error("领取访问了其他路径", r.URL.Path)
 		}

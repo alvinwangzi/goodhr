@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"goodhr5/local-agent-go/internal/planmodel"
+	"strings"
 )
 
 // PlanOperation 保存已加密的不可变原请求，Sequence 为原落盘顺序，RunSequence 为云端状态序号。
@@ -19,7 +20,50 @@ type PlanOperation struct {
 
 // migratePlanOperations 建立持久原请求表，每个字段均有中文说明。
 func (db *DB) migratePlanOperations() error {
-	_, err := db.conn.Exec(`CREATE TABLE IF NOT EXISTS plan_operations (
+	if _, err := db.conn.Exec(planOperationsSchema); err != nil {
+		return err
+	}
+	var schema string
+	if err := db.conn.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='plan_operations'`).Scan(&schema); err != nil {
+		return err
+	}
+	if !strings.Contains(schema, "'prepare_item'") {
+		// SQLite 不能原地修改 CHECK，使用同一事务保留原顺序、密文和确认状态。
+		tx, err := db.conn.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		var highWater int64
+		if err = tx.QueryRow(`SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='plan_operations'),0)`).Scan(&highWater); err != nil {
+			return err
+		}
+		for _, statement := range []string{
+			`DROP INDEX IF EXISTS idx_plan_operation_pending`,
+			`ALTER TABLE plan_operations RENAME TO plan_operations_previous`,
+			planOperationsSchema,
+			`INSERT INTO plan_operations(` + planOperationColumns + `) SELECT ` + planOperationColumns + ` FROM plan_operations_previous`,
+			`DROP TABLE plan_operations_previous`,
+		} {
+			if _, err = tx.Exec(statement); err != nil {
+				return err
+			}
+		}
+		if _, err = tx.Exec(`UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='plan_operations'`, highWater); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`INSERT INTO sqlite_sequence(name,seq) SELECT 'plan_operations',? WHERE NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name='plan_operations')`, highWater); err != nil {
+			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+	}
+	_, err := db.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_plan_operation_pending ON plan_operations(owner_scope,state,sequence)`)
+	return err
+}
+
+const planOperationsSchema = `CREATE TABLE IF NOT EXISTS plan_operations (
  -- 原请求本地落盘顺序，重试不重新排序。
  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
  -- 已核对的云端所有者作用域。
@@ -32,9 +76,9 @@ func (db *DB) migratePlanOperations() error {
  run_id TEXT NOT NULL,
  -- 原账号占用编号。
  owner_id TEXT NOT NULL,
- -- 领取、状态或释放操作。
- kind TEXT NOT NULL CHECK(kind IN ('claim','status','release')),
- -- 状态操作的原递增序号，领取为零。
+ -- 领取、执行项准备、状态或释放操作。
+ kind TEXT NOT NULL CHECK(kind IN ('claim','prepare_item','status','release')),
+ -- 状态操作的原递增序号，领取与执行项准备为零。
  run_sequence INTEGER NOT NULL,
  -- 原内容摘要，不含凭证原文。
  body_hash TEXT NOT NULL,
@@ -43,10 +87,7 @@ func (db *DB) migratePlanOperations() error {
  -- 待核对或已获原回执确认。
  state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','confirmed')),
  UNIQUE(owner_scope,request_id)
-);
-CREATE INDEX IF NOT EXISTS idx_plan_operation_pending ON plan_operations(owner_scope,state,sequence);`)
-	return err
-}
+);`
 
 const planOperationColumns = `sequence,owner_scope,request_id,plan_id,run_id,owner_id,kind,run_sequence,body_hash,cipher,state`
 
@@ -60,7 +101,8 @@ func scanPlanOperation(row interface{ Scan(...any) error }) (PlanOperation, erro
 // SavePlanOperation 原子保存密文原请求，重试保留原密文、确认状态与落盘顺序。
 func (db *DB) SavePlanOperation(ctx context.Context, o PlanOperation) (PlanOperation, error) {
 	hash, err := hex.DecodeString(o.BodyHash)
-	if err != nil || len(hash) != 32 || o.OwnerScope == "" || !planmodel.ValidID(o.RequestID) || !planmodel.ValidID(o.PlanID) || !planmodel.ValidID(o.RunID) || !planmodel.ValidID(o.OwnerID) || len(o.Cipher) == 0 || (o.Kind != "claim" && o.Kind != "status" && o.Kind != "release") || (o.Kind == "claim" && o.RunSequence != 0) || (o.Kind != "claim" && o.RunSequence < 1) {
+	preparation := o.Kind == "claim" || o.Kind == "prepare_item"
+	if err != nil || len(hash) != 32 || o.OwnerScope == "" || !planmodel.ValidID(o.RequestID) || !planmodel.ValidID(o.PlanID) || !planmodel.ValidID(o.RunID) || !planmodel.ValidID(o.OwnerID) || len(o.Cipher) == 0 || (!preparation && o.Kind != "status" && o.Kind != "release") || (preparation && o.RunSequence != 0) || (!preparation && o.RunSequence < 1) {
 		return PlanOperation{}, fmt.Errorf("原执行请求元数据不完整")
 	}
 	tx, err := db.conn.BeginTx(ctx, nil)

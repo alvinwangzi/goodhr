@@ -3,6 +3,7 @@ package planoperations
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,54 @@ import (
 	"sync/atomic"
 	"testing"
 )
+
+// TestProtectedPrepareRestart 验证执行项原准备请求加密、真实重开恢复、换项冲突及后台不自动准备。
+func TestProtectedPrepareRestart(t *testing.T) {
+	db, cfg, p, claim := operationFixture(t)
+	store := New(db)
+	input := cloudapi.PlanItemTaskRequest{RunID: claim.RunID, ItemRunID: p.Run.Items[0].ID, RequestID: "60000000-0000-0000-0000-000000000004", OwnerID: claim.OwnerID, MachineID: claim.MachineID, Credential: claim.Credential}
+	record, err := store.StagePrepare(t.Context(), "A", claim.PlanID, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := input
+	changed.ItemRunID = p.Run.Items[1].ID
+	if _, err = store.StagePrepare(t.Context(), "A", claim.PlanID, changed); !errors.Is(err, localdb.ErrPlanRequestConflict) {
+		t.Fatal("同一准备编号可以换执行项", err)
+	}
+	for _, path := range []string{db.Path(), db.Path() + "-wal"} {
+		raw, err := os.ReadFile(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if bytes.Contains(raw, []byte(input.Credential)) {
+			t.Fatal("执行项凭证写入明文")
+		}
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := localdb.Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	restored := New(reopened)
+	original, err := restored.OriginalPrepare(t.Context(), "A", input.RequestID)
+	if err != nil || !reflect.DeepEqual(original, input) {
+		t.Fatal("重开改变原执行项请求", err)
+	}
+	retry, err := restored.StagePrepare(t.Context(), "A", claim.PlanID, input)
+	if err != nil || retry.Sequence != record.Sequence || !bytes.Equal(retry.Cipher, record.Cipher) {
+		t.Fatal("重复准备改变原密文或顺序", err)
+	}
+	if _, err = reopened.NextPlanUpdate(t.Context(), "A"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal("原准备请求被后台选中", err)
+	}
+	if _, err = restored.OriginalPrepare(t.Context(), "B", input.RequestID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal("其他账号读取原准备请求", err)
+	}
+}
 
 // operationFixture 为当前用户创建独立测试数据库和不含登录凭证的原运行夹具。
 func operationFixture(t *testing.T) (*localdb.DB, *config.Config, planmodel.Permit, cloudapi.PlanClaimRequest) {

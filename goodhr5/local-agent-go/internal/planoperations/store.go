@@ -30,8 +30,10 @@ type envelope struct {
 	RunID     string                         `json:"run_id"`
 	OwnerID   string                         `json:"owner_id"`
 	RequestID string                         `json:"request_id"`
+	ItemRunID string                         `json:"item_run_id,omitempty"`
 	Claim     *cloudapi.PlanClaimRequest     `json:"claim,omitempty"`
 	Update    *cloudapi.PlanRunUpdateRequest `json:"update,omitempty"`
+	Prepare   *cloudapi.PlanItemTaskRequest  `json:"prepare,omitempty"`
 }
 
 // requestHash 为不可变原内容计算摘要，不保存凭证原文。
@@ -67,6 +69,31 @@ func (s *Store) StageUpdate(ctx context.Context, scope, planID string, input clo
 	return s.save(ctx, scope, envelope{Kind: input.Action, PlanID: planID, RunID: input.RunID, OwnerID: input.OwnerID, RequestID: input.RequestID, Update: &input}, input.Sequence)
 }
 
+// StagePrepare 在云端创建岗位任务前保存原执行项准备请求，后台补传不会发送本请求。
+func (s *Store) StagePrepare(ctx context.Context, scope, planID string, input cloudapi.PlanItemTaskRequest) (localdb.PlanOperation, error) {
+	if input.Validate() != nil {
+		return localdb.PlanOperation{}, localdb.ErrPlanRequestConflict
+	}
+	return s.save(ctx, scope, envelope{Kind: "prepare_item", PlanID: planID, RunID: input.RunID, ItemRunID: input.ItemRunID, OwnerID: input.OwnerID, RequestID: input.RequestID, Prepare: &input}, 0)
+}
+
+// OriginalPrepare 恢复原执行项路由与占用证明，不把恢复请求当作当前页面执行许可。
+func (s *Store) OriginalPrepare(ctx context.Context, scope, request string) (cloudapi.PlanItemTaskRequest, error) {
+	e, record, err := s.load(ctx, scope, request)
+	if err != nil {
+		return cloudapi.PlanItemTaskRequest{}, err
+	}
+	if e.Kind != "prepare_item" || e.Prepare == nil || e.Claim != nil || e.Update != nil || record.RunSequence != 0 {
+		return cloudapi.PlanItemTaskRequest{}, localdb.ErrPlanRequestConflict
+	}
+	input := *e.Prepare
+	input.RunID, input.ItemRunID = e.RunID, e.ItemRunID
+	if input.OwnerID != e.OwnerID || input.RequestID != e.RequestID || input.Validate() != nil {
+		return cloudapi.PlanItemTaskRequest{}, localdb.ErrPlanRequestConflict
+	}
+	return input, nil
+}
+
 // load 核对账号、摘要和全部路由元数据，不允许损坏记录被重新生成成另一份请求。
 func (s *Store) load(ctx context.Context, scope, request string) (envelope, localdb.PlanOperation, error) {
 	record, err := s.db.PlanOperation(ctx, scope, request)
@@ -97,7 +124,7 @@ func (s *Store) OriginalClaim(ctx context.Context, scope, request string) (cloud
 	if err != nil {
 		return cloudapi.PlanClaimRequest{}, err
 	}
-	if e.Kind != "claim" || e.Claim == nil || e.Update != nil || e.Claim.RunID != e.RunID || e.Claim.OwnerID != e.OwnerID || e.Claim.RequestID != e.RequestID || e.Claim.PlanID != e.PlanID || e.Claim.Validate() != nil {
+	if e.Kind != "claim" || e.Claim == nil || e.Update != nil || e.Prepare != nil || e.ItemRunID != "" || e.Claim.RunID != e.RunID || e.Claim.OwnerID != e.OwnerID || e.Claim.RequestID != e.RequestID || e.Claim.PlanID != e.PlanID || e.Claim.Validate() != nil {
 		return cloudapi.PlanClaimRequest{}, localdb.ErrPlanRequestConflict
 	}
 	return *e.Claim, nil
@@ -109,7 +136,7 @@ func (s *Store) OriginalUpdate(ctx context.Context, scope, request string) (clou
 	if err != nil {
 		return cloudapi.PlanRunUpdateRequest{}, err
 	}
-	if e.Update == nil || e.Claim != nil || (e.Kind != "status" && e.Kind != "release") {
+	if e.Update == nil || e.Claim != nil || e.Prepare != nil || e.ItemRunID != "" || (e.Kind != "status" && e.Kind != "release") {
 		return cloudapi.PlanRunUpdateRequest{}, localdb.ErrPlanRequestConflict
 	}
 	input := *e.Update
