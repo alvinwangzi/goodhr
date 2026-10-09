@@ -26,7 +26,7 @@ type TaskRun struct {
 	FailedCount          int        `json:"failed_count"`
 	ErrorMessage         string     `json:"error_message"`
 	CreatedAt            time.Time  `json:"created_at"`
-	StartedAt            time.Time  `json:"started_at"`
+	StartedAt            *time.Time `json:"started_at,omitempty"`
 	FinishedAt           *time.Time `json:"finished_at"`
 }
 
@@ -69,10 +69,10 @@ type TaskRunStore interface {
 
 // MemoryTaskRunStore 提供开发期使用的内存执行任务存储。
 type MemoryTaskRunStore struct {
-	mu         sync.Mutex
-	runs       map[string]TaskRun
-	runEvents  map[string]map[string]TaskRunCandidate
-	now        func() time.Time
+	mu        sync.Mutex
+	runs      map[string]TaskRun
+	runEvents map[string]map[string]TaskRunCandidate
+	now       func() time.Time
 }
 
 // NewMemoryTaskRunStore 创建开发期内存执行任务存储。
@@ -100,10 +100,21 @@ func (s *MemoryTaskRunStore) SaveMemoryRunCandidate(runID string, filter string,
 func (s *MemoryTaskRunStore) CreateTaskRun(run TaskRun) (TaskRun, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.createTaskRunLocked(run)
+}
+
+// createTaskRunLocked 复用当前任务锁生成独立 UUID，同秒创建的重复岗位不会覆盖原记录。
+func (s *MemoryTaskRunStore) createTaskRunLocked(run TaskRun) (TaskRun, error) {
 	now := s.now()
-	run.ID = "task_run_" + now.Format("20060102150405")
+	id, err := newExecutionPlanID()
+	if err != nil {
+		return TaskRun{}, err
+	}
+	run.ID = id
 	run.CreatedAt = now
-	run.StartedAt = now
+	if run.Status != "starting" {
+		run.StartedAt = &now
+	}
 	if run.Status == "" {
 		run.Status = "running"
 	}

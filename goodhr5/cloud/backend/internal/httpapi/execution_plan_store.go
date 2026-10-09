@@ -28,6 +28,7 @@ type ExecutionPlanStore interface {
 	ClaimRun(context.Context, string, string, ExecutionPlanRunClaim) (ExecutionPlanRunPermit, error)
 	GetRun(context.Context, string, string, string) (ExecutionPlanRun, error)
 	UpdateRun(context.Context, string, string, ExecutionPlanRunUpdate) (ExecutionPlanRunPermit, error)
+	PrepareItemTask(context.Context, string, string, ExecutionPlanItemTaskRequest) (ExecutionPlanRunPermit, error)
 }
 
 // newExecutionPlanID 生成真实 UUID，内存与 PostgreSQL 使用相同编号格式。
@@ -73,6 +74,7 @@ type MemoryExecutionPlanStore struct {
 	positions        *MemoryPositionStore
 	runRequestHashes map[string]string
 	runUpdates       map[string]executionPlanRunClaimReceipt
+	taskRuns         *MemoryTaskRunStore
 }
 
 // NewMemoryExecutionPlanStore 创建开发和契约测试用计划存储。

@@ -71,6 +71,10 @@ func (s *ExecutionPlanService) ClaimRun(w http.ResponseWriter, r *http.Request) 
 // Run 提供运行快照、递增状态与收尾释放；释放不因设备重新绑定而跳过占用凭证核对。
 func (s *ExecutionPlanService) Run(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/execution-plan-runs/"), "/")
+	if len(parts) == 4 && parts[1] == "items" && parts[3] == "prepare" && executionPlanUUID.MatchString(parts[0]) && executionPlanUUID.MatchString(parts[2]) {
+		s.PrepareItem(w, r, parts[0], parts[2])
+		return
+	}
 	if len(parts) > 2 || !executionPlanUUID.MatchString(parts[0]) || (len(parts) == 2 && parts[1] != "status" && parts[1] != "release") {
 		writeError(w, 404, "运行接口不存在")
 		return
@@ -116,6 +120,69 @@ func (s *ExecutionPlanService) Run(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result, err := s.store.UpdateRun(r.Context(), tenant, email, input)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "permit": result})
+}
+
+// PrepareItem 复用真实设备和岗位启动校验，父占用下只准备当前项的数据关联，不启动页面。
+func (s *ExecutionPlanService) PrepareItem(w http.ResponseWriter, r *http.Request, runID, itemID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "此接口只支持 POST")
+		return
+	}
+	tenant, email, ok := s.identity(w, r)
+	if !ok {
+		return
+	}
+	run, err := s.store.GetRun(r.Context(), tenant, email, runID)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	var input ExecutionPlanItemTaskRequest
+	if decodePlanBody(w, r, &input) != nil {
+		writeError(w, 400, "执行项准备格式不正确")
+		return
+	}
+	input.PlanID = run.PlanID
+	input.RunID = run.ID
+	input.ItemRunID = itemID
+	if input.validate() != nil {
+		writeError(w, 400, "执行项准备缺少原编号或占用证明")
+		return
+	}
+	if s.execution == nil {
+		writeError(w, 503, "执行权限暂时无法核对")
+		return
+	}
+	if failure := s.execution.verifyActiveDevice(email, input.MachineID); failure != nil {
+		writePositionStartError(w, failure.status, failure.code, failure.message)
+		return
+	}
+	var item *ExecutionPlanItemRun
+	for index := range run.Items {
+		if run.Items[index].ID == itemID {
+			item = &run.Items[index]
+			break
+		}
+	}
+	if item == nil {
+		writePlanStoreError(w, ErrNotFound)
+		return
+	}
+	position, err := s.positions.store.PositionByID(tenant, email, item.Snapshot.PositionID, false)
+	if err != nil || position.UserEmail != email {
+		writeError(w, 403, "岗位不存在或没有执行权限")
+		return
+	}
+	if failure := s.execution.checkPositionStart(email, position, strings.Join(item.Snapshot.Actions, ",")); failure != nil {
+		writePositionStartError(w, failure.status, failure.code, failure.message)
+		return
+	}
+	result, err := s.store.PrepareItemTask(r.Context(), tenant, email, input)
 	if err != nil {
 		writePlanStoreError(w, err)
 		return

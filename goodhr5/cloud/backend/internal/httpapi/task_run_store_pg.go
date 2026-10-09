@@ -37,7 +37,7 @@ func (s *PostgresTaskRunStore) CreateTaskRun(run TaskRun) (TaskRun, error) {
 			tenant_id, user_id, position_id, platform_id,
 			task_type, machine_id, status, started_at
 		)
-		VALUES ($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,$7,now())
+		VALUES ($1,$2,NULLIF($3,'')::uuid,$4,$5,$6,$7,CASE WHEN $7='starting' THEN NULL ELSE now() END)
 		RETURNING id, COALESCE(position_id::text,''), platform_id, task_type, machine_id, status, created_at, started_at
 		`,
 		run.TenantID,

@@ -105,6 +105,7 @@ func NewServer() (*Server, error) {
 	}
 	if plans, ok := planStore.(*MemoryExecutionPlanStore); ok {
 		plans.positions, _ = positionStore.(*MemoryPositionStore)
+		plans.taskRuns, _ = taskRunStore.(*MemoryTaskRunStore)
 	}
 	positionExecution := NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, aiConfigStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore)
 	planService := NewExecutionPlanService(positionService, agentStore, planStore)
