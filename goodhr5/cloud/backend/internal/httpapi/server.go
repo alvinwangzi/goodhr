@@ -14,6 +14,7 @@ type updateAdminSystemConfigRequest struct {
 }
 
 type Server struct {
+	executionPlans      *ExecutionPlanService
 	auth                *AuthService
 	agent               *AgentService
 	userFlow            *UserFlowService
@@ -98,7 +99,12 @@ func NewServer() (*Server, error) {
 	// adminEmails.StartRecoveryScheduler()
 	positionService := NewPositionService(auth, positionStore, subscriptionStore, systemConfigStore, aiConfigStore, userFlowStore)
 	positionService.runs = taskRunStore
+	var planStore ExecutionPlanStore = NewMemoryExecutionPlanStore()
+	if db != nil {
+		planStore = NewPostgresExecutionPlanStore(db)
+	}
 	return &Server{
+		executionPlans:      NewExecutionPlanService(positionService, agentStore, planStore),
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
 		userFlow:            NewUserFlowService(auth, userFlowStore, positionStore),
@@ -134,6 +140,8 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	// 注册健康检查接口，用于部署和本地开发确认服务在线。
 	mux.HandleFunc("/health", s.health)
+	mux.HandleFunc("/api/execution-plans", s.executionPlans.Collection)
+	mux.HandleFunc("/api/execution-plans/", s.executionPlans.Item)
 	// 注册认证接口，用于邮箱验证码登录和登录态校验。
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)
