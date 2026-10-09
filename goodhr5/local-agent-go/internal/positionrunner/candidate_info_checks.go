@@ -209,6 +209,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				r.positionLog(position.ID, "info", "索要继续等待候选人回复："+item.CandidateName+"，暂未执行："+strings.Join(waitingActions, "、"))
 			}
 		}
+		submittedAction := false
 		for _, action := range []string{"phone", "wechat", "resume"} {
 			if !item.Actions[action] || !wanted[action] || item.Results[action] == "requested" || item.Results[action] == "satisfied" {
 				continue
@@ -224,6 +225,14 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			}
 			if !replied {
 				continue
+			}
+			if submittedAction {
+				if err := exec.Delay(ctx, "下一项索要操作前", randomFloatRange(1, 2)); err != nil {
+					return
+				}
+			}
+			if ctx.Err() != nil || r.isUserStopped(position.ID) {
+				return
 			}
 			prepared, err := operator.PrepareCandidateInfoRequest(ctx, exec, target, conversation, action)
 			if err != nil {
@@ -241,6 +250,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				continue
 			}
 			submitState, sendErr := operator.SubmitCandidateInfoRequest(ctx, exec, target, conversation, prepared)
+			submittedAction = true
 			state := "unknown"
 			if sendErr == nil && (submitState == "requested" || submitState == "satisfied") {
 				state = submitState
