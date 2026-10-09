@@ -50,6 +50,10 @@ func (s *MemoryExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant, e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.positions != nil {
+		s.positions.mu.Lock()
+		defer s.positions.mu.Unlock()
+	}
 	if err := ctx.Err(); err != nil {
 		return ExecutionPlan{}, err
 	}
@@ -100,6 +104,7 @@ func (s *MemoryExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant, e
 			finished := time.Now().UTC()
 			run.FinishedAt = &finished
 			s.runs[runID] = run
+			s.syncMemoryItemTaskStates(run, true)
 		}
 	}
 	p.StopRequested = false
@@ -161,6 +166,9 @@ func (s *PostgresExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant,
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE execution_plan_runs SET state='stopped',sequence=sequence+1,end_reason='user_stopped',finished_at=NOW() WHERE plan_id=$1 AND activation_id=$2 AND state NOT IN ('completed','incomplete','stopped','blocked')`, id, c.ActivationID)
 	if err != nil {
+		return p, err
+	}
+	if err = syncStoppedPlanTasks(ctx, tx, p); err != nil {
 		return p, err
 	}
 	p.StopRequested = false

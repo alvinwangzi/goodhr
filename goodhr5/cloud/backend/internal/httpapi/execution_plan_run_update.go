@@ -213,7 +213,7 @@ func (s *MemoryExecutionPlanStore) UpdateRun(ctx context.Context, tenant, email 
 		}
 	}
 	s.runs[u.RunID] = changed
-	s.syncMemoryItemTaskStates(changed)
+	s.syncMemoryItemTaskStates(changed, false)
 	result := ExecutionPlanRunPermit{Run: changed, Owner: owner}
 	if s.runUpdates == nil {
 		s.runUpdates = map[string]executionPlanRunClaimReceipt{}
@@ -276,7 +276,7 @@ func (s *PostgresExecutionPlanStore) UpdateRun(ctx context.Context, tenant, emai
 	if err = savePlanItemRuns(ctx, tx, u.RunID, changed.Items); err != nil {
 		return ExecutionPlanRunPermit{}, err
 	}
-	if err = syncPlanItemTaskStates(ctx, tx, changed); err != nil {
+	if err = syncPlanItemTaskStates(ctx, tx, changed, false); err != nil {
 		return ExecutionPlanRunPermit{}, err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE execution_plan_runs SET state=$2,sequence=$3,current_item=$4,end_reason=$5,started_at=$6,finished_at=$7 WHERE id=$1`, u.RunID, changed.State, changed.Sequence, changed.CurrentItem, changed.EndReason, changed.StartedAt, changed.FinishedAt)
