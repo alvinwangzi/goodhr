@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -29,6 +30,7 @@ import (
 	"goodhr5/local-agent-go/internal/ocr"
 	"goodhr5/local-agent-go/internal/positionrunner"
 	"goodhr5/local-agent-go/internal/process"
+	"goodhr5/local-agent-go/internal/protectedsession"
 	"goodhr5/local-agent-go/internal/response"
 	"goodhr5/local-agent-go/internal/runtime"
 	"goodhr5/local-agent-go/internal/version"
@@ -36,12 +38,17 @@ import (
 
 // Server 是 Go 版本 Local Agent HTTP 服务。
 type Server struct {
-	cfg     *config.Config
-	runtime *runtime.Manager
-	worker  *browser.WorkerManager
-	ocr     *ocr.Engine
-	db      *localdb.DB
-	runner  *positionrunner.Runner
+	sessionMu      sync.Mutex
+	sessionOpMu    sync.Mutex
+	sessionVersion uint64
+	sessionCurrent *protectedsession.Session
+	sessionBlocked bool
+	cfg            *config.Config
+	runtime        *runtime.Manager
+	worker         *browser.WorkerManager
+	ocr            *ocr.Engine
+	db             *localdb.DB
+	runner         *positionrunner.Runner
 }
 
 // NewServer 创建本地 HTTP 服务。
@@ -113,6 +120,11 @@ func (s *Server) Run() error {
 	}
 	log.Printf("HRPlus Local Agent started on http://%s", net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
 	s.openConsoleAfterStart(port)
+	background, stopBackground := context.WithCancel(context.Background())
+	defer stopBackground()
+	defer s.runner.ClearReGreetUploadSession()
+	defer s.runner.StopAll("本地服务已关闭，停止当前任务")
+	go s.restoreProtectedSession(background)
 	return server.Serve(ln)
 }
 
@@ -121,6 +133,8 @@ func (s *Server) Run() error {
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/session/bind", s.handleSessionBind)
+	mux.HandleFunc("/api/v1/session/unbind", s.handleSessionUnbind)
+	mux.HandleFunc("/api/v1/session/status", s.handleProtectedSessionStatus)
 	mux.HandleFunc("/api/v1/diagnostics", s.handleDiagnostics)
 	mux.HandleFunc("/api/v1/runtime/status", s.handleRuntimeStatus)
 	mux.HandleFunc("/api/v1/runtime/ensure", s.handleRuntimeEnsure)
@@ -223,13 +237,13 @@ func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "缺少登录令牌，请重新登录后再试")
 		return
 	}
+	sessionVersion := s.beginProtectedSessionChange()
 	machineID, err := s.ensureMachineID()
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("生成设备编号失败：%v", err))
 		return
 	}
 	client := cloudapi.New(s.cfg.CloudAPIBase)
-	uploadVersion := s.runner.ReGreetUploadSessionVersion()
 	resp, statusCode, err := client.BindDevice(r.Context(), token, machineID, version.Value, s.cfg.Port)
 	if err != nil {
 		response.Error(w, http.StatusBadGateway, err.Error())
@@ -264,12 +278,15 @@ func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadGateway, cloudapi.ErrorMessage(resp, "设备绑定失败"))
 		return
 	}
-	owner, ownerErr := client.SessionOwner(r.Context(), token)
+	identity, ownerErr := client.SessionIdentity(r.Context(), token)
 	if ownerErr != nil {
 		response.Error(w, http.StatusBadGateway, "设备已绑定，但账号核对未完成，请重试："+ownerErr.Error())
 		return
 	}
-	s.runner.BindVerifiedReGreetUploadSession(token, positionrunner.CloudOwnerScope(s.cfg.CloudAPIBase, owner), uploadVersion, s.cfg.CloudAPIBase)
+	if err := s.commitProtectedSession(r.Context(), sessionVersion, protectedsession.Session{CloudBase: strings.TrimRight(s.cfg.CloudAPIBase, "/"), UserEmail: identity.UserEmail, TenantID: identity.TenantID, MachineID: machineID, Token: token}); err != nil {
+		response.Error(w, http.StatusConflict, "登录连接已变化或尚未完成安全收尾，请重试")
+		return
+	}
 	response.Success(w, resp)
 }
 
@@ -523,6 +540,18 @@ func (s *Server) handleLocalPositionRun(w http.ResponseWriter, r *http.Request, 
 	token := stringValue(payload["token"])
 	if token == "" {
 		token = bearerToken(r)
+	}
+	s.sessionOpMu.Lock()
+	defer s.sessionOpMu.Unlock()
+	s.sessionMu.Lock()
+	blocked := s.sessionBlocked || (s.sessionCurrent != nil && s.sessionCurrent.Token != token)
+	if !blocked && s.sessionCurrent == nil {
+		s.sessionVersion++
+	}
+	s.sessionMu.Unlock()
+	if blocked {
+		response.Error(w, http.StatusForbidden, "本地登录已退出或正在切换，请重新连接账号后再开始")
+		return
 	}
 	// 设备机器码随启动参数传给运行器，状态同步时上报云端做设备绑定校验；读取失败不阻塞启动，同步时按旧逻辑降级。
 	machineID, machineErr := s.ensureMachineID()

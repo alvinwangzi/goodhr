@@ -56,8 +56,8 @@ type loginPasswordRequest struct {
 
 // passwordLoginState 记录单个邮箱的密码登录失败次数与锁定到期时间。
 type passwordLoginState struct {
-	failures  int
-	lockedAt  time.Time
+	failures int
+	lockedAt time.Time
 }
 
 const maxPasswordFailures = 5
@@ -520,6 +520,12 @@ func subscriptionNoticeDays(expiresAt time.Time, now time.Time) int {
 
 // publicUser 返回前端可见的用户基础信息。
 func (s *AuthService) publicUser(email string) map[string]any {
+	tenantID := ""
+	if s.tenantStore != nil {
+		if tenant, err := s.tenantStore.GetOrCreateTenant(email); err == nil {
+			tenantID = tenant.ID
+		}
+	}
 	inviteID := email
 	if s.invitations != nil {
 		if id, err := s.invitations.InviteID(email); err == nil && id != "" {
@@ -533,6 +539,7 @@ func (s *AuthService) publicUser(email string) map[string]any {
 		}
 	}
 	return map[string]any{
+		"tenant_id":      tenantID,
 		"id":             inviteID,
 		"invite_id":      inviteID,
 		"email":          email,
@@ -612,6 +619,29 @@ func (s *AuthService) applyInviteOnLogin(email string, inviterID string) error {
 		ExpiresAt:    subscription.ExpiresAt,
 		RelatedEmail: email,
 	})
+}
+
+// Logout 撤销网页明确退出的原会话，本地暂不可达时旧保护文件也不能获得新云端许可。
+func (s *AuthService) Logout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "此接口只支持退出登录")
+		return
+	}
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		writeJSON(w, 200, map[string]any{"ok": true})
+		return
+	}
+	revoker, ok := s.store.(SessionRevoker)
+	if !ok {
+		writeError(w, 503, "当前登录存储尚未支持退出确认")
+		return
+	}
+	if err := revoker.RevokeSession(token); err != nil {
+		writeError(w, 503, "退出登录确认失败，请重试")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 // SessionFromRequest 从请求头 Bearer token 中读取当前登录会话。

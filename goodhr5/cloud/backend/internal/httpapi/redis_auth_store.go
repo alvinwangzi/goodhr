@@ -69,6 +69,11 @@ func (s *RedisAuthStore) SaveSession(token string, session Session, ttl time.Dur
 	return nil
 }
 
+// RevokeSession 从 Redis 删除退出的原登录，不记录或返回令牌内容。
+func (s *RedisAuthStore) RevokeSession(token string) error {
+	return s.client.Del(context.Background(), sessionKey(token)).Err()
+}
+
 func (s *RedisAuthStore) GetSession(token string) (Session, error) {
 	ctx := context.Background()
 	body, err := s.client.Get(ctx, sessionKey(token)).Bytes()

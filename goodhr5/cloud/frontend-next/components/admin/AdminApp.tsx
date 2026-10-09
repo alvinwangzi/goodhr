@@ -54,6 +54,7 @@ import {
   bindDetectedLocalAgent,
   captureLocalAgentPortFromURL,
   cloudRequest,
+  getToken,
   detectLocalAgent,
   formatDate,
   localRequest,
@@ -552,7 +553,12 @@ export default function AdminApp({ children }: { children: ReactNode }) {
   );
 
   /** logout 清除登录状态并返回登录页。 */
-  function logout() {
+  async function logout() {
+    const token = getToken();
+    await Promise.allSettled([
+      ...(agentBase ? [localRequest(agentBase, "/api/v1/session/unbind", { method: "POST", timeoutMS: 5000 })] : []),
+      cloudRequest("/api/auth/logout", { method: "POST", auth: false, headers: { Authorization: `Bearer ${token}` }, timeoutMS: 5000 }),
+    ]);
     localStorage.removeItem(TOKEN_KEY);
     router.replace("/login");
   }

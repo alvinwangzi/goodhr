@@ -400,6 +400,26 @@ func (r *Runner) StopAll(reason string) int {
 	return len(ids)
 }
 
+// StopAllAndWait 停止旧用户的任务并等待页面执行权与收尾释放，超时不能切换到新用户执行。
+func (r *Runner) StopAllAndWait(ctx context.Context, reason string) error {
+	r.StopAll(reason)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		r.mu.Lock()
+		busy := len(r.running) > 0 || r.browserLease != nil
+		r.mu.Unlock()
+		if !busy {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 // Status 返回本地岗位运行运行状态。
 // positionID 为岗位运行 ID。
 func (r *Runner) Status(positionID string) (map[string]any, error) {

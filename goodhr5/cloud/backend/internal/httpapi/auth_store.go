@@ -16,6 +16,17 @@ type AuthStore interface {
 	GetSessionUnsafe(token string) (Session, error)
 }
 
+// SessionRevoker 复用现有存储撤销明确退出的令牌，恢复后台会话不能继续使用旧登录。
+type SessionRevoker interface{ RevokeSession(string) error }
+
+// RevokeSession 只删除原令牌，不影响同账号其他明确登录会话。
+func (s *MemoryAuthStore) RevokeSession(token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, token)
+	return nil
+}
+
 type Session struct {
 	Email     string
 	CreatedAt time.Time

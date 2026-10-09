@@ -147,6 +147,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/login", s.auth.Login)
 	mux.HandleFunc("/api/auth/login-password", s.auth.LoginPassword)
 	mux.HandleFunc("/api/auth/me", s.auth.Me)
+	mux.HandleFunc("/api/auth/logout", s.auth.Logout)
 	mux.HandleFunc("/api/auth/agreement-status", s.auth.AgreementStatus)
 	mux.HandleFunc("/api/auth/trial-welcome/ack", s.auth.AckTrialWelcome)
 	mux.HandleFunc("/api/auth/update-profile", s.auth.UpdateProfile)

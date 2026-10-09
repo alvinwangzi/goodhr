@@ -158,9 +158,18 @@ func (c *Client) ValidateSession(ctx context.Context, token string) error {
 
 // SessionOwner 复用登录态验证接口读取服务端确认的所有者，不解析客户端令牌或相信前端提交的姓名。
 func (c *Client) SessionOwner(ctx context.Context, token string) (string, error) {
+	identity, err := c.SessionIdentity(ctx, token)
+	return identity.UserEmail, err
+}
+
+// CloudSessionIdentity 仅包含服务端确认的身份，不含令牌或客户端声明。
+type CloudSessionIdentity struct{ UserEmail, TenantID string }
+
+// SessionIdentity 复用同一登录验证响应读取用户和团队，旧服务端缺少团队时不自行猜测。
+func (c *Client) SessionIdentity(ctx context.Context, token string) (CloudSessionIdentity, error) {
 	payload, err := c.sessionPayload(ctx, token)
 	if err != nil {
-		return "", err
+		return CloudSessionIdentity{}, err
 	}
 	if data, ok := payload["data"].(map[string]any); ok {
 		payload = data
@@ -169,9 +178,10 @@ func (c *Client) SessionOwner(ctx context.Context, token string) (string, error)
 	email, _ := user["email"].(string)
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" || !strings.Contains(email, "@") {
-		return "", fmt.Errorf("登录校验未返回账号所有者，暂不能恢复补传")
+		return CloudSessionIdentity{}, fmt.Errorf("登录校验未返回账号所有者，暂不能恢复补传")
 	}
-	return email, nil
+	tenantID, _ := user["tenant_id"].(string)
+	return CloudSessionIdentity{UserEmail: email, TenantID: tenantID}, nil
 }
 
 // sessionPayload 统一验证登录状态并返回已验证响应，供原校验和账号作用域读取复用。

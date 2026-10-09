@@ -16,6 +16,16 @@ func (r *Runner) BindReGreetUploadSession(token string, verifiedOwnerScope ...st
 	r.bindReGreetUploadSession(token, verifiedOwnerScope, nil)
 }
 
+// ClearReGreetUploadSession 退出或切换用户时清除上传授权并使迟到的旧登录证明失效。
+func (r *Runner) ClearReGreetUploadSession() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.uploadSessionVersion++
+	r.uploadToken = ""
+	r.uploadOwnerScope = ""
+	r.uploadAPIBase = ""
+}
+
 // ReGreetUploadSessionVersion 在云端核对前读取当前登录版本，不返回或持久化令牌。
 func (r *Runner) ReGreetUploadSessionVersion() uint64 {
 	r.mu.Lock()
@@ -94,7 +104,16 @@ func (r *Runner) ensureReGreetUploader() {
 	r.uploadActive = true
 	r.mu.Unlock()
 	go func() {
-		defer func() { r.mu.Lock(); r.uploadActive = false; r.mu.Unlock() }()
+		restartIfRebound := false
+		defer func() {
+			r.mu.Lock()
+			r.uploadActive = false
+			restart := restartIfRebound && r.uploadToken != ""
+			r.mu.Unlock()
+			if restart {
+				r.ensureReGreetUploader()
+			}
+		}()
 		uploader := regreetupload.New(r.db)
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -105,6 +124,7 @@ func (r *Runner) ensureReGreetUploader() {
 			apiBase := r.uploadAPIBase
 			r.mu.Unlock()
 			if token == "" {
+				restartIfRebound = true
 				return
 			}
 			scopes, err := r.reGreetUploadScopes(context.Background(), ownerScope)

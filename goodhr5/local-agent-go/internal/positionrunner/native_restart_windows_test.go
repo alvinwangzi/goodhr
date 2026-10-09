@@ -23,7 +23,17 @@ import (
 
 // TestNativeAgentReceiptProcessRestart 验证退出前仍待上传，重启后设备绑定恢复原事实且不创建新发送。
 func TestNativeAgentReceiptProcessRestart(t *testing.T) {
-	if os.Getenv("HRPLUS_M1_NATIVE_WORKER_TEST") != "1" {
+	runNativeReceiptRestart(t, false)
+}
+
+// TestNativeAgentProtectedLoginRestart 验证第二个真实进程不经过网页绑定也能复验并恢复受保护登录。
+func TestNativeAgentProtectedLoginRestart(t *testing.T) {
+	runNativeReceiptRestart(t, true)
+}
+
+// runNativeReceiptRestart 保留原补传验收，并可选择重启后完全依赖本地受保护会话。
+func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
+	if os.Getenv("HRPLUS_M1_NATIVE_WORKER_TEST") != "1" && os.Getenv("HRPLUS_M2_NATIVE_AGENT_TEST") != "1" {
 		t.Skip("需要显式启用 Windows 进程重启验收")
 	}
 	directory := t.TempDir()
@@ -119,7 +129,7 @@ func TestNativeAgentReceiptProcessRestart(t *testing.T) {
 		t.Fatal("没有独立验收端口")
 	}
 	worker := nativeHTTPWorker{base: fmt.Sprintf("http://127.0.0.1:%d", port)}
-	start := func() *exec.Cmd {
+	start := func(bind bool) *exec.Cmd {
 		command := exec.Command(executable, "--host", "127.0.0.1", "--port", fmt.Sprint(port), "--data-dir", cfg.DataDir, "--open-console=false")
 		command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		command.Env = append(os.Environ(), "GOODHR_APP_ENV=dev", "GOODHR_CLOUD_API_BASE="+cloud.URL, "GOODHR_CONSOLE_URL=http://127.0.0.1:1", "GOODHR_CONSOLE_MANIFEST_URL=")
@@ -138,14 +148,16 @@ func TestNativeAgentReceiptProcessRestart(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		if _, err := worker.CallOnce(t.Context(), "/api/v1/session/bind", map[string]any{"token": "fixture-token"}); err != nil {
-			_ = command.Process.Kill()
-			_ = command.Wait()
-			t.Fatal(err)
+		if bind {
+			if _, err := worker.CallOnce(t.Context(), "/api/v1/session/bind", map[string]any{"token": "fixture-token"}); err != nil {
+				_ = command.Process.Kill()
+				_ = command.Wait()
+				t.Fatal(err)
+			}
 		}
 		return command
 	}
-	first := start()
+	first := start(true)
 	deadline := time.Now().Add(10 * time.Second)
 	for calls.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
@@ -156,7 +168,7 @@ func TestNativeAgentReceiptProcessRestart(t *testing.T) {
 		t.Fatal("退出前没有实际补传尝试")
 	}
 	accept.Store(true)
-	second := start()
+	second := start(!protectedRestore)
 	defer func() { _ = second.Process.Kill(); _ = second.Wait() }()
 	deadline = time.Now().Add(12 * time.Second)
 	for calls.Load() < 2 && time.Now().Before(deadline) {
