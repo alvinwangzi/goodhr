@@ -31,6 +31,18 @@ func processReplyBatch(ctx context.Context, flow *replyFlow, conversations []pla
 			result.Remaining = conversations[index:]
 			return result, nil
 		}
+		if err := flow.exec.Delay(ctx, "查看下一位候选人前", randomFloatRange(1, 2)); err != nil {
+			result.Remaining = conversations[index:]
+			return result, err
+		}
+		if stopped() || ctx.Err() != nil {
+			result.Remaining = conversations[index:]
+			return result, context.Canceled
+		}
+		if actiondispatch.BatchLimit(started, now(), result.Stats.Checked) {
+			result.Remaining = conversations[index:]
+			return result, nil
+		}
 		current, err := flow.runtime.ReadReplyContext(ctx, flow.exec, flow.target, conversation)
 		if err == nil && (conversation.ID == "" || current.Conversation.ID != conversation.ID) {
 			err = platformcore.ErrReplyUnsafe

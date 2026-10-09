@@ -159,7 +159,7 @@ func newReplyFlowFixture(t *testing.T) (*replyFlow, *replyFixture, platformcore.
 	t.Helper()
 	f := &replyFixture{confirm: true}
 	c := platformcore.ReplyContext{ResumeStatus: "none", Conversation: platformcore.ReplyConversation{ID: "c1", PositionID: "job1"}, Messages: []platformcore.ReplyMessage{{ID: "m1", Direction: "inbound", Kind: "text", Text: "你好"}}}
-	flow := &replyFlow{db: openRunnerTestDB(t), runtime: f, generator: f, target: platformcore.ReplyTarget{PositionID: "job1"}, scope: "profile-hash", platform: "boss", positionID: "position1", runID: "run1"}
+	flow := &replyFlow{db: openRunnerTestDB(t), runtime: f, generator: f, exec: &resumeDelayExecutor{}, target: platformcore.ReplyTarget{PositionID: "job1"}, scope: "profile-hash", platform: "boss", positionID: "position1", runID: "run1"}
 	return flow, f, c
 }
 
@@ -233,10 +233,16 @@ func TestReplyResumeLibraryIntentBeforeGeneration(t *testing.T) {
 	var states []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/resume-requests") {
-			var body struct { Candidate map[string]any `json:"candidate"` }
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Error(err) }
+			var body struct {
+				Candidate map[string]any `json:"candidate"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
 			states = append(states, fmt.Sprint(body.Candidate["state"]))
-			if body.Candidate["candidate_name"] != "测试候选人" || body.Candidate["score"] != float64(85) { t.Errorf("身份或评分缺失：%+v", body) }
+			if body.Candidate["candidate_name"] != "测试候选人" || body.Candidate["score"] != float64(85) {
+				t.Errorf("身份或评分缺失：%+v", body)
+			}
 			fmt.Fprint(w, `{"ok":true}`)
 			return
 		}
@@ -245,11 +251,15 @@ func TestReplyResumeLibraryIntentBeforeGeneration(t *testing.T) {
 	defer server.Close()
 	flow.cloudClient, flow.token = cloudapi.New(server.URL), "test-token"
 	f.generate = func(context.Context) (string, error) {
-		if len(states) != 1 || states[0] != "pending" { t.Errorf("生成前未入库为待索要：%v", states) }
+		if len(states) != 1 || states[0] != "pending" {
+			t.Errorf("生成前未入库为待索要：%v", states)
+		}
 		return "", errors.New("模拟生成失败")
 	}
 	_, _ = flow.process(t.Context(), c)
-	if len(states) == 0 { t.Fatal("决定索要后没有同步简历库") }
+	if len(states) == 0 {
+		t.Fatal("决定索要后没有同步简历库")
+	}
 }
 
 // TestReplyResumeLibraryDownloadProgress 验证云端只在实际文件落地后收到已下载状态。
@@ -260,7 +270,9 @@ func TestReplyResumeLibraryDownloadProgress(t *testing.T) {
 	var states []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/resume-requests") {
-			var body struct { Candidate map[string]any `json:"candidate"` }
+			var body struct {
+				Candidate map[string]any `json:"candidate"`
+			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			states = append(states, fmt.Sprint(body.Candidate["state"]))
 			fmt.Fprint(w, `{"ok":true}`)

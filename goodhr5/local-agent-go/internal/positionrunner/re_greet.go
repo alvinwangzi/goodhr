@@ -233,6 +233,24 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			stats.skipped++
 			continue
 		}
+		if err := exec.Delay(ctx, "查看下一位复打候选人前", randomFloatRange(1, 2)); err != nil {
+			if options.reGreetRemaining != nil {
+				*options.reGreetRemaining = candidates[i:]
+			}
+			stopped("复打招呼已停止")
+			return false
+		}
+		if r.isUserStopped(positionID) || ctx.Err() != nil {
+			if options.reGreetRemaining != nil {
+				*options.reGreetRemaining = candidates[i:]
+			}
+			stopped("复打招呼已停止")
+			return false
+		}
+		if options.reGreetRemaining != nil && actiondispatch.BatchLimit(batchStarted, now(), i) {
+			*options.reGreetRemaining = candidates[i:]
+			break
+		}
 		identity, identityErr := r.verifiedCandidateIdentity(ctx, exec, runtime, accountScope, platform, candidate.PlatformCandidateID, candidateName)
 		if identityErr != nil && !errors.Is(identityErr, sql.ErrNoRows) && !errors.Is(identityErr, platformcore.ErrReplyUnsafe) && !errors.Is(identityErr, localdb.ErrIdentityConflict) {
 			r.failStart(positionID, "候选人身份记录读取失败", options)

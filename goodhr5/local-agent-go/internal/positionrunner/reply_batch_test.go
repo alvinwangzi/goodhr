@@ -9,6 +9,33 @@ import (
 	"time"
 )
 
+// cancelConversationGapExecutor 模拟等待途中停止，不让测试真的等待或操作页面。
+type cancelConversationGapExecutor struct {
+	platformcore.Executor
+	cancel context.CancelFunc
+}
+
+// Delay 验证传入的随机范围并触发停止。
+func (e *cancelConversationGapExecutor) Delay(ctx context.Context, _ string, seconds float64) error {
+	if seconds < 1 || seconds > 2 {
+		return fmt.Errorf("候选人切换等待越界：%f", seconds)
+	}
+	e.cancel()
+	return ctx.Err()
+}
+
+// TestReplyBatchStopDuringGap 验证等待时停止不会打开下一会话，未领取候选人完整交还。
+func TestReplyBatchStopDuringGap(t *testing.T) {
+	flow, fixture, conversations := batchReplyFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	flow.exec = &cancelConversationGapExecutor{cancel: cancel}
+	result, err := processReplyBatch(ctx, flow, conversations, time.Now, func() bool { return false }, nil)
+	if err != context.Canceled || fixture.readCalls != 0 || fixture.sends != 0 || len(result.Remaining) != len(conversations) {
+		t.Fatalf("等待时停止仍操作了下一候选人 %+v %v", result, err)
+	}
+}
+
 // batchReplyFixture 创建四个独立会话，实际回复去重使用真实 SQLite。
 func batchReplyFixture(t *testing.T) (*replyFlow, *replyFixture, []platformcore.ReplyConversation) {
 	t.Helper()

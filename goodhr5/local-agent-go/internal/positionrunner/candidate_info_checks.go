@@ -154,6 +154,13 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		if !active {
 			continue
 		}
+		delayErr := exec.Delay(ctx, "查看下一位索要候选人前", randomFloatRange(1, 2))
+		if delayErr != nil || ctx.Err() != nil || r.isUserStopped(position.ID) || (options.candidateInfoRemaining != nil && actiondispatch.BatchLimit(batchStarted, now(), index)) {
+			if options.candidateInfoRemaining != nil {
+				*options.candidateInfoRemaining = append([]string{item.ID}, *options.candidateInfoRemaining...)
+			}
+			return
+		}
 		var conversation platformcore.ReplyConversation
 		var err error
 		if options.LocalRunID != "" {
@@ -209,7 +216,6 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				r.positionLog(position.ID, "info", "索要继续等待候选人回复："+item.CandidateName+"，暂未执行："+strings.Join(waitingActions, "、"))
 			}
 		}
-		submittedAction := false
 		for _, action := range []string{"phone", "wechat", "resume"} {
 			if !item.Actions[action] || !wanted[action] || item.Results[action] == "requested" || item.Results[action] == "satisfied" {
 				continue
@@ -226,10 +232,8 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			if !replied {
 				continue
 			}
-			if submittedAction {
-				if err := exec.Delay(ctx, "下一项索要操作前", randomFloatRange(1, 2)); err != nil {
-					return
-				}
+			if err := exec.Delay(ctx, "索要"+platformcore.CandidateInfoActionLabel(action)+"操作前", randomFloatRange(1, 2)); err != nil {
+				return
 			}
 			if ctx.Err() != nil || r.isUserStopped(position.ID) {
 				return
@@ -250,7 +254,6 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				continue
 			}
 			submitState, sendErr := operator.SubmitCandidateInfoRequest(ctx, exec, target, conversation, prepared)
-			submittedAction = true
 			state := "unknown"
 			if sendErr == nil && (submitState == "requested" || submitState == "satisfied") {
 				state = submitState
