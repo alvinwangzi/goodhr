@@ -1181,7 +1181,7 @@ export default function PositionsPage() {
                         </Button>
                         {!canControlPositionRun(item, agentMachineID) && (
                           <Typography variant="body2" sx={{ alignSelf: "center", color: "text.secondary" }}>
-                            {item.active_run?.machine_id ? "任务由其他电脑执行，请到执行电脑停止" : "执行电脑尚未确认，暂不能停止"}
+                            {!agentMachineID ? "请连接或更新本地程序，确认执行电脑" : item.active_run?.machine_id ? "任务由其他电脑执行，请到执行电脑停止" : "执行电脑尚未确认，暂不能停止"}
                           </Typography>
                         )}
                       </>
