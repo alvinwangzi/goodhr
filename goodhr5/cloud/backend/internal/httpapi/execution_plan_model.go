@@ -71,6 +71,7 @@ type ExecutionPlanRun struct {
 	CurrentItem   int                 `json:"current_item"`
 	Snapshot      ExecutionPlanConfig `json:"snapshot"`
 	EndReason     string              `json:"end_reason"`
+	OwnerID       string              `json:"owner_id,omitempty"`
 }
 
 // Validate 校验用户配置结构，岗位权限、设备和平台能力由计划服务读取真实数据后再校验。

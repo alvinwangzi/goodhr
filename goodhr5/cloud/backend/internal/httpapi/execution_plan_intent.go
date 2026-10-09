@@ -70,7 +70,7 @@ func applyExecutionPlanIntent(p ExecutionPlan, i ExecutionPlanIntent, busy bool)
 			return p, ErrExecutionPlanRequest
 		}
 		p.State = "stopped"
-		p.StopRequested = busy
+		p.StopRequested = p.StopRequested || busy
 	}
 	p.StateSequence++
 	p.UpdatedAt = time.Now().UTC()
@@ -101,9 +101,12 @@ func (s *MemoryExecutionPlanStore) Intent(ctx context.Context, tenant, email, id
 	}
 	busy := false
 	for _, run := range s.runs {
-		if run.PlanID == id && activeExecutionPlanState(run.State) {
-			busy = true
-			break
+		if run.PlanID == id {
+			_, held := s.owners[run.OwnerID]
+			if activeExecutionPlanState(run.State) || held {
+				busy = true
+				break
+			}
 		}
 	}
 	changed, err := applyExecutionPlanIntent(p, i, busy)

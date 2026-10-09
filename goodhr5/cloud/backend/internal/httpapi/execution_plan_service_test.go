@@ -47,7 +47,7 @@ func TestExecutionPlanAPI(t *testing.T) {
 	if body.Plan.State != "stopped" || len(body.Plan.Config.Items) != 2 {
 		t.Fatal("保存即启动或合并了重复岗位")
 	}
-	intentPost := func(action string, input ExecutionPlanIntent) *httptest.ResponseRecorder {
+	intentPost := func(action string, input any) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(input)
 		req := httptest.NewRequest(http.MethodPost, "/api/execution-plans/"+body.Plan.ID+"/"+action, bytes.NewReader(raw))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -68,8 +68,24 @@ func TestExecutionPlanAPI(t *testing.T) {
 	}
 	stop := planIntentFixture(t, "stop")
 	stop.ActivationID = armed.Plan.ActivationID
+	store := server.executionPlans.store.(*MemoryExecutionPlanStore)
+	store.runs["stop-fixture"] = ExecutionPlanRun{PlanID: body.Plan.ID, ActivationID: armed.Plan.ActivationID, State: "waiting_window"}
 	if stoppedResponse := intentPost("stop", stop); stoppedResponse.Code != 200 {
 		t.Fatal("停止失败", stoppedResponse.Body.String())
+	}
+	confirmation := planStopConfirmationFixture(t, armed.Plan)
+	wrongConfirmation := confirmation
+	wrongConfirmation.MachineID = "other-device"
+	if response := intentPost("confirm-stop", wrongConfirmation); response.Code != 403 {
+		t.Fatal("其他电脑可确认收尾", response.Body.String())
+	}
+	wrongConfirmation = confirmation
+	wrongConfirmation.CleanupConfirmed = false
+	if response := intentPost("confirm-stop", wrongConfirmation); response.Code != 400 {
+		t.Fatal("缺少收尾确认被接受", response.Body.String())
+	}
+	if response := intentPost("confirm-stop", confirmation); response.Code != 200 {
+		t.Fatal("指定电脑无法确认收尾", response.Body.String())
 	}
 	request["id"] = body.Plan.ID
 	request["expected_version"] = 0

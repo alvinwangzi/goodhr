@@ -168,6 +168,10 @@ func (s *ExecutionPlanService) Item(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/execution-plans/")
 	parts := strings.Split(id, "/")
+	if len(parts) == 2 && parts[1] == "confirm-stop" {
+		s.confirmStop(w, r, tenant, email, parts[0])
+		return
+	}
 	if len(parts) == 2 && (parts[1] == "arm" || parts[1] == "stop") {
 		s.intent(w, r, tenant, email, parts[0], parts[1])
 		return
@@ -200,6 +204,39 @@ func (s *ExecutionPlanService) Item(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, 405, "此接口只支持读取或删除计划")
 	}
+}
+
+// confirmStop 接受指定设备的真实收尾确认，关闭窗口等待记录后才解除编辑保护。
+func (s *ExecutionPlanService) confirmStop(w http.ResponseWriter, r *http.Request, tenant, email, id string) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "此接口只支持 POST")
+		return
+	}
+	var input ExecutionPlanStopConfirmation
+	if err := decodePlanBody(w, r, &input); err != nil || input.validate() != nil {
+		writeError(w, 400, "停止确认需包含原批次、设备、请求编号和收尾结果")
+		return
+	}
+	plan, err := s.store.Get(r.Context(), tenant, email, id)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	bound, err := s.agents.HasActiveBinding(email, input.MachineID)
+	if err != nil {
+		writeError(w, 503, "设备绑定暂时无法核对")
+		return
+	}
+	if !bound || input.MachineID != plan.MachineID {
+		writeError(w, 403, "只有指定执行电脑可以确认收尾")
+		return
+	}
+	result, err := s.store.ConfirmStopped(r.Context(), tenant, email, id, input)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "plan": result})
 }
 
 // intent 登记用户启用或停止意图，启用不代表本地已取得执行权或进入工作时段。
