@@ -47,6 +47,30 @@ func TestExecutionPlanAPI(t *testing.T) {
 	if body.Plan.State != "stopped" || len(body.Plan.Config.Items) != 2 {
 		t.Fatal("保存即启动或合并了重复岗位")
 	}
+	intentPost := func(action string, input ExecutionPlanIntent) *httptest.ResponseRecorder {
+		raw, _ := json.Marshal(input)
+		req := httptest.NewRequest(http.MethodPost, "/api/execution-plans/"+body.Plan.ID+"/"+action, bytes.NewReader(raw))
+		req.Header.Set("Authorization", "Bearer "+token)
+		res := httptest.NewRecorder()
+		routes.ServeHTTP(res, req)
+		return res
+	}
+	arm := planIntentFixture(t, "arm")
+	armedResponse := intentPost("arm", arm)
+	if armedResponse.Code != 200 {
+		t.Fatalf("启用失败 %s", armedResponse.Body.String())
+	}
+	var armed struct {
+		Plan ExecutionPlan `json:"plan"`
+	}
+	if err := json.Unmarshal(armedResponse.Body.Bytes(), &armed); err != nil || armed.Plan.State != "enabled" {
+		t.Fatal("启用结果不正确", err)
+	}
+	stop := planIntentFixture(t, "stop")
+	stop.ActivationID = armed.Plan.ActivationID
+	if stoppedResponse := intentPost("stop", stop); stoppedResponse.Code != 200 {
+		t.Fatal("停止失败", stoppedResponse.Body.String())
+	}
 	request["id"] = body.Plan.ID
 	request["expected_version"] = 0
 	if res = post(request); res.Code != 409 {

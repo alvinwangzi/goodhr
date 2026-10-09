@@ -23,6 +23,7 @@ type ExecutionPlanStore interface {
 	Get(context.Context, string, string, string) (ExecutionPlan, error)
 	List(context.Context, string, string) ([]ExecutionPlan, error)
 	Delete(context.Context, string, string, string, int64) error
+	Intent(context.Context, string, string, string, ExecutionPlanIntent) (ExecutionPlan, error)
 }
 
 // newExecutionPlanID 生成真实 UUID，内存与 PostgreSQL 使用相同编号格式。
@@ -60,6 +61,7 @@ type MemoryExecutionPlanStore struct {
 	plans   map[string]ExecutionPlan
 	deleted map[string]bool
 	runs    map[string]ExecutionPlanRun
+	intents map[string]executionPlanIntentReceipt
 }
 
 // NewMemoryExecutionPlanStore 创建开发和契约测试用计划存储。
@@ -69,7 +71,7 @@ func NewMemoryExecutionPlanStore() *MemoryExecutionPlanStore {
 
 // busyLocked 核对停止意图与所有未结算运行，不能只看长期计划是否启用。
 func (s *MemoryExecutionPlanStore) busyLocked(p ExecutionPlan) bool {
-	if p.StopRequested {
+	if p.StopRequested || p.State != "stopped" {
 		return true
 	}
 	for _, run := range s.runs {

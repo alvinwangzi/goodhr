@@ -58,7 +58,7 @@ func writePlanStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		writeError(w, 404, "计划不存在或没有权限")
-	case errors.Is(err, ErrExecutionPlanVersion), errors.Is(err, ErrExecutionPlanBusy):
+	case errors.Is(err, ErrExecutionPlanVersion), errors.Is(err, ErrExecutionPlanBusy), errors.Is(err, ErrExecutionPlanRequest):
 		writeError(w, 409, err.Error())
 	default:
 		writeError(w, 500, "计划暂时无法保存或读取，请稍后重试")
@@ -101,16 +101,29 @@ func (s *ExecutionPlanService) Collection(w http.ResponseWriter, r *http.Request
 		writeError(w, 400, err.Error())
 		return
 	}
-	bound, err := s.agents.HasActiveBinding(email, request.MachineID)
+	if !s.validatePlanPermissions(w, tenant, email, request.MachineID, request.Config) {
+		return
+	}
+	plan, err := s.store.Save(r.Context(), ExecutionPlan{ID: request.ID, TenantID: tenant, UserEmail: email, MachineID: request.MachineID, Config: request.Config}, request.ExpectedVersion)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "plan": plan})
+}
+
+// validatePlanPermissions 在保存和启用时复用真实设备、岗位、平台和会员权限检查。
+func (s *ExecutionPlanService) validatePlanPermissions(w http.ResponseWriter, tenant, email, machine string, config ExecutionPlanConfig) (allowed bool) {
+	bound, err := s.agents.HasActiveBinding(email, machine)
 	if err != nil {
 		writeError(w, 503, "设备绑定暂时无法核对")
 		return
 	}
-	if request.MachineID == "" || !bound {
+	if machine == "" || !bound {
 		writeError(w, 403, "请选择已经绑定到当前账号的执行电脑")
 		return
 	}
-	for _, item := range request.Config.Items {
+	for _, item := range config.Items {
 		position, err := s.positions.store.PositionByID(tenant, email, item.PositionID, false)
 		if err != nil || position.UserEmail != email {
 			writeError(w, 403, "计划含无权执行或已删除的岗位")
@@ -144,12 +157,7 @@ func (s *ExecutionPlanService) Collection(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	plan, err := s.store.Save(r.Context(), ExecutionPlan{ID: request.ID, TenantID: tenant, UserEmail: email, MachineID: request.MachineID, Config: request.Config}, request.ExpectedVersion)
-	if err != nil {
-		writePlanStoreError(w, err)
-		return
-	}
-	writeJSON(w, 200, map[string]any{"ok": true, "plan": plan})
+	return true
 }
 
 // Item 按真实所有者读取或软删除计划，删除不抹去历史运行和报告。
@@ -159,6 +167,11 @@ func (s *ExecutionPlanService) Item(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/execution-plans/")
+	parts := strings.Split(id, "/")
+	if len(parts) == 2 && (parts[1] == "arm" || parts[1] == "stop") {
+		s.intent(w, r, tenant, email, parts[0], parts[1])
+		return
+	}
 	if id == "" || strings.Contains(id, "/") {
 		writeError(w, 404, "计划接口不存在")
 		return
@@ -187,4 +200,41 @@ func (s *ExecutionPlanService) Item(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, 405, "此接口只支持读取或删除计划")
 	}
+}
+
+// intent 登记用户启用或停止意图，启用不代表本地已取得执行权或进入工作时段。
+func (s *ExecutionPlanService) intent(w http.ResponseWriter, r *http.Request, tenant, email, id, action string) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "此接口只支持 POST")
+		return
+	}
+	var input ExecutionPlanIntent
+	if err := decodePlanBody(w, r, &input); err != nil {
+		writeError(w, 400, "计划请求格式不正确或含不支持字段")
+		return
+	}
+	input.Action = action
+	if err := input.validate(); err != nil {
+		writeError(w, 400, err.Error())
+		return
+	}
+	plan, err := s.store.Get(r.Context(), tenant, email, id)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	if action == "arm" && !s.validatePlanPermissions(w, tenant, email, plan.MachineID, plan.Config) {
+		return
+	}
+	// 使用刚核对权限的配置版本；并发编辑后的另一套岗位不能沿用本次许可。
+	if plan.Version != input.ExpectedVersion {
+		writePlanStoreError(w, ErrExecutionPlanVersion)
+		return
+	}
+	result, err := s.store.Intent(r.Context(), tenant, email, id, input)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "plan": result})
 }

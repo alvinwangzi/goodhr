@@ -66,7 +66,7 @@ func lockExecutionPlan(ctx context.Context, tx *sql.Tx, tenant, email, id string
 	if p.Version != expected {
 		return p, ErrExecutionPlanVersion
 	}
-	if p.StopRequested {
+	if p.StopRequested || p.State != "stopped" {
 		return p, ErrExecutionPlanBusy
 	}
 	var busy bool
