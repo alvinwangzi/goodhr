@@ -5,6 +5,7 @@ import { combinedChatFixture } from "./combined-chat-fixture.mjs";
 
 const ledger = { launches: [], requests: [], clicks: 0, sendOrder: [], greetOrder: [], timeline: [] };
 let account = 901;
+let missingCandidateID = false;
 const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
 
 /** saveLedger 保存虚构运行证据，不包含 Cookie、令牌或真实候选人内容。 */
@@ -13,6 +14,7 @@ function saveLedger() { writeFileSync(process.env.HRPLUS_M1_FIXTURE_LEDGER, JSON
 /** fixtureRoute 接管隔离浏览器的全部请求，已知路径返回受控页面，其他请求全部中止。 */
 async function fixtureRoute(route) {
   const url = new URL(route.request().url());
+  if (url.pathname === "/web/chat/recommend" && url.searchParams.has("fixtureMissingID")) missingCandidateID = true;
   if (url.hostname !== "www.zhipin.com") return route.abort();
   ledger.requests.push(url.pathname); saveLedger();
   if (url.pathname === accountPath) return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { userId: account } }) });
@@ -22,7 +24,7 @@ async function fixtureRoute(route) {
   if (url.pathname === "/fixture/click") { ledger.clicks++; if(url.searchParams.has('uid')){ledger.sendOrder.push(Number(url.searchParams.get('uid')));ledger.timeline.push('message:'+url.searchParams.get('uid'));} saveLedger(); return route.fulfill({ contentType: "application/json", body: "{}" }); }
   if (url.pathname === '/fixture/greet') {ledger.greetOrder.push(url.searchParams.get('id'));ledger.timeline.push('greet:'+url.searchParams.get('id'));saveLedger();return route.fulfill({contentType:'application/json',body:'{}'});}
   if (url.pathname === '/web/frame/recommend/' && process.env.HRPLUS_M1_FIXTURE_MODE?.startsWith('triple')) return route.fulfill({contentType:'text/html; charset=utf-8',body:`<style>body{margin:0}.candidate-card-wrap{height:100px;border:1px solid #ddd}</style>${(process.env.HRPLUS_M1_FIXTURE_MODE==='triple-rescan-job'&&ledger.clicks>0?['E','D','C']:['C','D','E']).map(id=>`<section class="candidate-card-wrap"><div class="card-inner" data-geekid="opaque-${id}"><span class="candidate-name">虚构候选人 ${id}</span><button class="greet-btn" onclick="this.textContent='继续沟通';this.className='continue-btn';fetch('/fixture/greet?id=opaque-${id}')">打招呼</button></div></section>`).join('')}`});
-  if (url.pathname === "/web/frame/recommend/") return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<style>.candidate-card-wrap{height:120px;border:1px solid #ddd}</style>${["A", "B", "C", "D"].map(suffix => `<section class="candidate-card-wrap"><div class="card-inner" data-geekid="opaque-${suffix}">同名候选人 ${suffix}</div></section>`).join("")}<iframe src="/wapi/zpjob/rec/geek/list"></iframe>` });
+  if (url.pathname === "/web/frame/recommend/") return route.fulfill({ contentType: "text/html; charset=utf-8", body: `<style>.candidate-card-wrap{height:120px;border:1px solid #ddd}</style>${["A", "B", "C", "D"].map(suffix => `<section class="candidate-card-wrap"><div class="card-inner" data-geekid="opaque-${suffix}">同名候选人 ${suffix}</div></section>`).join("")}<section class="candidate-card-wrap anonymous-geek-guide-card">热搜牛人推荐</section>${missingCandidateID ? '<section class="candidate-card-wrap"><div class="card-inner">真实卡片未取得ID</div></section>' : ''}<iframe src="/wapi/zpjob/rec/geek/list"></iframe>` });
   if (!url.pathname.startsWith("/web/chat/")) return route.abort();
   if (url.pathname === "/web/chat/spa-fixture") return route.fulfill({contentType:"text/html; charset=utf-8",body:`<a href="#recommend">推荐牛人</a><p id="same-document">菜单切换后的页面</p><iframe src="${accountPath}"></iframe>`});
   if (url.pathname === "/web/chat/resume-fixture") return route.fulfill({contentType:"text/html; charset=utf-8",body:`<style>body{margin:0;height:12000px}.resume-detail-wrap{position:fixed;left:80px;top:20px;width:700px;height:380px;background:white}.resume-content{height:360px;overflow:auto}.row{height:150px;border-bottom:1px solid #ddd}</style><div class="resume-detail-wrap"><div class="resume-content"><div class="resume-body">${Array.from({length:9},(_,i)=>`<div class="row">虚构在线简历第 ${i+1} 段</div>`).join("")}<div class="row">简历末尾标记</div></div></div></div><iframe hidden src="${accountPath}"></iframe>`});

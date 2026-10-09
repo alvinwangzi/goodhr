@@ -1,5 +1,10 @@
 // 本文件通过标准 Locator 读取 Boss 推荐卡片的完整身份，禁止以姓名、年龄或数组下标代替。
 
+/** isBossRecommendationGuide 仅识别已核对的热搜引导卡，不把真正候选人缺失 ID 当作广告跳过。 */
+export async function isBossRecommendationGuide(card) {
+  return String(await card.getAttribute("class") || "").split(/\s+/).includes("anonymous-geek-guide-card");
+}
+
 /** readBossRecommendationID 读取卡片自身或唯一内部节点的 data-geekid，缺失或歧义返回空值。 */
 export async function readBossRecommendationID(card) {
   const direct = await card.getAttribute("data-geekid");

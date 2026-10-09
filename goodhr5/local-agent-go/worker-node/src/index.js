@@ -1,6 +1,6 @@
 // 本文件负责提供 HRPlus 5 Node Browser Worker HTTP 服务。
 import {nativeViewport,observeContainer,observeScrollAtPointer} from "./native-page-observation.js";
-import { readBossRecommendationID, matchBossRecommendationID } from "./boss-candidate-identity.js";
+import { readBossRecommendationID, matchBossRecommendationID, isBossRecommendationGuide } from "./boss-candidate-identity.js";
 import { observeBossResponseIdentities, resolveBossResponseIdentity, readBossObservedAccountIdentity } from "./boss-response-identity.js";
 import { captureRecommendationAnchors, checkRecommendationAnchors, rewindRecommendation, ensureRecommendationVisible } from "./boss-recommendation-resume.js";
 import fs from "node:fs/promises";
@@ -1580,10 +1580,13 @@ async function extractBossCandidates(payload) {
   });
   const foundAt = Date.now();
   const candidates = [];
+  let ignoredGuides = 0;
   for (const item of findResp.items || []) {
     try {
       const fields = item.fields || {};
-      const recommendationID = await readBossRecommendationID(locatorByRef(await ensurePage(), item.ref || item.element_ref));
+      const card = locatorByRef(await ensurePage(), item.ref || item.element_ref);
+      if (await isBossRecommendationGuide(card)) { ignoredGuides++; continue; }
+      const recommendationID = await readBossRecommendationID(card);
       if (!recommendationID) throw new Error("推荐卡片缺少真实候选人 ID");
       if (!fields.basic_info && item.text) fields.basic_info = item.text;
       const rawText = candidateRawText(fields);
@@ -1608,6 +1611,7 @@ async function extractBossCandidates(payload) {
     candidates,
     count: candidates.length,
     found_count: Number(findResp.count || (findResp.items || []).length || 0),
+    ignored_guide_count: ignoredGuides,
     find_elapsed_ms: foundAt - startedAt,
     convert_elapsed_ms: Date.now() - foundAt,
     elapsed_ms: Date.now() - startedAt,

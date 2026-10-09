@@ -173,13 +173,16 @@ func (s *actionSession) refreshWork(ctx context.Context) error {
 		for _, item := range s.reGreets {
 			known[item.basis] = true
 		}
+		initialDue, waiting, invalidContact, handled := len(s.reGreets), 0, 0, 0
 		for _, candidate := range candidates {
 			contact, err := time.Parse(time.RFC3339Nano, firstNonEmptyString(candidate.LastReGreetedAt, candidate.GreetedAt))
 			if err != nil {
+				invalidContact++
 				continue
 			}
 			basis := fmt.Sprintf("%s:%d:%s", candidate.PlatformCandidateID, candidate.ReGreetCount, contact.UTC().Format(time.RFC3339Nano))
 			if known[basis] || s.handledReGreets[basis] {
+				handled++
 				continue
 			}
 			due, err := s.runner.db.EnsureReGreetDue(ctx, s.flow.scope, s.flow.platform, candidate.PlatformCandidateID, fmt.Sprintf("%d:%s", candidate.ReGreetCount, contact.UTC().Format(time.RFC3339Nano)), contact.Add(randomInterval(prefs.intervalMinMinutes, prefs.intervalMaxMinutes)))
@@ -191,8 +194,11 @@ func (s *actionSession) refreshWork(ctx context.Context) error {
 				s.reGreets = append(s.reGreets, dueReGreet{candidate: candidate, due: due, basis: basis, queuedAt: s.now()})
 				s.reGreetStats.total++
 				known[basis] = true
+			} else {
+				waiting++
 			}
 		}
+		s.runner.positionLog(s.position.ID, "info", fmt.Sprintf("复打名单检查：返回%d人，新增到期%d人，当前待处理%d人，未到时间%d人，已处理或已排队%d人，联系时间缺失%d人", len(candidates), len(s.reGreets)-initialDue, len(s.reGreets), waiting, handled, invalidContact))
 		sort.SliceStable(s.reGreets, func(i, j int) bool { return s.reGreets[i].due.Before(s.reGreets[j].due) })
 	}
 	s.scheduler.Checked(s.now())

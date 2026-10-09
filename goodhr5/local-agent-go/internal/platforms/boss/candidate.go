@@ -24,6 +24,9 @@ func (r *Runtime) ListVisibleCandidates(ctx context.Context, exec platformcore.E
 		return nil, err
 	}
 	data := workerDataMap(result)
+	if ignored := intFromMap(data, "ignored_guide_count"); ignored > 0 {
+		exec.Log("info", fmt.Sprintf("推荐列表：跳过热搜引导卡%d张，不计入候选人扫描", ignored))
+	}
 	items := mapList(data["candidates"])
 	exec.Log("info", fmt.Sprintf("候选人卡片提取返回：found=%d candidates=%d worker_find=%s worker_convert=%s total=%s",
 		intFromMap(data, "found_count"),

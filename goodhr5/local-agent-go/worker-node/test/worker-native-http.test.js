@@ -36,6 +36,7 @@ test("完整 Worker 以零脚本模式启动真实 CloakBrowser，核对账号�
     const extracted = await request("/api/v1/boss/candidates/extract", { platform_config: { id: "boss", card: { item: ".candidate-card-wrap", fields: { name: ".card-inner" } } } });
     assert.equal(extracted.result.ok, true, JSON.stringify(extracted.result));
     assert.deepEqual(extracted.result.data.candidates.map(row => row.recommendation_candidate_id), ["opaque-A", "opaque-B", "opaque-C", "opaque-D"]);
+    assert.equal(extracted.result.data.ignored_guide_count,1);
     const anchors = await request("/api/v1/boss/candidates/capture-anchors", { anchors: ["opaque-A", "opaque-B", "opaque-C"] });
     assert.equal(anchors.result.ok, true, JSON.stringify(anchors.result));
     assert.equal(anchors.result.data.valid, true);
@@ -77,6 +78,10 @@ test("完整 Worker 以零脚本模式启动真实 CloakBrowser，核对账号�
     assert.equal(sameDocument.result.ok,true);
     const afterMenu=await request("/api/v1/page/extract-text", {selector_spec:{selectors:["#same-document"]},expected_account_platform:"boss",expected_platform_account_id:"902"});
     assert.equal(afterMenu.result.ok,true,JSON.stringify(afterMenu.result));
+    await request("/api/v1/page/open", {url:"https://www.zhipin.com/web/chat/recommend?fixtureMissingID=1"});
+    const incomplete=await request("/api/v1/boss/candidates/extract", {platform_config:{id:"boss",card:{item:".candidate-card-wrap",fields:{name:".card-inner"}}}});
+    assert.equal(incomplete.result.ok,false);
+    assert.match(incomplete.result.msg,/缺少真实候选人 ID/);
   } finally {
     await request("/api/v1/browser/stop", {}).catch(() => {});
     worker.kill();
