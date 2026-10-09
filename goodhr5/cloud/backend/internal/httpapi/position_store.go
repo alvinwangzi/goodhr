@@ -64,10 +64,11 @@ type PositionStore interface {
 
 // MemoryPositionStore 提供开发期使用的内存岗位配置存储。
 type MemoryPositionStore struct {
-	mu        sync.Mutex
-	positions map[string]Position
-	now       func() time.Time
-	nextID    func() string
+	mu            sync.Mutex
+	positions     map[string]Position
+	now           func() time.Time
+	nextID        func() string
+	accountOwners map[string]AccountExecutionOwner
 }
 
 // NewMemoryPositionStore 创建开发期内存岗位配置存储。
@@ -135,6 +136,9 @@ func (s *MemoryPositionStore) ClaimPositionStart(userEmail, positionID string) e
 	position, ok := s.positions[positionID]
 	if !ok || position.UserEmail != userEmail {
 		return ErrNotFound
+	}
+	if _, held := s.accountOwners[userEmail]; held {
+		return ErrPositionAlreadyRunning
 	}
 	for _, item := range s.positions {
 		if item.UserEmail == userEmail && item.Status == "running" {

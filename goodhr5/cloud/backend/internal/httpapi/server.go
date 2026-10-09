@@ -103,8 +103,14 @@ func NewServer() (*Server, error) {
 	if db != nil {
 		planStore = NewPostgresExecutionPlanStore(db)
 	}
+	if plans, ok := planStore.(*MemoryExecutionPlanStore); ok {
+		plans.positions, _ = positionStore.(*MemoryPositionStore)
+	}
+	positionExecution := NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, aiConfigStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore)
+	planService := NewExecutionPlanService(positionService, agentStore, planStore)
+	planService.execution = positionExecution
 	return &Server{
-		executionPlans:      NewExecutionPlanService(positionService, agentStore, planStore),
+		executionPlans:      planService,
 		auth:                auth,
 		agent:               NewAgentService(auth, agentStore, systemConfigStore),
 		userFlow:            NewUserFlowService(auth, userFlowStore, positionStore),
@@ -114,7 +120,7 @@ func NewServer() (*Server, error) {
 		userPreferences:     NewUserPreferencesService(auth, userPreferencesStore),
 		notificationProfile: NewNotificationProfileService(auth, notificationProfileStore),
 		positions:           positionService,
-		positionExecution:   NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, aiConfigStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore),
+		positionExecution:   positionExecution,
 		positionLogs:        positionLogs,
 		taskRuns:            NewTaskRunService(auth, taskRunStore, tenantStore),
 		candidates:          NewCandidateService(auth, candidateStore, tenantStore),
@@ -142,6 +148,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/health", s.health)
 	mux.HandleFunc("/api/execution-plans", s.executionPlans.Collection)
 	mux.HandleFunc("/api/execution-plans/", s.executionPlans.Item)
+	mux.HandleFunc("/api/execution-plan-runs/claim", s.executionPlans.ClaimRun)
 	// 注册认证接口，用于邮箱验证码登录和登录态校验。
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)

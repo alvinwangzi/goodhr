@@ -117,6 +117,18 @@ func (s *PostgresAccountExecutionStore) Claim(ctx context.Context, c AccountExec
 	if err = lockAccountExecution(ctx, tx, c.UserEmail); err != nil {
 		return AccountExecutionOwner{}, err
 	}
+	owner, err := claimAccountExecutionTx(ctx, tx, c)
+	if err != nil {
+		return AccountExecutionOwner{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return AccountExecutionOwner{}, err
+	}
+	return owner, nil
+}
+
+// claimAccountExecutionTx 复用调用方已持有的账号事务锁，使计划运行和账号领取同事务提交。
+func claimAccountExecutionTx(ctx context.Context, tx *sql.Tx, c AccountExecutionClaim) (AccountExecutionOwner, error) {
 	replay, err := accountRequestReplay(ctx, tx, c, "claim", false)
 	if err != nil {
 		return AccountExecutionOwner{}, err
@@ -127,6 +139,13 @@ func (s *PostgresAccountExecutionStore) Claim(ctx context.Context, c AccountExec
 			e = ErrAccountExecutionReleased
 		}
 		return o, e
+	}
+	var ownerUsed bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_execution_requests WHERE owner_id=$1 AND kind='claim')`, c.OwnerID).Scan(&ownerUsed); err != nil {
+		return AccountExecutionOwner{}, err
+	}
+	if ownerUsed {
+		return AccountExecutionOwner{}, ErrAccountExecutionReleased
 	}
 	var busy bool
 	err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM account_execution_owners WHERE account_key=$1) OR EXISTS(SELECT 1 FROM positions p JOIN users u ON u.id=p.user_id WHERE u.email=$1 AND p.status='running')`, c.UserEmail).Scan(&busy)
@@ -141,9 +160,6 @@ func (s *PostgresAccountExecutionStore) Claim(ctx context.Context, c AccountExec
 		return AccountExecutionOwner{}, err
 	}
 	if err = recordAccountRequest(ctx, tx, c, "claim", false); err != nil {
-		return AccountExecutionOwner{}, err
-	}
-	if err = tx.Commit(); err != nil {
 		return AccountExecutionOwner{}, err
 	}
 	return AccountExecutionOwner{OwnerID: c.OwnerID, OwnerType: c.OwnerType, MachineID: c.MachineID, State: "starting"}, nil

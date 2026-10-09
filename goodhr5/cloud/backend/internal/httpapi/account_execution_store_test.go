@@ -70,6 +70,11 @@ func TestAccountExecutionPostgres(t *testing.T) {
 		t.Fatal("迟到领取重新启动旧运行", err)
 	}
 	next := accountClaimFixture(t)
+	reused := c
+	reused.RequestID, _ = newExecutionPlanID()
+	if _, err = s.Claim(t.Context(), reused); !errors.Is(err, ErrAccountExecutionReleased) {
+		t.Fatal("换请求编号重用旧占用者", err)
+	}
 	next.UserEmail = c.UserEmail
 	next.MachineID = "B"
 	next.OwnerType = "manual"

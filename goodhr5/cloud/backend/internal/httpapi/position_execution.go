@@ -313,9 +313,9 @@ func (s *PositionExecutionService) verifyActiveDevice(email string, machineID st
 	return nil
 }
 
-// claimPositionStart 完成所有云端启动条件检查，并原子占用当前账号的运行岗位名额。
+// checkPositionStart 复用所有云端启动权限检查，不修改岗位或账号运行状态。
 // email 为当前账号，position 为岗位快照，taskType 为本地主流程类型。
-func (s *PositionExecutionService) claimPositionStart(email string, position Position, taskType string) *positionStartError {
+func (s *PositionExecutionService) checkPositionStart(email string, position Position, taskType string) *positionStartError {
 	// 复打和自动回复均消耗 AI；组合任务也必须检查会员权限与余额。
 	autoReply := false
 	for _, task := range strings.Split(taskType, ",") {
@@ -355,6 +355,14 @@ func (s *PositionExecutionService) claimPositionStart(email string, position Pos
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// claimPositionStart 复用权限检查后原子占用旧式手动岗位名额，计划不调用本方法抢子项占用。
+func (s *PositionExecutionService) claimPositionStart(email string, position Position, taskType string) *positionStartError {
+	if failure := s.checkPositionStart(email, position, taskType); failure != nil {
+		return failure
 	}
 	if err := s.store.ClaimPositionStart(email, position.ID); err != nil {
 		if errors.Is(err, ErrPositionAlreadyRunning) {

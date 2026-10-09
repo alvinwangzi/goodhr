@@ -58,6 +58,9 @@ func (s *MemoryExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant, e
 		return ExecutionPlan{}, ErrNotFound
 	}
 	key := id + "/" + c.RequestID
+	if _, used := s.runClaims[key]; used {
+		return ExecutionPlan{}, ErrExecutionPlanRequest
+	}
 	hash := planStopConfirmationHash(c)
 	if receipt, ok := s.intents[key]; ok {
 		if receipt.Hash != hash {

@@ -14,6 +14,7 @@ type ExecutionPlanService struct {
 	positions *PositionService
 	agents    AgentStore
 	store     ExecutionPlanStore
+	execution *PositionExecutionService
 }
 
 // NewExecutionPlanService 复用岗位服务的登录与权限依赖。

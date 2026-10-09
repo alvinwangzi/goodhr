@@ -25,6 +25,7 @@ type ExecutionPlanStore interface {
 	Delete(context.Context, string, string, string, int64) error
 	Intent(context.Context, string, string, string, ExecutionPlanIntent) (ExecutionPlan, error)
 	ConfirmStopped(context.Context, string, string, string, ExecutionPlanStopConfirmation) (ExecutionPlan, error)
+	ClaimRun(context.Context, string, string, ExecutionPlanRunClaim) (ExecutionPlanRunPermit, error)
 }
 
 // newExecutionPlanID 生成真实 UUID，内存与 PostgreSQL 使用相同编号格式。
@@ -58,12 +59,17 @@ func activeExecutionPlanState(state string) bool {
 
 // MemoryExecutionPlanStore 保存独立编排项和运行状态，删除仅隐藏当前配置，保留运行历史。
 type MemoryExecutionPlanStore struct {
-	mu      sync.Mutex
-	plans   map[string]ExecutionPlan
-	deleted map[string]bool
-	runs    map[string]ExecutionPlanRun
-	intents map[string]executionPlanIntentReceipt
-	owners  map[string]AccountExecutionOwner
+	mu               sync.Mutex
+	plans            map[string]ExecutionPlan
+	deleted          map[string]bool
+	runs             map[string]ExecutionPlanRun
+	intents          map[string]executionPlanIntentReceipt
+	owners           map[string]AccountExecutionOwner
+	accounts         map[string]string
+	ownerHashes      map[string]string
+	runClaims        map[string]executionPlanRunClaimReceipt
+	positions        *MemoryPositionStore
+	runRequestHashes map[string]string
 }
 
 // NewMemoryExecutionPlanStore 创建开发和契约测试用计划存储。
