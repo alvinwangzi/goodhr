@@ -60,3 +60,58 @@ func (s *ExecutionPlanService) ClaimRun(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "permit": result})
 }
+
+// Run 提供运行快照、递增状态与收尾释放；释放不因设备重新绑定而跳过占用凭证核对。
+func (s *ExecutionPlanService) Run(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/execution-plan-runs/"), "/")
+	if len(parts) > 2 || !executionPlanUUID.MatchString(parts[0]) || (len(parts) == 2 && parts[1] != "status" && parts[1] != "release") {
+		writeError(w, 404, "运行接口不存在")
+		return
+	}
+	if (len(parts) == 1 && r.Method != http.MethodGet) || (len(parts) == 2 && r.Method != http.MethodPost) {
+		writeError(w, 405, "此接口不支持当前请求方式")
+		return
+	}
+	tenant, email, ok := s.identity(w, r)
+	if !ok {
+		return
+	}
+	run, err := s.store.GetRun(r.Context(), tenant, email, parts[0])
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	if len(parts) == 1 {
+		writeJSON(w, 200, map[string]any{"ok": true, "run": run})
+		return
+	}
+	var input ExecutionPlanRunUpdate
+	if decodePlanBody(w, r, &input) != nil {
+		writeError(w, 400, "运行状态格式不正确或含不支持字段")
+		return
+	}
+	input.PlanID = run.PlanID
+	input.RunID = run.ID
+	input.Action = parts[1]
+	if err = input.validate(); err != nil {
+		writeError(w, 400, "运行状态需包含原请求、占用凭证、序号和收尾确认")
+		return
+	}
+	// 继续执行必须仍为绑定设备；失去绑定的原电脑仍可凭原占用证明完成收尾释放。
+	if input.State == "running" {
+		if s.execution == nil {
+			writeError(w, 503, "执行设备暂时无法核对")
+			return
+		}
+		if failure := s.execution.verifyActiveDevice(email, input.MachineID); failure != nil {
+			writePositionStartError(w, failure.status, failure.code, failure.message)
+			return
+		}
+	}
+	result, err := s.store.UpdateRun(r.Context(), tenant, email, input)
+	if err != nil {
+		writePlanStoreError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "permit": result})
+}

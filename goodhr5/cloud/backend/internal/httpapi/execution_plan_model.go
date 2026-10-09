@@ -72,6 +72,8 @@ type ExecutionPlanRun struct {
 	Snapshot      ExecutionPlanConfig `json:"snapshot"`
 	EndReason     string              `json:"end_reason"`
 	OwnerID       string              `json:"owner_id,omitempty"`
+	StartedAt     *time.Time          `json:"started_at,omitempty"`
+	FinishedAt    *time.Time          `json:"finished_at,omitempty"`
 }
 
 // Validate 校验用户配置结构，岗位权限、设备和平台能力由计划服务读取真实数据后再校验。

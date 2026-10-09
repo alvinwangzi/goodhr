@@ -58,7 +58,7 @@ func TestPlanStopConfirmationMemory(t *testing.T) {
 	}
 	s.runs[run.ID] = run
 	settled, err := s.ConfirmStopped(t.Context(), "", p.UserEmail, p.ID, confirmation)
-	if err != nil || settled.StopRequested || s.runs[run.ID].State != "stopped" || s.runs[run.ID].Sequence != 2 {
+	if err != nil || settled.StopRequested || s.runs[run.ID].State != "stopped" || s.runs[run.ID].Sequence != 2 || s.runs[run.ID].FinishedAt == nil {
 		t.Fatal("跨窗口等待未结算", err)
 	}
 	again, err := s.ConfirmStopped(t.Context(), "", p.UserEmail, p.ID, confirmation)

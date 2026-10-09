@@ -92,6 +92,9 @@ func (s *MemoryExecutionPlanStore) Intent(ctx context.Context, tenant, email, id
 		return ExecutionPlan{}, ErrNotFound
 	}
 	key := id + "/" + i.RequestID
+	if _, used := s.runUpdates[key]; used {
+		return ExecutionPlan{}, ErrExecutionPlanRequest
+	}
 	if _, used := s.runClaims[key]; used {
 		return ExecutionPlan{}, ErrExecutionPlanRequest
 	}

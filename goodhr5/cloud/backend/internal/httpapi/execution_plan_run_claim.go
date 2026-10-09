@@ -119,6 +119,9 @@ func (s *MemoryExecutionPlanStore) ClaimRun(ctx context.Context, tenant, email s
 	if _, used := s.intents[key]; used {
 		return ExecutionPlanRunPermit{}, ErrExecutionPlanRequest
 	}
+	if _, used := s.runUpdates[key]; used {
+		return ExecutionPlanRunPermit{}, ErrExecutionPlanRequest
+	}
 	if receipt, ok := s.runClaims[key]; ok {
 		if receipt.Hash != hash {
 			return ExecutionPlanRunPermit{}, ErrExecutionPlanRequest
@@ -200,13 +203,13 @@ func (s *MemoryExecutionPlanStore) ClaimRun(ctx context.Context, tenant, email s
 	return clonePlanRunPermit(result), nil
 }
 
-const executionPlanRunColumns = `id::text,plan_id::text,activation_id::text,execution_date::text,config_version,sequence,state,current_item,snapshot,end_reason,COALESCE(owner_id::text,'')`
+const executionPlanRunColumns = `id::text,plan_id::text,activation_id::text,execution_date::text,config_version,sequence,state,current_item,snapshot,end_reason,COALESCE(owner_id::text,''),started_at,finished_at`
 
 // scanPlanRun 复用运行读取字段，无法解析完整快照时拒绝返回半套许可。
 func scanPlanRun(row interface{ Scan(...any) error }) (ExecutionPlanRun, error) {
 	var r ExecutionPlanRun
 	var raw []byte
-	err := row.Scan(&r.ID, &r.PlanID, &r.ActivationID, &r.ExecutionDate, &r.ConfigVersion, &r.Sequence, &r.State, &r.CurrentItem, &raw, &r.EndReason, &r.OwnerID)
+	err := row.Scan(&r.ID, &r.PlanID, &r.ActivationID, &r.ExecutionDate, &r.ConfigVersion, &r.Sequence, &r.State, &r.CurrentItem, &raw, &r.EndReason, &r.OwnerID, &r.StartedAt, &r.FinishedAt)
 	if err != nil {
 		return r, err
 	}

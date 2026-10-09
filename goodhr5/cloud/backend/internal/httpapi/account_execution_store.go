@@ -207,6 +207,14 @@ func (s *PostgresAccountExecutionStore) Release(ctx context.Context, c AccountEx
 	if err = lockAccountExecution(ctx, tx, c.UserEmail); err != nil {
 		return err
 	}
+	if err = releaseAccountExecutionTx(ctx, tx, c, cleaned); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// releaseAccountExecutionTx 在调用方持有账号锁的事务内释放，并与计划结算一起保存回执。
+func releaseAccountExecutionTx(ctx context.Context, tx *sql.Tx, c AccountExecutionClaim, cleaned bool) error {
 	replay, err := accountRequestReplay(ctx, tx, c, "release", cleaned)
 	if err != nil {
 		return err
@@ -223,5 +231,5 @@ func (s *PostgresAccountExecutionStore) Release(ctx context.Context, c AccountEx
 	if err = recordAccountRequest(ctx, tx, c, "release", cleaned); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }

@@ -149,6 +149,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/execution-plans", s.executionPlans.Collection)
 	mux.HandleFunc("/api/execution-plans/", s.executionPlans.Item)
 	mux.HandleFunc("/api/execution-plan-runs/claim", s.executionPlans.ClaimRun)
+	mux.HandleFunc("/api/execution-plan-runs/", s.executionPlans.Run)
 	// 注册认证接口，用于邮箱验证码登录和登录态校验。
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)

@@ -59,7 +59,7 @@ func writePlanStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		writeError(w, 404, "计划不存在或没有权限")
-	case errors.Is(err, ErrExecutionPlanVersion), errors.Is(err, ErrExecutionPlanBusy), errors.Is(err, ErrExecutionPlanRequest):
+	case errors.Is(err, ErrExecutionPlanVersion), errors.Is(err, ErrExecutionPlanBusy), errors.Is(err, ErrExecutionPlanRequest), errors.Is(err, ErrExecutionPlanSequence), errors.Is(err, ErrAccountExecutionProof), errors.Is(err, ErrAccountExecutionReleased), errors.Is(err, ErrAccountExecutionConflict), errors.Is(err, ErrAccountExecutionBusy):
 		writeError(w, 409, err.Error())
 	default:
 		writeError(w, 500, "计划暂时无法保存或读取，请稍后重试")

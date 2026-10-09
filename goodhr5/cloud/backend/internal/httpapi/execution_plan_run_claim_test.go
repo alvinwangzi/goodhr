@@ -281,4 +281,27 @@ func TestPlanRunClaimAPI(t *testing.T) {
 	if res := post("/api/execution-plan-runs/claim", other); res.Code != 409 {
 		t.Fatal("重复执行通过", res.Body.String())
 	}
+	status := planRunUpdateFixture(t, input, 2, "status", "running")
+	statusPath := "/api/execution-plan-runs/" + input.RunID + "/status"
+	if res := post(statusPath, status); res.Code != 200 || strings.Contains(res.Body.String(), input.Credential) {
+		t.Fatal("开始确认失败或泄露凭证", res.Body.String())
+	}
+	if err := server.executionPlans.agents.DisableBindings(email); err != nil {
+		t.Fatal(err)
+	}
+	continued := planRunUpdateFixture(t, input, 3, "status", "running")
+	if res := post(statusPath, continued); res.Code != 403 {
+		t.Fatal("失去绑定仍继续执行", res.Body.String())
+	}
+	cleanup := planRunUpdateFixture(t, input, 3, "release", "waiting_window")
+	if res := post("/api/execution-plan-runs/"+input.RunID+"/release", cleanup); res.Code != 200 {
+		t.Fatal("原电脑失去绑定无法安全释放", res.Body.String())
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/execution-plan-runs/"+input.RunID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	routes.ServeHTTP(response, req)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "waiting_window") || strings.Contains(response.Body.String(), input.Credential) {
+		t.Fatal("运行快照读取错误", response.Body.String())
+	}
 }

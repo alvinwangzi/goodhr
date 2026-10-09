@@ -58,6 +58,9 @@ func (s *MemoryExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant, e
 		return ExecutionPlan{}, ErrNotFound
 	}
 	key := id + "/" + c.RequestID
+	if _, used := s.runUpdates[key]; used {
+		return ExecutionPlan{}, ErrExecutionPlanRequest
+	}
 	if _, used := s.runClaims[key]; used {
 		return ExecutionPlan{}, ErrExecutionPlanRequest
 	}
@@ -83,6 +86,8 @@ func (s *MemoryExecutionPlanStore) ConfirmStopped(ctx context.Context, tenant, e
 			run.State = "stopped"
 			run.Sequence++
 			run.EndReason = "user_stopped"
+			finished := time.Now().UTC()
+			run.FinishedAt = &finished
 			s.runs[runID] = run
 		}
 	}
