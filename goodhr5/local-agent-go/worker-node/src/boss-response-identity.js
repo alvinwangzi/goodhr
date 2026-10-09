@@ -64,13 +64,20 @@ export function observeBossResponseIdentities(page) {
   if (observers.has(page)) return observers.get(page);
   const state = { facts: new Map(), conflicts: new Set(), pending: new Set(), epoch: 0, accountID: "", accountConflict: false };
   observers.set(page, state);
-  page.on("framenavigated", frame => {
-    if (frame !== page.mainFrame()) return;
+  // 只有真实主文档请求才重置账号；单页菜单或 hash 切换不会重新加载账号响应。
+  page.on("request", request => {
+    if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return;
     state.epoch++;
     state.facts.clear();
     state.conflicts.clear();
     state.accountID = "";
     state.accountConflict = false;
+  });
+  page.on("framenavigated", frame => {
+    if (frame !== page.mainFrame()) return;
+    state.epoch++;
+    state.facts.clear();
+    state.conflicts.clear();
   });
   page.on("response", response => {
     let url;

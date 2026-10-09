@@ -5,12 +5,57 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"goodhr5/local-agent-go/internal/platformcore"
 )
+
+// TestReplyResumeAllScreenshotParts 验证回复评分读取拼接后的完整图片，缺失分段必须失败而非降级第一屏。
+func TestReplyResumeAllScreenshotParts(t *testing.T) {
+	directory := t.TempDir()
+	parts := []any{}
+	for index, shade := range []color.RGBA{{R: 255, A: 255}, {B: 255, A: 255}} {
+		name := filepath.Join(directory, string(rune('a'+index))+".png")
+		img := image.NewRGBA(image.Rect(0, 0, 80, 120))
+		for y := 0; y < 120; y++ {
+			for x := 0; x < 80; x++ {
+				img.SetRGBA(x, y, shade)
+			}
+		}
+		file, err := os.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = png.Encode(file, img); err != nil {
+			t.Fatal(err)
+		}
+		_ = file.Close()
+		parts = append(parts, map[string]any{"file_path": name})
+	}
+	path, err := replyResumeScreenshotPath(newReplyPage(), directory, "虚构候选人", map[string]any{"screenshot_parts": parts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	img, err := png.Decode(file)
+	if err != nil || img.Bounds().Dy() <= 120 {
+		t.Fatalf("只保留第一屏 %v", err)
+	}
+	if _, err = replyResumeScreenshotPath(newReplyPage(), directory, "虚构候选人", map[string]any{"screenshot_parts": []any{map[string]any{"file_path": "missing-a"}, map[string]any{"file_path": "missing-b"}}}); err == nil {
+		t.Fatal("缺失分段仍允许评分")
+	}
+}
 
 // replyTestConfig 仅为模拟执行器提供选择器，不能作为 Boss 页面证据。
 func replyTestConfig() replyPageConfig {

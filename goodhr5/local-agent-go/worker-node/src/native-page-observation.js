@@ -35,7 +35,9 @@ export async function observeContainer(locator, viewportHeight = 0, frameTop = 0
   let contentTop=firstBox.y,contentBottom=lastBox.y+lastBox.height;
   // 固定首尾工具栏不代表内容末尾，读取有界直接子元素的实际内容范围。
   for(let i=0;i<Math.min(count,128);i++){const childBox=await children.nth(i).boundingBox();if(childBox){contentTop=Math.min(contentTop,childBox.y);contentBottom=Math.max(contentBottom,childBox.y+childBox.height)}}
-  let offset = Math.max(0, box.y - contentTop, documentRoot ? frameTop - box.y : 0), movement = 0;
+  const visibleTop = viewportHeight > 0 || documentRoot ? Math.max(box.y, frameTop) : box.y;
+  const visibleBottom = viewportHeight > 0 || documentRoot ? Math.min(box.y + box.height, frameTop + limit) : box.y + clientHeight;
+  let offset = Math.max(0, visibleTop - contentTop, documentRoot ? frameTop - box.y : 0), movement = 0;
   if (old?.signature === signature) {
     const deltas = [old.first - contentTop, old.last - contentBottom];
     movement = deltas.sort((a, b) => Math.abs(b) - Math.abs(a))[0];
@@ -44,13 +46,28 @@ export async function observeContainer(locator, viewportHeight = 0, frameTop = 0
   const currentExtent = Math.max(clientHeight, contentBottom - contentTop);
   const extent = old?.signature === signature ? Math.max(old.extent, currentExtent) : currentExtent;
   pageState.set(key, { signature, first: contentTop, last: contentBottom, offset, extent });
-  return { source: "locator-geometry", measured_scroll_top: false, scrollable: extent > clientHeight + 8, scrollTop: Math.round(offset), scrollHeight: Math.round(extent), clientHeight: Math.round(clientHeight), movement, can_scroll_up: offset > 2, can_scroll_down: contentBottom > (documentRoot ? frameTop : box.y) + clientHeight + 2, box };
+  return { source: "locator-geometry", measured_scroll_top: false, scrollable: extent > clientHeight + 8, scrollTop: Math.round(offset), scrollHeight: Math.round(extent), clientHeight: Math.round(clientHeight), movement, can_scroll_up: offset > 2, can_scroll_down: contentBottom > visibleBottom + 2, box };
 }
 
 /** observeScrollAtPointer 读取真实鼠标悬停链内的滚动区域，不使用 elementFromPoint 或样式注入。 */
-export async function observeScrollAtPointer(page, point) {
+export async function observeScrollAtPointer(page, point, scope) {
   const viewport = await nativeViewport(page);
   if (viewport.height <= 0) throw new Error("浏览器视口无法确认");
+  if (scope) {
+    const outer = await scope.boundingBox();
+    if (!outer) throw new Error("截图区域已关闭");
+    const top = Math.max(0, outer.y);
+    const height = Math.min(outer.y + outer.height, viewport.height) - top;
+    const containers = scope.locator(':scope,:scope main,:scope section,:scope article,:scope [style*="overflow"],:scope [class*="scroll"],:scope [class*="resume"],:scope [class*="content"]');
+    for (let index = Math.min(await containers.count(),256) - 1; index >= 0; index--) {
+      const candidate = containers.nth(index);
+      const box = await candidate.boundingBox();
+      if (!box || !await candidate.isVisible() || (point && (point.x < box.x || point.x > box.x+box.width || point.y < box.y || point.y > box.y+box.height))) continue;
+      const info = await observeContainer(candidate,height,top).catch(() => null);
+      if (info?.scrollable) return info;
+    }
+    return observeContainer(scope,height,top);
+  }
   const frames = page.frames().slice().reverse();
   for (const frame of frames) {
     let visibleHeight=viewport.height, frameTop=0;

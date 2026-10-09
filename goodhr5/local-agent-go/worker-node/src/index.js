@@ -3305,6 +3305,7 @@ async function screenshotLocatorWithParts(currentPage, locator, payload) {
       directory,
       filename,
       payload,
+      locator,
     );
     logDetailDiagnostic(payload, "页面滚轮分段截图返回", {
       filename,
@@ -3849,6 +3850,7 @@ async function screenshotLocatorParts(
   directory,
   filename,
   payload,
+  scrollScope,
 ) {
   const operationStartedAt = Date.now();
   const clipX = Math.max(Math.round(box.x), 0);
@@ -3900,7 +3902,15 @@ async function screenshotLocatorParts(
     filename,
     scroll_point: scrollPoint,
   });
-  const scrollState = await pageScrollState(currentPage, scrollPoint);
+  let scrollState = await pageScrollState(currentPage, scrollPoint, scrollScope);
+  if (payload.scroll_full && scrollScope) {
+    for (let attempt = 0; scrollState.target?.can_scroll_up && attempt < 12; attempt++) {
+      await currentPage.mouse.wheel(0, -Math.max(500, clipHeight));
+      await currentPage.waitForTimeout(captureWaitMs);
+      scrollState = await pageScrollState(currentPage, scrollPoint, scrollScope);
+    }
+    if (scrollState.target?.can_scroll_up) throw new Error("简历截图无法确认回到顶部，停止评分");
+  }
   logDetailDiagnostic(payload, "页面滚动截图初始滚动状态读取完成", {
     filename,
     elapsed_ms: Date.now() - initialStateStartedAt,
@@ -3932,6 +3942,7 @@ async function screenshotLocatorParts(
   const parsed = path.parse(filename);
   const parts = [];
   let previousBuffer = null;
+  let previousShotState = null;
   const debugRounds = [];
   logDetailDiagnostic(payload, "页面滚轮分段截图计划完成", {
     filename,
@@ -3998,7 +4009,7 @@ async function screenshotLocatorParts(
       part,
       scroll_point: scrollPoint,
     });
-    const beforeShot = await pageScrollState(currentPage, scrollPoint);
+    const beforeShot = await pageScrollState(currentPage, scrollPoint, scrollScope);
     logDetailDiagnostic(payload, "页面分段截图前滚动状态读取完成", {
       filename,
       part,
@@ -4058,7 +4069,7 @@ async function screenshotLocatorParts(
       current_bytes: currentBuffer.length,
     });
     const duplicate = Boolean(
-      previousBuffer &&
+      previousBuffer && previousShotState && scrollStateDistance(previousShotState, beforeShot) < 3 &&
         screenshotsAreDuplicate(previousBuffer, currentBuffer),
     );
     logDetailDiagnostic(payload, "页面截图重复检测完成", {
@@ -4068,6 +4079,7 @@ async function screenshotLocatorParts(
       duplicate,
     });
     if (duplicate) {
+      if (!beforeShot.maxed) throw new Error("简历截图未到末尾且滚动未生效，停止评分以免使用不完整简历");
       debugRounds.push({
         part,
         beforeShot,
@@ -4122,12 +4134,13 @@ async function screenshotLocatorParts(
       part_elapsed_ms: Date.now() - partStartedAt,
     });
     previousBuffer = currentBuffer;
+    previousShotState = beforeShot;
     const beforeScrollStartedAt = Date.now();
     logDetailDiagnostic(payload, "页面分段截图滚动前状态读取开始", {
       filename,
       part,
     });
-    const beforeScroll = await pageScrollState(currentPage, scrollPoint);
+    const beforeScroll = await pageScrollState(currentPage, scrollPoint, scrollScope);
     logDetailDiagnostic(payload, "页面分段截图滚动前状态读取完成", {
       filename,
       part,
@@ -4146,12 +4159,13 @@ async function screenshotLocatorParts(
       part,
       elapsed_ms: Date.now() - wheelStartedAt,
     });
+    await currentPage.waitForTimeout(captureWaitMs);
     const afterScrollStartedAt = Date.now();
     logDetailDiagnostic(payload, "页面分段截图滚动后状态读取开始", {
       filename,
       part,
     });
-    const afterScroll = await pageScrollState(currentPage, scrollPoint);
+    const afterScroll = await pageScrollState(currentPage, scrollPoint, scrollScope);
     const moved = scrollStateDistance(beforeScroll, afterScroll);
     const hasExpectedMoreParts =
       parts.length < Math.min(maxScrolls, Math.max(2, estimatedByBox));
@@ -4177,7 +4191,7 @@ async function screenshotLocatorParts(
       moved,
       maxed: afterScroll.maxed,
     };
-    if ((afterScroll.maxed || moved < 3) && !hasExpectedMoreParts) {
+    if (moved < 3 && !hasExpectedMoreParts) {
       round.stop_reason = afterScroll.maxed
         ? "maxed_after_scroll"
         : "moved_lt_3";
@@ -4196,6 +4210,9 @@ async function screenshotLocatorParts(
     round.stop_reason =
       afterScroll.maxed || moved < 3 ? "continue_for_expected_parts" : "";
     debugRounds.push(round);
+  }
+  if (payload.scroll_full && debugRounds.length && !debugRounds.at(-1).beforeShot?.maxed) {
+    throw new Error("简历截图达到分段上限但仍未到末尾，停止评分");
   }
   logDetailDiagnostic(payload, "页面滚轮分段截图完成", {
     filename,
@@ -4232,8 +4249,8 @@ async function screenshotLocatorParts(
  * @param {{x:number,y:number}=} point - 鼠标所在视口位置，用于定位实际滚动容器。
  * @returns {Promise<Record<string, any>>} 页面滚动状态。
  */
-async function pageScrollState(currentPage, point) {
-  const info=await observeScrollAtPointer(currentPage,point);
+async function pageScrollState(currentPage, point, scope) {
+  const info=await observeScrollAtPointer(currentPage,point,scope);
   return {top:info.scrollTop,height:info.scrollHeight,scrollHeight:info.scrollHeight,clientHeight:info.clientHeight,maxed:!info.can_scroll_down,target:info,source:info.source,measured_scroll_top:false};
  }
 

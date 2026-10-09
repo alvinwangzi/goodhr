@@ -70,7 +70,7 @@ test("缺失账号不猜测，同文档换账号清空候选人证明并保持�
   account(902); emitFriend(page);
   assert.deepEqual(await readBossObservedAccountIdentity(page), { verified: false });
   assert.deepEqual(await resolveBossResponseIdentity(page, "opaque-A"), { verified: false });
-  page.emit("framenavigated", page.mainFrame());
+  page.emit("request", { isNavigationRequest: () => true, frame: () => page.mainFrame() }); page.emit("framenavigated", page.mainFrame());
   assert.deepEqual(await readBossObservedAccountIdentity(page), { verified: false });
   account(902);
   assert.equal((await readBossObservedAccountIdentity(page)).account_id, "902");
@@ -113,12 +113,12 @@ test("冲突记录不覆盖，导航清空旧账号事实，其他来源不读�
   observeBossResponseIdentities(page);
   emitFriend(page); emitFriend(page, "opaque-A", 124);
   assert.deepEqual(await resolveBossResponseIdentity(page, "opaque-A"), { verified: false });
-  page.emit("framenavigated", page.mainFrame());
+  page.emit("request", { isNavigationRequest: () => true, frame: () => page.mainFrame() }); page.emit("framenavigated", page.mainFrame());
   emitFriend(page, "opaque-A", 123, "example.com");
   assert.deepEqual(await resolveBossResponseIdentity(page, "opaque-A"), { verified: false });
   emitFriend(page);
   assert.equal((await resolveBossResponseIdentity(page, "opaque-A")).verified, true);
-  page.emit("framenavigated", page.mainFrame());
+  page.emit("request", { isNavigationRequest: () => true, frame: () => page.mainFrame() }); page.emit("framenavigated", page.mainFrame());
   assert.deepEqual(await resolveBossResponseIdentity(page, "opaque-A"), { verified: false });
 });
 
@@ -133,7 +133,7 @@ test("导航之后迟到的旧响应不能重新污染身份", async () => {
   const page = fixturePage(); observeBossResponseIdentities(page);
   let deliver;
   page.emit("response", { url: () => `https://www.zhipin.com${friendPath}`, json: () => new Promise(resolve => { deliver = resolve; }) });
-  page.emit("framenavigated", page.mainFrame());
+  page.emit("request", { isNavigationRequest: () => true, frame: () => page.mainFrame() }); page.emit("framenavigated", page.mainFrame());
   deliver({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }] } });
   assert.deepEqual(await resolveBossResponseIdentity(page, "opaque-A"), { verified: false });
 });
@@ -213,4 +213,20 @@ test("未加载目标可逐个打开同名结果，详情响应和迟到的 sele
     await assert.rejects(resolveBossResponseIdentity(page, "opaque-A", "张三", cancelController.signal), error => error.name === "AbortError");
     assert.deepEqual(openedUIDs, [124]);
   } finally { await browser.close(); }
+});
+
+
+// 菜单的同文档导航保留账号事实；真正重载仍清空，并且冲突不能被菜单切换洗掉。
+test("正常菜单切换保留账号，实际主文档重载必须重新核对", async () => {
+ const page=fixturePage(); observeBossResponseIdentities(page);
+ const account=uid=>page.emit("response",{url:()=>`https://www.zhipin.com${accountPath}`,json:async()=>({code:0,zpData:{userId:uid}})});
+ account(901); assert.equal((await readBossObservedAccountIdentity(page)).account_id,"901");
+ page.emit("framenavigated",page.mainFrame());
+ assert.equal((await readBossObservedAccountIdentity(page)).account_id,"901");
+ account(902); assert.equal((await readBossObservedAccountIdentity(page)).verified,false);
+ page.emit("framenavigated",page.mainFrame());
+ assert.equal((await readBossObservedAccountIdentity(page)).verified,false);
+ page.emit("request",{isNavigationRequest:()=>true,frame:()=>page.mainFrame()});
+ assert.equal((await readBossObservedAccountIdentity(page)).verified,false);
+ account(902); assert.equal((await readBossObservedAccountIdentity(page)).account_id,"902");
 });

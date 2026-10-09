@@ -751,12 +751,9 @@ func (r *Runtime) evaluateResumeWithAI(ctx context.Context, exec platformcore.Ex
 
 	// 读取截图文件
 	screenshotData := workerDataMap(screenshotResult)
-	filePath := stringFromMap(screenshotData, "file_path")
-	if filePath == "" {
-		filePath = stringFromMap(screenshotData, "path")
-	}
-	if filePath == "" {
-		return false, fmt.Errorf("在线简历截图路径为空")
+	filePath, err := replyResumeScreenshotPath(exec, screenshotsDir, name, screenshotData)
+	if err != nil {
+		return false, err
 	}
 	imageBytes, err := os.ReadFile(filePath)
 	if err != nil {
@@ -850,12 +847,9 @@ func (r *Runtime) ReviewProfileBeforeReply(ctx context.Context, exec platformcor
 	r.closeOnlineResume(ctx, exec, cfg)
 
 	screenshotData := workerDataMap(screenshotResult)
-	filePath := stringFromMap(screenshotData, "file_path")
-	if filePath == "" {
-		filePath = stringFromMap(screenshotData, "path")
-	}
-	if filePath == "" {
-		return -1, "", fmt.Errorf("在线简历截图路径为空")
+	filePath, err := replyResumeScreenshotPath(exec, screenshotsDir, conversation.Name, screenshotData)
+	if err != nil {
+		return -1, "", err
 	}
 	imageBytes, err := os.ReadFile(filePath)
 	if err != nil {
@@ -869,6 +863,22 @@ func (r *Runtime) ReviewProfileBeforeReply(ctx context.Context, exec platformcor
 	}
 	exec.Log("info", fmt.Sprintf("详细简历评分：候选人=%s，评分=%.1f，阈值=%.1f，原因=%s", conversation.Name, decision.Score, decision.Threshold, decision.Reason))
 	return int(decision.Score), decision.Reason, nil
+}
+
+// replyResumeScreenshotPath 复用已有长图拼接，所有分段都成功后才供回复评分，不能只读第一屏。
+func replyResumeScreenshotPath(exec platformcore.Executor, directory, name string, screenshot map[string]any) (string, error) {
+	count := len(mapList(screenshot["screenshot_parts"]))
+	if count > 1 {
+		screenshot = stitchDetailScreenshot(exec, "reply-review", directory, "reply-review", map[string]any{"candidate_name": name}, screenshot)
+		if screenshot["stitched"] != true || intFromMap(screenshot, "parts_count") != count {
+			return "", fmt.Errorf("在线简历分段未全部拼接，停止评分")
+		}
+	}
+	filePath := firstNonEmpty(stringFromMap(screenshot, "file_path"), stringFromMap(screenshot, "path"))
+	if filePath == "" {
+		return "", fmt.Errorf("在线简历截图路径为空")
+	}
+	return filePath, nil
 }
 
 // readPanelInfoText 从聊天面板读取候选人基本信息文本（姓名、年龄、学历、工作年限等）。

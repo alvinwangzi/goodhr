@@ -62,6 +62,21 @@ test("完整 Worker 以零脚本模式启动真实 CloakBrowser，核对账号�
     assert.equal(ledger.launches[0].humanize, false);
     assert.ok(ledger.requests.includes("/wapi/zpjob/rec/geek/list"));
     assert.equal(ledger.clicks, 1);
+    const resume = await request("/api/v1/page/open", {url:"https://www.zhipin.com/web/chat/resume-fixture"});
+    assert.equal(resume.result.ok,true);
+    const captured = await request("/api/v1/page/screenshot", {selector:".resume-detail-wrap",scroll_full:true,directory,filename:"resume-test.png"});
+    assert.equal(captured.result.ok,true,JSON.stringify(captured.result)+output.slice(-9000));
+    assert.ok(captured.result.data.parts_count >= 4,JSON.stringify(captured.result.data));
+    const captureDebug=JSON.parse(captured.result.data._scroll_debug);
+    assert.equal(captureDebug.rounds.at(-1).maxed,true);
+    assert.equal(captureDebug.rounds.at(-1).beforeShot.maxed,true);
+    await request("/api/v1/page/open", {url:"https://www.zhipin.com/web/chat/spa-fixture"});
+    const currentAccount=await request("/api/v1/boss/account/identity", {});
+    assert.equal(currentAccount.result.data.account_id,"902");
+    const sameDocument=await request("/api/v1/page/click", {selector_spec:{selectors:['a[href="#recommend"]']},expected_account_platform:"boss",expected_platform_account_id:"902"});
+    assert.equal(sameDocument.result.ok,true);
+    const afterMenu=await request("/api/v1/page/extract-text", {selector_spec:{selectors:["#same-document"]},expected_account_platform:"boss",expected_platform_account_id:"902"});
+    assert.equal(afterMenu.result.ok,true,JSON.stringify(afterMenu.result));
   } finally {
     await request("/api/v1/browser/stop", {}).catch(() => {});
     worker.kill();
