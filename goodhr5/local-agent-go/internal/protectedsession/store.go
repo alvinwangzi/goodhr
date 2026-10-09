@@ -61,6 +61,9 @@ func (s *Store) Save(value Session) error {
 		return err
 	}
 	defer clear(raw)
+	if len(raw) > 1<<20 {
+		return errors.New("受保护会话内容过大")
+	}
 	cipher, err := protect(raw)
 	if err != nil {
 		return fmt.Errorf("受保护会话加密失败：%w", err)

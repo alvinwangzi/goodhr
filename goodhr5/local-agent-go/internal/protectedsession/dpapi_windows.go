@@ -10,7 +10,7 @@ import (
 
 // cryptSession 使用固定用途熵保护会话，输出复制后释放 Windows 分配的内存。
 func cryptSession(data []byte, decrypt bool) ([]byte, error) {
-	if len(data) == 0 || len(data) > 1<<20 {
+	if len(data) == 0 || len(data) > 4<<20 {
 		return nil, fmt.Errorf("受保护数据大小不正确")
 	}
 	entropy := []byte("HRPlus/current-user/session/v1")

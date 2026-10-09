@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // PlanRequestError 区分账号占用等待、事实冲突与服务错误，不把冲突当作启动许可。
@@ -41,6 +42,17 @@ func (r PlanClaimRequest) String() string { return "HRPlus 计划领取请求（
 // GoString 防止调试格式输出请求凭证。
 func (r PlanClaimRequest) GoString() string { return r.String() }
 
+// Validate 在请求落盘和发送时复用原编号、时间格式及本地预留参数校验。
+func (r PlanClaimRequest) Validate() error {
+	if !planmodel.ValidID(r.PlanID) || !planmodel.ValidID(r.ActivationID) || !planmodel.ValidID(r.RunID) || !planmodel.ValidID(r.RequestID) || !planmodel.ValidID(r.OwnerID) || !r.LocalReserved || len(r.Credential) < 32 || r.MachineID == "" || r.ExpectedVersion < 1 {
+		return fmt.Errorf("计划领取缺少原编号、凭证或本地预留")
+	}
+	if _, err := time.Parse("2006-01-02", r.ExecutionDate); err != nil {
+		return fmt.Errorf("计划原执行日期不正确")
+	}
+	return nil
+}
+
 // PlanRunUpdateRequest 上报原运行的递增状态与子项进度，不允许修改岗位配置。
 type PlanRunUpdateRequest struct {
 	RunID            string                 `json:"-"`
@@ -62,6 +74,23 @@ func (r PlanRunUpdateRequest) String() string { return "HRPlus 计划状态请�
 
 // GoString 防止调试格式输出收尾凭证。
 func (r PlanRunUpdateRequest) GoString() string { return r.String() }
+
+// Validate 在状态落盘和发送时复用原身份、序号和实际收尾结论校验。
+func (r PlanRunUpdateRequest) Validate() error {
+	if !planmodel.ValidID(r.RunID) || !planmodel.ValidID(r.RequestID) || !planmodel.ValidID(r.OwnerID) || r.MachineID == "" || len(r.Credential) < 32 || r.Sequence < 1 || r.CurrentItem < 0 {
+		return fmt.Errorf("计划状态缺少原编号、凭证或序号")
+	}
+	if r.Action == "status" && !r.CleanupConfirmed && (r.State == "running" || r.State == "draining") {
+		return nil
+	}
+	if r.Action == "release" && r.CleanupConfirmed {
+		switch r.State {
+		case "waiting_window", "completed", "incomplete", "stopped", "blocked":
+			return nil
+		}
+	}
+	return fmt.Errorf("计划状态或收尾确认不匹配")
+}
 
 // requestPlan 复用 HTTP 传输并保留整数精度，不记录带凭证的请求体。
 func (c *Client) requestPlan(ctx context.Context, token, method, path string, body any) (map[string]any, error) {
@@ -179,8 +208,8 @@ func decodePlanPermit(payload map[string]any, runID, ownerID, machine string) (p
 
 // ClaimExecutionPlanRun 按原编号领取并核对批次日期，重试不补造新的运行身份。
 func (c *Client) ClaimExecutionPlanRun(ctx context.Context, token string, input PlanClaimRequest) (planmodel.Permit, error) {
-	if !planmodel.ValidID(input.RunID) || !planmodel.ValidID(input.RequestID) || !planmodel.ValidID(input.OwnerID) || !input.LocalReserved || len(input.Credential) < 32 {
-		return planmodel.Permit{}, fmt.Errorf("计划领取缺少原编号、凭证或本地预留")
+	if err := input.Validate(); err != nil {
+		return planmodel.Permit{}, err
 	}
 	payload, err := c.requestPlan(ctx, token, http.MethodPost, "/api/execution-plan-runs/claim", input)
 	if err != nil {
@@ -198,8 +227,8 @@ func (c *Client) ClaimExecutionPlanRun(ctx context.Context, token string, input 
 
 // UpdateExecutionPlanRun 只确认原序号和收尾事实，收到不匹配结果时保留待核对请求。
 func (c *Client) UpdateExecutionPlanRun(ctx context.Context, token string, input PlanRunUpdateRequest) (planmodel.Permit, error) {
-	if !planmodel.ValidID(input.RunID) || !planmodel.ValidID(input.RequestID) || (input.Action != "status" && input.Action != "release") || input.Sequence < 1 || (input.Action == "release" && !input.CleanupConfirmed) {
-		return planmodel.Permit{}, fmt.Errorf("计划状态缺少原编号、序号或收尾确认")
+	if err := input.Validate(); err != nil {
+		return planmodel.Permit{}, err
 	}
 	payload, err := c.requestPlan(ctx, token, http.MethodPost, "/api/execution-plan-runs/"+url.PathEscape(input.RunID)+"/"+input.Action, input)
 	if err != nil {
