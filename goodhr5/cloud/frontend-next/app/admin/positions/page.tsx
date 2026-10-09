@@ -33,7 +33,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import AdminDialog from "@/components/admin/AdminDialog";
 import SinglePositionActionStatus from "@/components/admin/SinglePositionActionStatus";
-import { agentSupportsCooperativeActions, normalizeActionDispatch, normalizeReGreetStats, type ActionDispatchStatus, type ReGreetStats } from "@/lib/single-position-actions";
+import { agentSupportsCooperativeActions, normalizeActionDispatch, normalizeReGreetStats, terminalLocalTaskStatus, type ActionDispatchStatus, type ReGreetStats } from "@/lib/single-position-actions";
 import ChoiceCards from "@/components/admin/ChoiceCards";
 import ClickableImagePreview from "@/components/admin/ClickableImagePreview";
 import {
@@ -217,15 +217,20 @@ export default function PositionsPage() {
     void loadLatestTaskStats(items);
   }, [agentBase, items.map((item) => item.id).join(","), user?.email]);
 
-  /** correctStaleRunningStatus 检查云端标记为 running 但本地实际未运行的岗位，纠正为 stopped。 */
+  /** refreshRunningPositionStatus 持续读取本地结束事实，同步卡片按钮，不依赖日志或小窗是否打开。 */
   useEffect(() => {
     if (!agentBase || items.length === 0) return;
     const runningItems = items.filter(
-      (item) => item.status === "running" && isCurrentUserPosition(item, user?.email),
+      (item) => item.status === "running" && item.id !== busyPositionID && isCurrentUserPosition(item, user?.email),
     );
     if (runningItems.length === 0) return;
     let cancelled = false;
-    (async () => {
+    let refreshing = false;
+    /** refresh 串行读取当前运行岗位；旧请求或正在开始/停止的岗位不能覆盖新状态。 */
+    async function refresh() {
+      if (refreshing || cancelled) return;
+      refreshing = true;
+      try {
       await Promise.all(
         runningItems.map(async (item) => {
           try {
@@ -234,13 +239,12 @@ export default function PositionsPage() {
               `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`,
             );
             if (cancelled) return;
-            const localStatus = normalizeFloatingTaskStatus(task?.status);
-            if (localStatus !== "running") {
-              await cloudRequest(`/api/positions/${encodeURIComponent(item.id)}/stop`, {
-                method: "POST",
-              });
+            updateActionStats(item.id, task);
+            setLatestTaskStats((current) => ({ ...current, [item.id]: normalizePositionTaskStats(task) }));
+            const localStatus = terminalLocalTaskStatus(task);
+            if (localStatus) {
               setItems((current) =>
-                current.map((p) => (p.id === item.id ? { ...p, status: "stopped" } : p)),
+                current.map((p) => (p.id === item.id && p.status === "running" ? { ...p, status: localStatus } : p)),
               );
             }
           } catch {
@@ -248,11 +252,17 @@ export default function PositionsPage() {
           }
         }),
       );
-    })();
+      } finally {
+        refreshing = false;
+      }
+    }
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), LOG_REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [agentBase, items.map((item) => `${item.id}:${item.status}`).join(","), user?.email]);
+  }, [agentBase, items.map((item) => `${item.id}:${item.status}`).join(","), user?.email, busyPositionID]);
 
   useEffect(() => {
     const expandedPosition = items.find((item) => item.id === expandedLogPositionID);

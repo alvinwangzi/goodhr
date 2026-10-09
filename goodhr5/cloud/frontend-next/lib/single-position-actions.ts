@@ -3,6 +3,16 @@
 export type ReGreetStats = { total: number; sent: number; skipped: number; failed: number; unknown: number };
 export type ActionDispatchStatus = { localRunID: string; messagesEnabled: boolean; currentAction: string; prioritizeReply: boolean; lastMessageCheck: string | null; nextMessageCheck: string | null; waitingForCheck: boolean };
 
+/** terminalLocalTaskStatus 只接受本地明确结束事实；缺失、连接失败或仍有运行句柄时不推断结束。 */
+export function terminalLocalTaskStatus(task: unknown): "completed" | "failed" | "stopped" | null {
+  if (!task || typeof task !== "object") return null;
+  const source = task as Record<string, unknown>;
+  if (source.running === true) return null;
+  const position = source.position && typeof source.position === "object" ? source.position as Record<string, unknown> : {};
+  const status = String(source.status ?? position.status ?? "").trim().toLowerCase();
+  return status === "completed" || status === "failed" || status === "stopped" ? status : null;
+}
+
 /** agentSupportsCooperativeActions 只接受本地程序明确声明的能力，缺字段和旧版本均不推断支持。 */
 export function agentSupportsCooperativeActions(health: unknown): boolean {
   return Boolean(health && typeof health === "object" && (health as { capabilities?: { cooperative_actions?: unknown } }).capabilities?.cooperative_actions === true);
