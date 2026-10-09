@@ -94,7 +94,11 @@ type Runner struct {
 }
 
 // browserLease 由主任务和收尾任务共同持有，全部退出后才释放浏览器。
-type browserLease struct{ refs int }
+type browserLease struct {
+	refs       int
+	planRunID  string
+	planCancel context.CancelFunc
+}
 
 // runState 保存单个运行岗位运行的控制句柄。
 type runState struct {

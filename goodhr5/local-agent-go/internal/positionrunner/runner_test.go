@@ -1262,6 +1262,14 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 		case "/api/config/user-preferences":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "config": map[string]any{}})
 		default:
+			if strings.HasSuffix(r.URL.Path, "/status") {
+				var request cloudapi.TaskStatusRequest
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "status": request.Status})
+				return
+			}
 			if strings.HasPrefix(r.URL.Path, "/api/positions/") {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "position": map[string]any{"id": position.ID, "name": "可停止岗位运行", "platform_id": "boss", "mode": "keyword", "position": map[string]any{"name": "可停止岗位运行"}}})
 				return
@@ -1499,6 +1507,14 @@ func TestRunnerBrowserClosedStopsPosition(t *testing.T) {
 			failNoticeMessage.Store(strings.TrimSpace(payload["error_message"].(string)))
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		default:
+			if strings.HasSuffix(r.URL.Path, "/status") {
+				var request cloudapi.TaskStatusRequest
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "status": request.Status})
+				return
+			}
 			if strings.HasPrefix(r.URL.Path, "/api/positions/") {
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "position": map[string]any{"id": position.ID, "name": "本地岗位", "platform_id": "boss", "common_config": map[string]any{"mode_default": "keyword"}}})
 				return

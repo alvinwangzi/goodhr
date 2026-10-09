@@ -400,6 +400,12 @@ func (c *Client) SyncTaskStatus(ctx context.Context, token, positionID string, r
 	if code >= 400 {
 		return PositionStatusSyncResult{}, fmt.Errorf("%s", cloudMessage(payload, "同步云端岗位运行状态失败"))
 	}
+	if status == "running" {
+		allowed, _ := payload["ok"].(bool)
+		if !allowed || stringFromMap(payload, "status") != "running" {
+			return PositionStatusSyncResult{}, fmt.Errorf("云端未明确许可本次岗位运行")
+		}
+	}
 	if messageTask {
 		allowed, _ := payload["ok"].(bool)
 		runID := strings.TrimSpace(stringFromMap(payload, "run_id"))

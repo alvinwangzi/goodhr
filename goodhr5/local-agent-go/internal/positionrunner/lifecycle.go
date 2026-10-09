@@ -134,7 +134,12 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		options.CloudRunID = syncResult.RunID
 		r.positionLog(positionID, "info", "岗位运行启动：云端已许可"+taskLabel+"，本次执行任务记录 ID="+syncResult.RunID)
 	} else if syncResult, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running", options.MachineID); syncErr != nil {
-		r.positionLog(positionID, "warning", "岗位运行启动：云端运行状态同步失败，错误="+syncErr.Error())
+		syncCancel()
+		cancel()
+		r.positionLog(positionID, "error", "岗位运行启动：云端未允许本次运行，错误="+syncErr.Error())
+		_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
+		r.clear(positionID)
+		return nil, fmt.Errorf("云端未允许岗位运行，任务未开始：%w", syncErr)
 	} else if strings.TrimSpace(syncResult.RunID) != "" {
 		// 云端本次运行对应的执行任务记录 ID 必须写回 snapshot.Options：
 		// runPosition 会用 snapshot.Options 覆盖启动参数，漏写会导致候选人结果丢失归组 ID。
@@ -391,13 +396,18 @@ func (r *Runner) StopAll(reason string) int {
 			state.cancel()
 		}
 	}
+	planStopped := 0
+	if r.browserLease != nil && r.browserLease.planCancel != nil {
+		r.browserLease.planCancel()
+		planStopped = 1
+	}
 	r.mu.Unlock()
 	for _, positionID := range ids {
 		r.updateProgress(positionID, Progress{Stage: "stopped", Message: reason, TotalRounds: defaultScanRounds})
 		_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
 		r.positionLog(positionID, "warning", reason)
 	}
-	return len(ids)
+	return len(ids) + planStopped
 }
 
 // StopAllAndWait 停止旧用户的任务并等待页面执行权与收尾释放，超时不能切换到新用户执行。
