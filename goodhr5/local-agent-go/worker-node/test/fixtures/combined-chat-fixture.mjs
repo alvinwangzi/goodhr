@@ -3,7 +3,7 @@
 /** combinedChatFixture 提供未读回复与到期复打两个独立用户，实际 Worker 仍通过标准输入、点击、搜索和响应读取操作。 */
 export function combinedChatFixture(options = {}) {
   const initialDirection = options.ready === false ? 'item-myself' : 'item-friend';
-  return `<dl><a href="/web/chat/recommend">推荐牛人</a><a href="/web/chat/index">沟通</a></dl>
+  return `<dl><a href="/web/chat/recommend"><span> 推荐牛人 </span><span hidden>推荐入口提示</span></a><a href="/web/chat/index">沟通</a></dl>
   <div class="job-select"><ul class="ui-dropmenu-list"><li>Go</li></ul></div>
   <div class="chat-message-filter-left"><span onclick="unread=true;renderRows()">未读</span></div>
   <button class="chat-search-btn" onclick="document.querySelector('.chat-job-search').hidden=false;renderSearch()">搜索</button>

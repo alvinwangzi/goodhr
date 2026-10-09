@@ -132,6 +132,21 @@ async function editableValue(locator) {
     : await locator.inputValue({ timeout: 1000 });
 }
 
+/** resolveVisibleTextSelector 用标准可见文字核对唯一目标，隐藏提示不参与菜单匹配。 */
+async function resolveVisibleTextSelector(locator, expectedText, signal) {
+  const expected = String(expectedText).replace(/\s+/g, " ").trim();
+  const matches = [];
+  const count = await locator.count();
+  if (count > 100) throw new Error("可见文字定位范围过大");
+  for (let index = 0; index < count; index++) {
+    signal?.throwIfAborted();
+    const item = locator.nth(index);
+    if (await item.isVisible() && (await item.innerText({ timeout: 1000 })).replace(/\s+/g, " ").trim() === expected) matches.push(index);
+  }
+  if (matches.length !== 1) throw new Error("可见文字目标不唯一或不可见");
+  return locator.nth(matches[0]);
+}
+
 /** moveToVisible 只移动到可见区域，不使用脚本或隐式滚动寻找目标。 */
 async function moveToVisible(page, locator) {
   const box = await locator.boundingBox();
@@ -146,7 +161,10 @@ async function moveToVisible(page, locator) {
 export async function executeLocatorAction(page, action, payload, signal, beforeClick) {
   signal?.throwIfAborted();
   if (payload.include_html) throw new Error("不支持 HTML 读取");
-  const locator = resolveSelector(page, payload.selector_spec);
+  let locator = resolveSelector(page, payload.selector_spec);
+  if (payload.selector_spec.visible_text) {
+    locator = await resolveVisibleTextSelector(locator, payload.selector_spec.visible_text, signal);
+  }
   if (action === "find-elements") {
     const count = await locator.count();
     const limit = Math.max(1, Math.min(1000, Number(payload.max_items || 100)));
@@ -194,6 +212,10 @@ export async function executeLocatorAction(page, action, payload, signal, before
   }
   if (action === "click") {
     await moveToVisible(page, locator);
+    if (payload.selector_spec.visible_text) {
+      locator = await resolveVisibleTextSelector(resolveSelector(page, payload.selector_spec), payload.selector_spec.visible_text, signal);
+      await moveToVisible(page, locator);
+    }
     await uniqueVisible(locator);
     signal?.throwIfAborted();
     beforeClick?.();

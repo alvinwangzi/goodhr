@@ -25,9 +25,9 @@ func (r *Runtime) CaptureRecommendationCursor(ctx context.Context, exec platform
 
 // ReturnToRecommendation 点击菜单返回推荐页，避免主动导航导致列表重新加载。
 func (r *Runtime) ReturnToRecommendation(ctx context.Context, exec platformcore.Executor) error {
-	_, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: platformcore.SelectorSpec{Selectors: []string{"dl a"}, Text: "推荐牛人"}})
+	_, err := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{Selector: platformcore.SelectorSpec{Selectors: []string{"dl a"}, VisibleText: "推荐牛人"}})
 	if err != nil {
-		return err
+		return fmt.Errorf("返回推荐页菜单失败：%w", err)
 	}
 	return exec.Delay(ctx, "等待推荐菜单切换", 0.5)
 }

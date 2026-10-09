@@ -17,12 +17,13 @@ var ErrReplyUnsafe = errors.New("会话、岗位或消息已变化，已跳过�
 
 // SelectorSpec 定义标准 Locator 的选择器、范围、精确文本和属性约束。
 type SelectorSpec struct {
-	Selectors  []string          `json:"selectors"`
-	Parent     *SelectorSpec     `json:"parent,omitempty"`
-	Frame      string            `json:"frame,omitempty"`
-	Nth        *int              `json:"nth,omitempty"`
-	Text       string            `json:"text,omitempty"`
-	Attributes map[string]string `json:"attributes,omitempty"`
+	Selectors   []string          `json:"selectors"`
+	Parent      *SelectorSpec     `json:"parent,omitempty"`
+	Frame       string            `json:"frame,omitempty"`
+	Nth         *int              `json:"nth,omitempty"`
+	Text        string            `json:"text,omitempty"`
+	VisibleText string            `json:"visible_text,omitempty"` // 按标准 innerText 精确核对可见文字，用于含隐藏提示的菜单。
+	Attributes  map[string]string `json:"attributes,omitempty"`
 }
 
 // SelectorField 定义从元素自身或唯一子元素读取的字段。

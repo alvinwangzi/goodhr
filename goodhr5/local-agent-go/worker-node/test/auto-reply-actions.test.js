@@ -88,6 +88,10 @@ before(async () => {
   if (url.pathname === "/resume-offer") { res.end(resumeOfferFixture(url.searchParams.get("mode"))); return; }
   if (url.pathname === "/attachment") { res.end(attachmentFixture(url.searchParams.get("mode"))); return; }
   if (url.pathname === "/resume-request") { res.end(resumeRequestFixture(url.searchParams.get("mode"))); return; }
+  if (url.pathname === "/recommend-menu") {
+   const menu = `<a href="#recommend"><span>\n 推荐牛人 \n</span><span hidden>推荐入口提示</span></a>`;
+   res.end(`<dl><a href="#other">推荐牛人说明</a>${menu}${url.searchParams.has("duplicate") ? menu : ""}<a hidden href="#hidden">推荐牛人</a></dl>`); return;
+  }
   if (url.pathname === "/resume-file") {
    res.setHeader("Content-Type", "application/pdf");
    res.setHeader("Content-Disposition", 'attachment; filename="resume.pdf"');
@@ -406,5 +410,18 @@ test("待接受简历：重复可见通知保留唯一性保护", async t => {
  const found = await executeLocatorAction(page, "find-elements", { selector_spec });
  assert.equal(found.count, 2);
  await assert.rejects(executeLocatorAction(page, "click", { selector_spec }), /唯一/);
+ assert.equal(new URL(page.url()).hash, "");
+});
+
+test("推荐菜单：空白、嵌套及隐藏提示不妨碍可见文字精确定位", async t => {
+ const page = await fixturePage(t, "/recommend-menu");
+ await assert.rejects(executeLocatorAction(page, "click", {selector_spec:{selectors:["dl a"],text:"推荐牛人"}}), /唯一/);
+ await executeLocatorAction(page, "click", {selector_spec:{selectors:["dl a"],visible_text:"推荐牛人"}});
+ assert.equal(new URL(page.url()).hash, "#recommend");
+});
+
+test("推荐菜单：两个可见同名入口仍拒绝点击", async t => {
+ const page = await fixturePage(t, "/recommend-menu?duplicate=1");
+ await assert.rejects(executeLocatorAction(page, "click", {selector_spec:{selectors:["dl a"],visible_text:"推荐牛人"}}), /唯一/);
  assert.equal(new URL(page.url()).hash, "");
 });
