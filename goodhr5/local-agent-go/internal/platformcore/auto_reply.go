@@ -92,6 +92,11 @@ type ReplyStats struct {
 	Unknown        int `json:"unknown"`
 }
 
+// ReplyTargetVerifier 只读核对消息页与已确认的岗位筛选，不能展开下拉或修改页面。
+type ReplyTargetVerifier interface {
+	CheckReplyTarget(context.Context, Executor, ReplyTarget) (bool, error)
+}
+
 // AutoReplyRuntime 是可选平台能力；未实现的平台继续使用原打招呼流程。
 type AutoReplyRuntime interface {
 	AutoReplyAvailable() error

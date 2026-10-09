@@ -191,6 +191,9 @@ func (p *replyPage) Post(ctx context.Context, path string, payload any) (result 
 			return pageItems(p.messages[p.active]...), nil
 		}
 	case "/api/v1/page/click":
+		if key == ".job-select" || key == "jobs" {
+			return map[string]any{"clicked": true}, nil
+		}
 		if key == "phone-button" || key == "wechat-button" {
 			p.contactOpen = strings.TrimSuffix(key, "-button")
 			return map[string]any{"clicked": true}, nil

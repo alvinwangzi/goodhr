@@ -86,6 +86,10 @@ func (r *Runner) newActionSession(ctx context.Context, position localdb.Position
 
 // enterMessages 保存切换锚点并通过菜单进入沟通，重新核对同一岗位，不能复用上次面板身份。
 func (s *actionSession) enterMessages(ctx context.Context) error {
+	var prepared *platformcore.ReplyTarget
+	if !s.onRecommendation {
+		prepared = &s.flow.target
+	}
 	if s.onRecommendation {
 		checkpoint, err := s.runner.db.LoadActionCheckpoint(ctx, s.options.LocalRunID)
 		if err != nil {
@@ -97,10 +101,7 @@ func (s *actionSession) enterMessages(ctx context.Context) error {
 		}
 		s.cursor = cursor
 	}
-	if err := s.flow.runtime.PrepareReplyPage(ctx, s.flow.exec); err != nil {
-		return err
-	}
-	target, err := s.flow.runtime.ResolveReplyTarget(ctx, s.flow.exec, positionPositionName(s.position))
+	target, err := ensureReplyTarget(ctx, s.flow.runtime, s.flow.exec, positionPositionName(s.position), prepared)
 	if err != nil {
 		return err
 	}
@@ -328,6 +329,7 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 			options.reGreetBatch = candidates
 			options.reGreetRemaining = &remaining
 			options.reGreetTotals = &s.reGreetStats
+			options.preparedReplyTarget = &s.flow.target
 			options.actionNow = s.now
 			runtime, ok := s.runtime.(platformcore.ReGreetRuntime)
 			if !ok {
@@ -368,6 +370,7 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 			selected := append([]string{}, s.infoQueue[:count]...)
 			options := s.options
 			options.candidateInfoBatchIDs = selected
+			options.preparedReplyTarget = &s.flow.target
 			remaining := []string{}
 			options.candidateInfoRemaining = &remaining
 			options.actionNow = s.now

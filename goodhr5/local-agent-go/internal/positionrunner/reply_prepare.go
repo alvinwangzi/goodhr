@@ -12,6 +12,25 @@ import (
 	"strings"
 )
 
+// ensureReplyTarget 先只读检查同一消息阶段的岗位；缺失或变化时才完整准备，独立调用保持原流程。
+func ensureReplyTarget(ctx context.Context, runtime platformcore.AutoReplyRuntime, exec platformcore.Executor, name string, prepared *platformcore.ReplyTarget) (platformcore.ReplyTarget, error) {
+	if prepared != nil && prepared.NameUnique && prepared.PositionName == name {
+		if verifier, ok := runtime.(platformcore.ReplyTargetVerifier); ok {
+			matched, err := verifier.CheckReplyTarget(ctx, exec, *prepared)
+			if err != nil {
+				return platformcore.ReplyTarget{}, err
+			}
+			if matched {
+				return *prepared, nil
+			}
+		}
+	}
+	if err := runtime.PrepareReplyPage(ctx, exec); err != nil {
+		return platformcore.ReplyTarget{}, err
+	}
+	return runtime.ResolveReplyTarget(ctx, exec, name)
+}
+
 // prepareReplyFlow 组装同一岗位快照的消息流程；后续切换可复用浏览器并重新核对岗位。
 func (r *Runner) prepareReplyFlow(ctx context.Context, position localdb.Position, options StartOptions, runtime platformcore.AutoReplyRuntime, generator replyGenerator, aiClient *localai.Client, startBrowser bool) (*replyFlow, error) {
 	if startBrowser {

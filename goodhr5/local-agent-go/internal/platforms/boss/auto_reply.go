@@ -24,6 +24,7 @@ var replyConfigJSON []byte
 type replyPageConfig struct {
 	ContactRequests     map[string]contactRequestConfig       `json:"contact_requests"`
 	Jobs                platformcore.SelectorSpec             `json:"jobs"`
+	SelectedJob         platformcore.SelectorSpec             `json:"selected_job"`
 	JobFields           map[string]platformcore.SelectorField `json:"job_fields"`
 	Verified            bool                                  `json:"verified"`
 	UnavailableReason   string                                `json:"unavailable_reason"`
@@ -144,6 +145,27 @@ func (r *Runtime) PrepareReplyPage(ctx context.Context, exec platformcore.Execut
 	return nil
 }
 
+// CheckReplyTarget 使用真实 URL 与可见筛选标签核对已有目标，不以缓存代替当前页面事实。
+func (r *Runtime) CheckReplyTarget(ctx context.Context, exec platformcore.Executor, target platformcore.ReplyTarget) (bool, error) {
+	cfg := r.replyPageSettings()
+	if !target.NameUnique || target.PositionID == "" || len(cfg.SelectedJob.Selectors) == 0 {
+		return false, nil
+	}
+	result, err := exec.Post(ctx, "/api/v1/page/list", map[string]any{})
+	if err != nil {
+		return false, err
+	}
+	current := stringFromMap(currentDefaultPage(mapList(workerData(workerDataMap(result), "pages"))), "url")
+	if strings.TrimRight(current, "/") != strings.TrimRight(cfg.MessagesURL, "/") {
+		return false, nil
+	}
+	fields, err := replyFields(ctx, exec, platformcore.LocatorRequest{Selector: cfg.SelectedJob, Fields: map[string]platformcore.SelectorField{"name": {}}, MaxItems: 2})
+	if err != nil {
+		return false, err
+	}
+	return len(fields) == 1 && strings.TrimSpace(fields[0]["name"]) == strings.TrimSpace(target.PositionID), nil
+}
+
 // ResolveReplyTarget 从经过验证的完整岗位列表匹配唯一名称，不把云端岗位 UUID 当作平台岗位 ID。
 // 先点击岗位下拉容器使其展开，读取选项列表进行匹配，然后点击选中目标岗位以过滤会话列表。
 func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Executor, name string) (platformcore.ReplyTarget, error) {
@@ -192,9 +214,12 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 	}
 	// 点击选中的岗位选项，过滤会话列表。
 	nth := matchIndex
-	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+	_, clickErr := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
 		Selector: platformcore.SelectorSpec{Selectors: cfg.Jobs.Selectors, Nth: &nth},
 	})
+	if clickErr != nil {
+		return platformcore.ReplyTarget{}, fmt.Errorf("选择沟通岗位失败：%w", clickErr)
+	}
 	// 等待会话列表刷新。
 	select {
 	case <-ctx.Done():
@@ -207,9 +232,12 @@ func (r *Runtime) ResolveReplyTarget(ctx context.Context, exec platformcore.Exec
 // readJobOptions 点击展开岗位下拉并读取选项列表，wait 为等待异步渲染的时长。
 func readJobOptions(ctx context.Context, exec platformcore.Executor, cfg replyPageConfig, wait time.Duration) ([]map[string]string, error) {
 	// 点击岗位下拉容器，展开选项列表。
-	_, _ = exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
+	_, clickErr := exec.Post(ctx, "/api/v1/page/click", platformcore.LocatorRequest{
 		Selector: platformcore.SelectorSpec{Selectors: []string{".job-select"}},
 	})
+	if clickErr != nil {
+		return nil, fmt.Errorf("展开沟通岗位下拉失败：%w", clickErr)
+	}
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()

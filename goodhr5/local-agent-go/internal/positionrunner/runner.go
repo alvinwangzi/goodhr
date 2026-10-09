@@ -232,11 +232,12 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 
 // StartOptions 表示本地岗位运行启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
-	PrioritizeReply  bool                         `json:"prioritize_reply"` // 已勾选回复时优先处理已发现消息，默认关闭。
-	reGreetBatch     []cloudapi.ReGreetCandidate  // 当前调度领取的复打名单，不持久化在岗位配置。
-	reGreetRemaining *[]cloudapi.ReGreetCandidate // 批次结束后仍未领取的人。
-	reGreetTotals    *reGreetStats                // 同一运行跨批次保留复打统计。
-	actionNow        func() time.Time             // 可控时钟仅影响调度和联系事实时间，不创建页面并发。
+	PrioritizeReply     bool                         `json:"prioritize_reply"` // 已勾选回复时优先处理已发现消息，默认关闭。
+	reGreetBatch        []cloudapi.ReGreetCandidate  // 当前调度领取的复打名单，不持久化在岗位配置。
+	reGreetRemaining    *[]cloudapi.ReGreetCandidate // 批次结束后仍未领取的人。
+	reGreetTotals       *reGreetStats                // 同一运行跨批次保留复打统计。
+	actionNow           func() time.Time             // 可控时钟仅影响调度和联系事实时间，不创建页面并发。
+	preparedReplyTarget *platformcore.ReplyTarget    // 同一消息阶段的已确认目标，子模块只读复核后复用，不持久化。
 	// scanBoundary 在候选人安全结束后由同一运行协程调用，true 表示列表已变化，需要按记录恢复。
 	scanBoundary           func(context.Context) (bool, error)
 	requestScanRescan      func()    // 追加问候返回时发现锚点变化，在下一安全边界重建扫描队列。

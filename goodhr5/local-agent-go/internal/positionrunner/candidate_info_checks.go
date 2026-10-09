@@ -112,11 +112,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		return
 	}
 	exec := platformExecutor{runner: r, positionID: position.ID, once: true}
-	if err := pageRuntime.PrepareReplyPage(ctx, exec); err != nil {
-		r.positionLog(position.ID, "warning", "索要消息页准备失败："+err.Error())
-		return
-	}
-	target, err := pageRuntime.ResolveReplyTarget(ctx, exec, positionPositionName(position))
+	target, err := ensureReplyTarget(ctx, pageRuntime, exec, positionPositionName(position), options.preparedReplyTarget)
 	if err != nil {
 		r.positionLog(position.ID, "warning", "索要岗位核对失败："+err.Error())
 		return
@@ -202,6 +198,17 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				replied = true
 			}
 		}
+		waitingActions := []string{}
+		if !replied {
+			for _, action := range []string{"phone", "wechat", "resume"} {
+				if item.Actions[action] && wanted[action] && item.Results[action] != "requested" && item.Results[action] != "satisfied" && item.Results[action] != "unknown" && item.Results[action] != "sending" {
+					waitingActions = append(waitingActions, platformcore.CandidateInfoActionLabel(action))
+				}
+			}
+			if len(waitingActions) > 0 {
+				r.positionLog(position.ID, "info", "索要继续等待候选人回复："+item.CandidateName+"，暂未执行："+strings.Join(waitingActions, "、"))
+			}
+		}
 		for _, action := range []string{"phone", "wechat", "resume"} {
 			if !item.Actions[action] || !wanted[action] || item.Results[action] == "requested" || item.Results[action] == "satisfied" {
 				continue
@@ -216,7 +223,6 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				continue // 未确认的历史发送只检查证据，不再点击。
 			}
 			if !replied {
-				r.positionLog(position.ID, "info", "索要继续等待候选人回复："+item.CandidateName)
 				continue
 			}
 			prepared, err := operator.PrepareCandidateInfoRequest(ctx, exec, target, conversation, action)

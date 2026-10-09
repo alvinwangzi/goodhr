@@ -24,6 +24,9 @@
   "active": {
     "selectors": [".chat-conversation"]
   },
+  "selected_job": {
+    "selectors": [".job-select .ui-dropmenu-label"]
+  },
   "selected": {
     "selectors": [".user-list .geek-item.selected"]
   },

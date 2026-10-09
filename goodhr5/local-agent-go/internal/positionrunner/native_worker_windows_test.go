@@ -686,11 +686,15 @@ func runNativeWorkerPosition(t *testing.T, mode string) {
 		}
 		if triple {
 			var details struct {
-				GreetOrder []string `json:"greetOrder"`
+				GreetOrder    []string `json:"greetOrder"`
+				JobSelections int      `json:"jobSelections"`
 			}
 			_ = json.Unmarshal(raw, &details)
 			if checkpoint.Greeted != 3 || len(details.GreetOrder) != 3 {
 				t.Fatalf("扫描计数或打招呼次数错误 %+v %+v", checkpoint, details)
+			}
+			if mode == "triple-job" && details.JobSelections != 2 {
+				t.Fatalf("同一消息阶段重复选择岗位 selections=%d，预期初始化和扫描结束各一次", details.JobSelections)
 			}
 		}
 	}

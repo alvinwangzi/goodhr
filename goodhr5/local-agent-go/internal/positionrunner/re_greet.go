@@ -91,25 +91,29 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		return false
 	}
 
-	r.positionLog(positionID, "info", "复打招呼启动：正在启动浏览器")
-	if _, err := r.worker.Start(ctx); err != nil {
-		r.failStart(positionID, "浏览器启动失败："+err.Error(), options)
-		return false
+	if options.preparedReplyTarget == nil {
+		r.positionLog(positionID, "info", "复打招呼启动：正在启动浏览器")
+		if _, err := r.worker.Start(ctx); err != nil {
+			r.failStart(positionID, "浏览器启动失败："+err.Error(), options)
+			return false
+		}
+		profileName := positionProfileName(position)
+		if _, err := r.worker.CallOnce(ctx, "/api/v1/browser/start", map[string]any{
+			"humanize":       true,
+			"user_data_dir":  filepath.Join(r.profilesDir, profileName),
+			"downloads_path": r.browserDownloadDir(),
+			"no_script":      true,
+		}); err != nil {
+			r.failStart(positionID, "浏览器启动或显示校准失败："+err.Error(), options)
+			return false
+		}
 	}
 	exec := platformExecutor{runner: r, positionID: positionID, once: true}
 	profileName := positionProfileName(position)
-	if _, err := r.worker.CallOnce(ctx, "/api/v1/browser/start", map[string]any{
-		"humanize":       true,
-		"user_data_dir":  filepath.Join(r.profilesDir, profileName),
-		"downloads_path": r.browserDownloadDir(),
-		"no_script":      true,
-	}); err != nil {
-		r.failStart(positionID, "浏览器启动或显示校准失败："+err.Error(), options)
-		return false
-	}
 
 	r.positionLog(positionID, "info", "复打招呼启动：正在打开消息页并核对岗位")
-	if err := pageRuntime.PrepareReplyPage(ctx, exec); err != nil {
+	target, err := ensureReplyTarget(ctx, pageRuntime, exec, positionPositionName(position), options.preparedReplyTarget)
+	if err != nil {
 		r.failStart(positionID, "消息页准备失败："+err.Error(), options)
 		return false
 	}
@@ -125,12 +129,6 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		sendScope = accountScope
 	}
 	r.positionLog(positionID, "info", "复打招呼核对岗位：岗位名="+name)
-	target, err := pageRuntime.ResolveReplyTarget(ctx, exec, name)
-	if err != nil {
-		r.positionLog(positionID, "error", "复打招呼岗位核对失败：岗位名="+name+"，错误="+err.Error())
-		r.failStart(positionID, "页面岗位核对失败："+err.Error(), options)
-		return false
-	}
 	r.positionLog(positionID, "info", "复打招呼岗位核对成功：positionID="+target.PositionID)
 
 	cloudBase := strings.TrimSpace(options.CloudAPIBase)

@@ -4,7 +4,7 @@
 export function combinedChatFixture(options = {}) {
   const initialDirection = options.ready === false ? 'item-myself' : 'item-friend';
   return `<dl><a href="/web/chat/recommend"><span> 推荐牛人 </span><span hidden>推荐入口提示</span></a><a href="/web/chat/index">沟通</a></dl>
-  <div class="job-select"><ul class="ui-dropmenu-list"><li>Go</li></ul></div>
+  <div class="job-select"><span class="ui-dropmenu-label">Go</span><ul class="ui-dropmenu-list"><li onclick="fetch('/fixture/job-select')">Go</li></ul></div>
   <div class="chat-message-filter-left"><span onclick="unread=true;renderRows()">未读</span></div>
   <button class="chat-search-btn" onclick="document.querySelector('.chat-job-search').hidden=false;renderSearch()">搜索</button>
   <div class="chat-job-search" hidden><input class="search-input" oninput="renderSearch()"></div><div class="geek-search-list"><ul></ul></div>
