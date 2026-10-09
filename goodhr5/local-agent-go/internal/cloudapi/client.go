@@ -774,6 +774,11 @@ func (c *Client) safeBaseURL() (string, error) {
 // doJSON 执行请求并解析 JSON 响应。
 // req 为 HTTP 请求，返回响应体和状态码。
 func (c *Client) doJSON(req *http.Request) (map[string]any, int, error) {
+	return c.doJSONPrecision(req, false)
+}
+
+// doJSONPrecision 复用 HTTP 传输，可为计划序号保留整数精度，不改变已有接口的数字类型。
+func (c *Client) doJSONPrecision(req *http.Request, exactNumbers bool) (map[string]any, int, error) {
 	client := c.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
@@ -791,8 +796,16 @@ func (c *Client) doJSON(req *http.Request) (map[string]any, int, error) {
 		return map[string]any{}, resp.StatusCode, nil
 	}
 	payload := map[string]any{}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if exactNumbers {
+		decoder.UseNumber()
+	}
+	if err := decoder.Decode(&payload); err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("云端返回格式不是 JSON")
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return nil, resp.StatusCode, fmt.Errorf("云端返回格式不是单份 JSON")
 	}
 	return payload, resp.StatusCode, nil
 }

@@ -52,7 +52,14 @@ func (s *ExecutionPlanService) ClaimRun(w http.ResponseWriter, r *http.Request) 
 	result, err := s.store.ClaimRun(r.Context(), tenant, email, input)
 	if err != nil {
 		if errors.Is(err, ErrAccountExecutionBusy) || errors.Is(err, ErrAccountExecutionConflict) || errors.Is(err, ErrAccountExecutionReleased) {
-			writeError(w, 409, err.Error())
+			code := "REQUEST_CONFLICT"
+			if errors.Is(err, ErrAccountExecutionBusy) {
+				code = "EXECUTION_BUSY"
+			}
+			if errors.Is(err, ErrAccountExecutionReleased) {
+				code = "LEASE_RELEASED"
+			}
+			writeJSON(w, 409, map[string]any{"ok": false, "error": err.Error(), "error_code": code})
 			return
 		}
 		writePlanStoreError(w, err)

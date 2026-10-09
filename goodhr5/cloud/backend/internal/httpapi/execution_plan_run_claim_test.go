@@ -281,6 +281,21 @@ func TestPlanRunClaimAPI(t *testing.T) {
 	if res := post("/api/execution-plan-runs/claim", other); res.Code != 409 {
 		t.Fatal("重复执行通过", res.Body.String())
 	}
+	secondSaved := post("/api/execution-plans", map[string]any{"machine_id": positionTestMachineID, "expected_version": 0, "config": config})
+	var secondBody struct {
+		Plan ExecutionPlan `json:"plan"`
+	}
+	if secondSaved.Code != 200 || json.Unmarshal(secondSaved.Body.Bytes(), &secondBody) != nil {
+		t.Fatal("第二计划保存失败")
+	}
+	secondArmed := post("/api/execution-plans/"+secondBody.Plan.ID+"/arm", planIntentFixture(t, "arm"))
+	if secondArmed.Code != 200 || json.Unmarshal(secondArmed.Body.Bytes(), &secondBody) != nil {
+		t.Fatal("第二计划启用失败")
+	}
+	competing := post("/api/execution-plan-runs/claim", planRunClaimFixture(t, secondBody.Plan))
+	if competing.Code != 409 || !strings.Contains(competing.Body.String(), "EXECUTION_BUSY") {
+		t.Fatal("账号等待缺少稳定错误码", competing.Body.String())
+	}
 	status := planRunUpdateFixture(t, input, 2, "status", "running")
 	statusPath := "/api/execution-plan-runs/" + input.RunID + "/status"
 	if res := post(statusPath, status); res.Code != 200 || strings.Contains(res.Body.String(), input.Credential) {

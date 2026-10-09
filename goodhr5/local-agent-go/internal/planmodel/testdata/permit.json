@@ -1,0 +1,24 @@
+{
+  "run": {
+    "id": "20000000-0000-0000-0000-000000000001",
+    "plan_id": "10000000-0000-0000-0000-000000000001",
+    "activation_id": "30000000-0000-0000-0000-000000000001",
+    "execution_date": "2026-10-10",
+    "config_version": 1,
+    "sequence": 1,
+    "state": "starting",
+    "current_item": 0,
+    "snapshot": {
+      "name": "HRPlus 测试计划",
+      "schedule": { "cycle": "daily", "timezone": "Asia/Shanghai", "windows": [{"order":0,"start_minute":540,"end_minute":720},{"order":1,"start_minute":810,"end_minute":1200}] },
+      "items": [{"id":"first","position_id":"same-job","order":0,"actions":["auto_reply","re_greet"],"prioritize_reply":true},{"id":"second","position_id":"same-job","order":1,"actions":["greeting"],"prioritize_reply":false}]
+    },
+    "end_reason": "",
+    "owner_id": "40000000-0000-0000-0000-000000000001",
+    "items": [
+      {"id":"50000000-0000-0000-0000-000000000001","item_id":"first","order":0,"snapshot":{"id":"first","position_id":"same-job","order":0,"actions":["auto_reply","re_greet"],"prioritize_reply":true},"state":"pending","actions":{"auto_reply":{"state":"pending","count":0,"unknown_count":0},"re_greet":{"state":"pending","count":0,"unknown_count":0}}},
+      {"id":"50000000-0000-0000-0000-000000000002","item_id":"second","order":1,"snapshot":{"id":"second","position_id":"same-job","order":1,"actions":["greeting"],"prioritize_reply":false},"state":"pending","actions":{"greeting":{"state":"pending","count":0,"unknown_count":0}}}
+    ]
+  },
+  "owner": {"owner_id":"40000000-0000-0000-0000-000000000001","owner_type":"plan","machine_id":"machine-A","state":"starting"}
+}
