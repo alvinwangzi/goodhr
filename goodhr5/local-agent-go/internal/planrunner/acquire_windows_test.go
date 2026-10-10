@@ -226,6 +226,13 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 		case 3:
 			now.Store(time.Date(2026, 10, 10, 4, 0, 1, 0, time.UTC).UnixNano())
 		}
+		// 新调度请求使用不同占用编号，受控许可必须返回该原占用身份。
+		if current, e := db.PlanRunSnapshot(t.Context(), scope, request.RunID); e == nil && current.State == "waiting_window" && current.OwnerID != request.OwnerID {
+			permit.Run = current
+			permit.Run.Sequence++
+			permit.Run.State = "starting"
+		}
+		permit.Run.OwnerID, permit.Owner.OwnerID = request.OwnerID, request.OwnerID
 		result := permit
 		if mode.Load() == 4 {
 			result.Run.State = "draining"
