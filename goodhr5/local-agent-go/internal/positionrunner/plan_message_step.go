@@ -118,6 +118,9 @@ func (p *PlanItemReservation) messageStep(permit planmodel.Permit, snapshot Posi
 		}
 	}
 	if !p.messageStatsRestored {
+		if err = p.messages.restoreMessageState(checkpoint); err != nil {
+			return result, err
+		}
 		// 复用原计数；重新附加或跨窗口恢复不能把上一批累计值写回零。
 		p.messages.replyStats.Checked = checkpoint.ReplyStats["checked"]
 		p.messages.replyStats.Replied = checkpoint.Replied

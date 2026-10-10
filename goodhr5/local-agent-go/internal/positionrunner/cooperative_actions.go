@@ -229,6 +229,10 @@ func (s *actionSession) saveDispatchCheckpoint(ctx context.Context, action actio
 	if action == actiondispatch.Done {
 		checkpoint.NextMessageCheck = time.Time{}
 	}
+	checkpoint.MessageState, err = s.messageState(checkpoint)
+	if err != nil {
+		return err
+	}
 	return s.runner.db.SaveActionCheckpoint(ctx, checkpoint)
 }
 

@@ -44,6 +44,7 @@ type ActionCheckpoint struct {
 	Replied          int              `json:"replied"`
 	ReGreeted        int              `json:"re_greeted"`
 	NextMessageCheck time.Time        `json:"next_message_check"`
+	MessageState     json.RawMessage  `json:"message_state,omitempty"` // 原消息队列及公平性安全快照，不含页面对象和登录配置。
 }
 
 // CandidateIdentity 分开保存两个入口的标识，验证来源必须来自实际直接跳转证据。
