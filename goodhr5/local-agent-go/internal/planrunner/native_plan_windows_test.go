@@ -78,8 +78,14 @@ func TestNativePlanTwoPositions(t *testing.T) {
 // TestNativePlanFourItems 验证两个岗位先扫描后回复，四条任务原归属及消息激活顺序真实保留。
 func TestNativePlanFourItems(t *testing.T) { runNativePlanPositions(t, true) }
 
+// TestNativePlanAcrossWindows 验证实际第一项确认后原窗口结束，下午沿原计数继续第二岗位。
+func TestNativePlanAcrossWindows(t *testing.T) { runNativePlanPositions(t, false, true) }
+
+// TestNativePlanDayIncomplete 验证最后窗口结束只保存实际已完成动作，未开始第二项列入原报告。
+func TestNativePlanDayIncomplete(t *testing.T) { runNativePlanPositions(t, false, true, true) }
+
 // runNativePlanPositions 复用同一隔离原生环境，编排数量只来自原配置，不伪造成功返回。
-func runNativePlanPositions(t *testing.T, messages bool) {
+func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 	if os.Getenv("HRPLUS_M2_NATIVE_PLAN_TEST") != "1" {
 		t.Skip("需要显式启用原生多岗位受控验收")
 	}
@@ -140,7 +146,7 @@ func runNativePlanPositions(t *testing.T, messages bool) {
 		defer ai.Close()
 		t.Setenv("HRPLUS_M2_NATIVE_AI_BASE", ai.URL)
 	}
-	c, plan, claim, authority, _, _ := acquireFixtureWithWorker(t, &atomic.Int32{}, worker, func(p *planmodel.Permit) {
+	c, plan, claim, authority, _, clock := acquireFixtureWithWorker(t, &atomic.Int32{}, worker, func(p *planmodel.Permit) {
 		if messages {
 			for index := 2; index < 4; index++ {
 				config := p.Run.Snapshot.Items[index-2]
@@ -168,9 +174,29 @@ func runNativePlanPositions(t *testing.T, messages bool) {
 			p.Run.Items[index].Actions = map[string]planmodel.ActionProgress{action: {State: "pending"}}
 		}
 	})
+	lastOnly := len(crossWindows) > 1 && crossWindows[1]
+	if lastOnly {
+		clock.Store(time.Date(2026, 10, 10, 5, 30, 0, 0, time.UTC).UnixNano())
+	}
 	held, err := c.Acquire(t.Context(), plan, claim, authority)
 	if err != nil {
 		t.Fatal(err)
+	}
+	cross := len(crossWindows) > 0 && crossWindows[0]
+	if cross {
+		if held.finishAt.Sub(held.window.End) < 3*time.Minute || held.finishAt.Sub(held.window.End) > 6*time.Minute {
+			t.Fatal("原延后收尾不在三至六分钟")
+		}
+		c.now = func() time.Time {
+			raw, _ := os.ReadFile(ledger)
+			var observed struct {
+				Greets []string `json:"greetOrder"`
+			}
+			if json.Unmarshal(raw, &observed) == nil && len(observed.Greets) == 1 {
+				clock.Store(held.finishAt.UnixNano())
+			}
+			return time.Unix(0, clock.Load()).UTC()
+		}
 	}
 	runtime := NewM1ExecutionRuntime(c, held, authority, positionrunner.StartOptions{PageReadyDelay: 1, DetailOpenProbability: 0, EnableGreet: true})
 	defer func() {
@@ -180,6 +206,38 @@ func runNativePlanPositions(t *testing.T, messages bool) {
 		_ = held.Reservation.Release(true)
 	}()
 	result, err := NewExecutionLoop(runtime, authority.OwnerScope, c.now).Run(t.Context(), held.Permit)
+	if lastOnly && err == nil {
+		if result.Run.State != "incomplete" || result.Run.Items[0].Actions["greeting"].Count != 1 || result.Run.Items[1].TaskRunID != "" || held.Reservation.Valid() {
+			t.Fatal("日末结算补造第二任务或丢失真实数量", result.Run)
+		}
+		report, err := c.db.BuildPlanReport(t.Context(), authority.OwnerScope, result.Run, c.now(), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Kind != "day_incomplete" || report.Items[0].Actions["greeting"].Confirmed != 1 || len(report.UnfinishedItemIDs) == 0 {
+			t.Fatal("日末原报告不保留未完成项", report)
+		}
+		return
+	}
+	if cross && err == nil {
+		if result.Run.State != "waiting_window" || result.Run.Items[0].Actions["greeting"].Count != 1 || result.Run.Items[1].TaskRunID != "" || held.Reservation.Valid() {
+			t.Fatal("原生上午未保留原进度或提前开始第二岗位", result.Run)
+		}
+		originalRun, originalTask, originalOwner := result.Run.ID, result.Run.Items[0].TaskRunID, result.Run.OwnerID
+		clock.Store(time.Date(2026, 10, 10, 5, 30, 0, 0, time.UTC).UnixNano())
+		c.now = func() time.Time { return time.Unix(0, clock.Load()).UTC() }
+		claim.OwnerID = "40000000-0000-0000-0000-000000000002"
+		claim.RequestID = "60000000-0000-0000-0000-000000000009"
+		held, err = c.Acquire(t.Context(), plan, claim, authority)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if held.Permit.Run.ID != originalRun || held.Permit.Run.Items[0].TaskRunID != originalTask || held.Permit.Run.Items[0].Actions["greeting"].Count != 1 || held.Permit.Run.OwnerID == originalOwner {
+			t.Fatal("原生下午重新生成原任务或计数", held.Permit.Run)
+		}
+		runtime = NewM1ExecutionRuntime(c, held, authority, positionrunner.StartOptions{PageReadyDelay: 1, EnableGreet: true})
+		result, err = NewExecutionLoop(runtime, authority.OwnerScope, c.now).Run(t.Context(), held.Permit)
+	}
 	if err != nil {
 		for _, selector := range []string{".fixture-menu", ".fixture-item", "body"} {
 			diagnostic, readError := worker.CallOnce(t.Context(), "/api/v1/page/extract-text", map[string]any{"element": map[string]any{"selector": selector}, "timeout": 1000})
