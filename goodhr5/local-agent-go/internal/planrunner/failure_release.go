@@ -7,14 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/planoperations"
 	"time"
 )
 
 // StageFailureRelease 在已停止领取新动作后等待子项实际退出，先持久保存释放再交还本地父占用。
 // 状态上报不明确时沿用原上报序号；准备回执不明确时必须先只读核对云端关联，不能猜测任务或序号。
 func (r *M1ExecutionRuntime) StageFailureRelease(ctx context.Context, state, reason string) (localdb.PlanOperation, error) {
-	if state != "blocked" && state != "stopped" && state != "incomplete" {
+	if state != "blocked" && state != "stopped" && state != "incomplete" && state != "waiting_window" {
 		return localdb.PlanOperation{}, fmt.Errorf("异常收尾状态不正确")
 	}
 	if r.held == nil || r.held.scope == "" || r.held.Reservation == nil {
@@ -122,4 +124,26 @@ func (r *M1ExecutionRuntime) StageFailureRelease(ctx context.Context, state, rea
 		}
 	}
 	return r.coordinator.ReleaseAfterCleanup(cleanup, r.held, run, uuid.NewString(), state, reason, true)
+}
+
+// UseSettlementAuthority 只在旧步骤已退出且子引用交还后接纳同账号新授权，之后不能重新领取页面步骤。
+func (r *M1ExecutionRuntime) UseSettlementAuthority(ctx context.Context, a planoperations.Authority) error {
+	if r.held == nil || r.active != "" || a.OwnerScope != r.held.scope || a.StillCurrent == nil || !a.StillCurrent() {
+		return ErrPlanAuthority
+	}
+	for _, item := range r.items {
+		if item.Reservation != nil && !item.Reservation.CleanupReleased() {
+			return ErrPlanNeedsSettlement
+		}
+	}
+	identity, err := r.coordinator.client.SessionIdentity(ctx, a.Token)
+	if err != nil {
+		return err
+	}
+	if cloudapi.SessionOwnerScope(r.coordinator.client.BaseURL, identity.UserEmail) != r.held.scope || !a.StillCurrent() {
+		return ErrPlanAuthority
+	}
+	r.settling = true
+	r.authority = a
+	return nil
 }

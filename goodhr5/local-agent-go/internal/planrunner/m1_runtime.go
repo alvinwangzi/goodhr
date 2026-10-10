@@ -20,6 +20,7 @@ type M1ExecutionRuntime struct {
 	items       map[string]PreparedItem
 	scanning    map[string]bool
 	active      string
+	settling    bool
 }
 
 // NewM1ExecutionRuntime 创建真实计划适配器，后台触发仍由计划服务管理。
@@ -37,6 +38,9 @@ func (r *M1ExecutionRuntime) GoString() string { return r.String() }
 
 // check 在领取任何页面步骤之前核对原父预留和当前授权。
 func (r *M1ExecutionRuntime) check() error {
+	if r.settling {
+		return ErrPlanNeedsSettlement
+	}
 	if r.coordinator == nil || r.held == nil || r.held.Reservation == nil || !r.held.Reservation.Valid() || r.authority.StillCurrent == nil || !r.authority.StillCurrent() || r.authority.OwnerScope != r.held.scope {
 		return ErrPlanAuthority
 	}

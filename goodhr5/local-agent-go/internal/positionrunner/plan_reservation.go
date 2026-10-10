@@ -54,6 +54,13 @@ func (p *PlanBrowserReservation) Valid() bool {
 	return !p.released && p.runner.browserLease == p.lease && p.ctx.Err() == nil
 }
 
+// CleanupReleased 只证明原引用实际完成释放，取消上下文不能代替页面收尾。
+func (p *PlanBrowserReservation) CleanupReleased() bool {
+	p.runner.mu.Lock()
+	defer p.runner.mu.Unlock()
+	return p.released
+}
+
 // Release 只有明确完成页面清理才能释放；迟到旧句柄或重复释放不会清除新的预留。
 func (p *PlanBrowserReservation) Release(cleanupConfirmed bool) error {
 	p.stepMu.Lock()

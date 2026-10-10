@@ -47,6 +47,10 @@ type Server struct {
 	planUploadCancel        context.CancelFunc
 	planUploadEpoch         uint64
 	planUploadWake          chan struct{}
+	planExecutionWake       chan struct{}
+	planExecutionMu         sync.Mutex
+	activePlanExecution     *planExecution
+	planNow                 func() time.Time
 	cfg                     *config.Config
 	runtime                 *runtime.Manager
 	worker                  *browser.WorkerManager
@@ -66,13 +70,14 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	workerManager := browser.NewWorkerManager(runtimeManager)
 	ocrEngine := ocr.New(cfg)
 	return &Server{
-		planUploadWake: make(chan struct{}, 1),
-		cfg:            cfg,
-		runtime:        runtimeManager,
-		worker:         workerManager,
-		ocr:            ocrEngine,
-		db:             db,
-		runner:         positionrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase, cfg.DevScanLimit),
+		planUploadWake:    make(chan struct{}, 1),
+		planExecutionWake: make(chan struct{}, 1),
+		cfg:               cfg,
+		runtime:           runtimeManager,
+		worker:            workerManager,
+		ocr:               ocrEngine,
+		db:                db,
+		runner:            positionrunner.New(db, workerManager, ocrEngine, cfg.ProfilesDir, cfg.DownloadsDir, cfg.ScreenshotsDir, audioDir(cfg), cfg.CloudAPIBase, cfg.DevScanLimit),
 	}, nil
 }
 
@@ -126,11 +131,13 @@ func (s *Server) Run() error {
 	log.Printf("HRPlus Local Agent started on http://%s", net.JoinHostPort(s.cfg.Host, strconv.Itoa(port)))
 	s.openConsoleAfterStart(port)
 	background, stopBackground := context.WithCancel(context.Background())
-	uploadDone, restoreDone := make(chan struct{}), make(chan struct{})
+	uploadDone, restoreDone, executionDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() { defer close(uploadDone); s.runPlanUploads(background) }()
+	go func() { defer close(executionDone); s.runPlanExecutions(background) }()
 	go func() { defer close(restoreDone); s.restoreProtectedSession(background) }()
 	defer func() {
 		stopBackground()
+		<-executionDone
 		<-uploadDone
 		<-restoreDone
 		s.runner.ClearReGreetUploadSession()
@@ -248,7 +255,12 @@ func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "缺少登录令牌，请重新登录后再试")
 		return
 	}
-	sessionVersion := s.beginProtectedSessionChange()
+	// 同一令牌的网页重新绑定仍核对云端，但不取消正在执行的后台计划。
+	existingSession, sessionVersion := s.currentPlanSession()
+	retainSession := existingSession != nil && existingSession.Token == token && existingSession.CloudBase == strings.TrimRight(s.cfg.CloudAPIBase, "/")
+	if !retainSession {
+		sessionVersion = s.beginProtectedSessionChange()
+	}
 	machineID, err := s.ensureMachineID()
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, fmt.Sprintf("生成设备编号失败：%v", err))
@@ -286,12 +298,34 @@ func (s *Server) handleSessionBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if statusCode >= 400 {
+		if retainSession && statusCode == http.StatusUnauthorized {
+			s.invalidateExpiredPlanSession(sessionVersion, existingSession)
+		}
 		response.Error(w, http.StatusBadGateway, cloudapi.ErrorMessage(resp, "设备绑定失败"))
 		return
 	}
 	identity, ownerErr := client.SessionIdentity(r.Context(), token)
 	if ownerErr != nil {
+		var expired cloudapi.AuthExpiredError
+		if retainSession && errors.As(ownerErr, &expired) {
+			s.invalidateExpiredPlanSession(sessionVersion, existingSession)
+		}
 		response.Error(w, http.StatusBadGateway, "设备已绑定，但账号核对未完成，请重试："+ownerErr.Error())
+		return
+	}
+	if retainSession {
+		if identity.UserEmail != existingSession.UserEmail || identity.TenantID != existingSession.TenantID || machineID != existingSession.MachineID {
+			s.invalidateExpiredPlanSession(sessionVersion, existingSession)
+			response.Error(w, http.StatusConflict, "登录账号或设备已变化，请重新登录")
+			return
+		}
+		if !s.planAuthority(existingSession, sessionVersion).StillCurrent() {
+			response.Error(w, http.StatusConflict, "登录连接已变化，请重试")
+			return
+		}
+		s.signalPlanUploads()
+		s.signalPlanExecutions()
+		response.Success(w, resp)
 		return
 	}
 	if err := s.commitProtectedSession(r.Context(), sessionVersion, protectedsession.Session{CloudBase: strings.TrimRight(s.cfg.CloudAPIBase, "/"), UserEmail: identity.UserEmail, TenantID: identity.TenantID, MachineID: machineID, Token: token}); err != nil {

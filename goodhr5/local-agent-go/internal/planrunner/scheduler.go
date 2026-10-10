@@ -152,6 +152,7 @@ func (s *Scheduler) AcquireNext(ctx context.Context, plans []planmodel.Plan, mac
 		if err := s.coordinator.db.TransitionPlanRequest(ctx, a.OwnerScope, request.RequestID, "waiting", "running"); err != nil {
 			return result, err
 		}
+		result.Request.State = "running"
 		return result, nil
 	}
 	return nil, nil
@@ -161,7 +162,7 @@ func (s *Scheduler) AcquireNext(ctx context.Context, plans []planmodel.Plan, mac
 func (s *Scheduler) ConfirmFinished(ctx context.Context, execution *ScheduledExecution) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if execution == nil || execution.Held == nil || execution.Held.Reservation != nil && execution.Held.Reservation.Valid() {
+	if execution == nil || execution.Held == nil || execution.Held.Reservation != nil && !execution.Held.Reservation.CleanupReleased() {
 		return fmt.Errorf("原计划尚未释放本地执行权")
 	}
 	run, err := s.coordinator.db.PlanRunSnapshot(ctx, execution.Request.OwnerScope, execution.Held.Permit.Run.ID)
@@ -171,5 +172,5 @@ func (s *Scheduler) ConfirmFinished(ctx context.Context, execution *ScheduledExe
 	if run.OwnerID != execution.Held.Permit.Run.OwnerID || (run.State != "waiting_window" && run.State != "completed" && run.State != "incomplete" && run.State != "stopped" && run.State != "blocked") {
 		return ErrPlanNeedsSettlement
 	}
-	return s.coordinator.db.TransitionPlanRequest(ctx, execution.Request.OwnerScope, execution.Request.RequestID, "running", "done")
+	return s.coordinator.db.TransitionPlanRequest(ctx, execution.Request.OwnerScope, execution.Request.RequestID, execution.Request.State, "done")
 }

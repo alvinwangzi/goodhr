@@ -41,6 +41,48 @@ func protectedSessionFixture(t *testing.T) (*Server, *httptest.Server, protected
 	return s, cloud, value, &expired
 }
 
+// TestRepeatedSessionBindPreservesPlan 验证网页以同一已核对令牌重新绑定，不取消原计划或改写登录代次。
+func TestRepeatedSessionBindPreservesPlan(t *testing.T) {
+	s, _, value, _ := protectedSessionFixture(t)
+	s.restoreProtectedSession(t.Context())
+	identity, version := s.currentPlanSession()
+	a := s.planAuthority(identity, version)
+	parent, err := s.runner.ReservePlanBrowser(t.Context(), "20000000-0000-0000-0000-000000000099")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Release(true)
+	body, _ := json.Marshal(map[string]any{"token": value.Token})
+	recorder := httptest.NewRecorder()
+	s.handleSessionBind(recorder, httptest.NewRequest("POST", "/api/v1/session/bind", strings.NewReader(string(body))))
+	if recorder.Code != http.StatusOK || !a.StillCurrent() || !parent.Valid() {
+		t.Fatal("同一登录重新绑定停止了原计划", recorder.Code)
+	}
+	current, currentVersion := s.currentPlanSession()
+	if current != identity || currentVersion != version {
+		t.Fatal("重复绑定改变了原授权代次")
+	}
+}
+
+// TestCancelledPlanIsNotReleased 验证取消上下文不能作为执行权实际释放的证明。
+func TestCancelledPlanIsNotReleased(t *testing.T) {
+	s, _, _, _ := protectedSessionFixture(t)
+	parent, err := s.runner.ReservePlanBrowser(t.Context(), "20000000-0000-0000-0000-000000000099")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.runner.StopAll("测试取消原计划")
+	if parent.Valid() || parent.CleanupReleased() {
+		t.Fatal("取消被误认为实际释放")
+	}
+	if err := parent.Release(true); err != nil {
+		t.Fatal(err)
+	}
+	if !parent.CleanupReleased() {
+		t.Fatal("实际释放未保存证明")
+	}
+}
+
 // TestProtectedSessionRestore 验证恢复必须通过云端核对，过期凭证和错误云端地址不能变成已登录。
 func TestProtectedSessionRestore(t *testing.T) {
 	s, _, value, expired := protectedSessionFixture(t)

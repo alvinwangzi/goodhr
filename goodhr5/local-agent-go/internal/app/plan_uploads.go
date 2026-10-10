@@ -98,13 +98,17 @@ func (s *Server) processPlanUploads(parent context.Context, store *planoperation
 			return sentAny, nil
 		}
 		sentAny = true
+		s.signalPlanExecutions()
 	}
 	return sentAny, nil
 }
 
 // invalidateExpiredPlanSession 只撤销仍对应原代次的过期授权，不让迟到错误影响新登录用户。
 func (s *Server) invalidateExpiredPlanSession(sequence uint64, expected *protectedsession.Session) {
-	s.sessionOpMu.Lock()
+	// 登录切换正在等待页面收尾时，不能在后台等待同一把锁并阻断收尾；下一轮会重试或旧代次已失效。
+	if !s.sessionOpMu.TryLock() {
+		return
+	}
 	defer s.sessionOpMu.Unlock()
 	s.sessionMu.Lock()
 	if s.sessionVersion != sequence || s.sessionCurrent != expected {
@@ -122,4 +126,5 @@ func (s *Server) invalidateExpiredPlanSession(sequence uint64, expected *protect
 	}
 	s.runner.ClearReGreetUploadSession()
 	s.runner.StopAll("登录状态已失效，停止原账号任务")
+	s.signalPlanExecutions()
 }

@@ -62,6 +62,13 @@ func (p *PlanItemReservation) Valid() bool {
 	return !p.released && r.browserLease == p.parent.lease && r.running[p.positionID] == p.state && p.ctx.Err() == nil
 }
 
+// CleanupReleased 只证明原子项已交还引用，取消或安全挂起不能冒充清理完成。
+func (p *PlanItemReservation) CleanupReleased() bool {
+	p.parent.runner.mu.Lock()
+	defer p.parent.runner.mu.Unlock()
+	return p.released
+}
+
 // ReleaseAfterCleanup 只交还当前子项引用，未关详情或缺少明确收尾确认时继续持有；不发送云端独立结束。
 func (p *PlanItemReservation) ReleaseAfterCleanup(cleanupConfirmed bool) error {
 	p.parent.stepMu.Lock()

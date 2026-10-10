@@ -25,6 +25,7 @@ func (s *Server) beginProtectedSessionChange() uint64 {
 	if cancel != nil {
 		cancel()
 	}
+	s.signalPlanExecutions()
 	return sequence
 }
 
@@ -62,6 +63,7 @@ func (s *Server) commitProtectedSession(ctx context.Context, sequence uint64, va
 	s.sessionBlocked = false
 	s.runner.BindReGreetUploadSession(value.Token, positionrunner.CloudOwnerScope(value.CloudBase, value.UserEmail), value.CloudBase)
 	s.signalPlanUploads()
+	s.signalPlanExecutions()
 	return nil
 }
 
@@ -118,6 +120,7 @@ func (s *Server) handleSessionUnbind(w http.ResponseWriter, r *http.Request) {
 	s.runner.ClearReGreetUploadSession()
 	err := protectedsession.New(s.cfg.DataDir).Clear()
 	s.runner.StopAll("用户退出登录，停止原用户任务")
+	s.signalPlanExecutions()
 	if err != nil && !os.IsNotExist(err) {
 		response.Error(w, 500, "受保护会话清除失败，请重试")
 		return

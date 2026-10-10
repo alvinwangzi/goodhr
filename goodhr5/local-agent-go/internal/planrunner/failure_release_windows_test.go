@@ -120,6 +120,12 @@ func TestFailureReleaseReadsUnknownPreparation(t *testing.T) {
 		t.Fatal("未核对关联就释放", err)
 	}
 	current.Store(true)
+	if err := runtime.UseSettlementAuthority(t.Context(), a); err != nil {
+		t.Fatal("同账号收尾授权不能核对", err)
+	}
+	if _, err := runtime.Boundary(t.Context(), held.Permit); !errors.Is(err, ErrPlanNeedsSettlement) {
+		t.Fatal("收尾授权重新开放页面步骤", err)
+	}
 	op, err := runtime.StageFailureRelease(t.Context(), "blocked", "plan_prepare_failed")
 	if err != nil {
 		t.Fatal(err)
