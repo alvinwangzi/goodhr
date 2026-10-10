@@ -10,6 +10,7 @@ import (
 
 // ExecutionPlanRuntimeSnapshot 保留同一读取边界的配置和执行事实，不含凭证或页面信息。
 type ExecutionPlanRuntimeSnapshot struct {
+	LegacyBusy   bool                   `json:"legacy_busy,omitempty"`
 	Waits        []ExecutionPlanWait    `json:"waits"`
 	Plan         ExecutionPlan          `json:"plan"`
 	Runs         []ExecutionPlanRun     `json:"runs"`
@@ -59,6 +60,26 @@ func (s *MemoryExecutionPlanStore) RuntimeSnapshot(ctx context.Context, tenant, 
 		if owner, exists := s.positions.accountOwners[email]; exists {
 			copy := owner
 			value.AccountOwner = &copy
+		}
+		if value.AccountOwner == nil {
+			if s.taskRuns != nil {
+				s.taskRuns.mu.Lock()
+				defer s.taskRuns.mu.Unlock()
+			}
+			for _, position := range s.positions.positions {
+				if position.UserEmail != email || position.Status != "running" {
+					continue
+				}
+				value.LegacyBusy = true
+				if s.taskRuns != nil {
+					for _, task := range s.taskRuns.runs {
+						if task.UserEmail == email && task.PositionID == position.ID && (task.Status == "running" || task.Status == "starting") {
+							value.AccountOwner = &AccountExecutionOwner{OwnerID: task.ID, OwnerType: "manual", MachineID: task.MachineID, State: task.Status}
+							break
+						}
+					}
+				}
+			}
 		}
 	}
 	return value, nil
@@ -122,6 +143,11 @@ func (s *PostgresExecutionPlanStore) RuntimeSnapshot(ctx context.Context, tenant
 		value.AccountOwner = &owner
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return value, err
+	}
+	if value.AccountOwner == nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM positions p JOIN users u ON u.id=p.user_id WHERE u.email=$1 AND p.status='running')`, email).Scan(&value.LegacyBusy); err != nil {
+			return value, err
+		}
 	}
 	return value, tx.Commit()
 }

@@ -254,15 +254,15 @@ func (s *Server) positionRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/status") {
-		s.positionExecution.SyncStatus(w, r)
+		s.executionPlans.notifyLegacyPositionMutation(s.positionExecution.SyncStatus)(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/start") {
-		s.positionExecution.Start(w, r)
+		s.executionPlans.notifyLegacyPositionMutation(s.positionExecution.Start)(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/stop") {
-		s.positionExecution.Stop(w, r)
+		s.executionPlans.notifyLegacyPositionMutation(s.positionExecution.Stop)(w, r)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/candidates") {

@@ -130,7 +130,7 @@ func buildPlanRuntimeView(snapshot ExecutionPlanRuntimeSnapshot, now time.Time) 
 		view.WaitReason = "no_future_window"
 	} else if !now.Before(*view.NominalAt) {
 		view.WaitReason = "waiting_start"
-		if snapshot.AccountOwner != nil {
+		if snapshot.AccountOwner != nil || snapshot.LegacyBusy {
 			view.WaitReason = "account_busy"
 		}
 	}
