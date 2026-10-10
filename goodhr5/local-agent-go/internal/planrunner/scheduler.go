@@ -100,6 +100,9 @@ func (s *Scheduler) AcquireNext(ctx context.Context, plans []planmodel.Plan, mac
 		}
 		byID[plan.ID] = plan
 	}
+	if _, err := s.coordinator.db.RepairReleasedPlanQueue(ctx, a.OwnerScope); err != nil {
+		return nil, err
+	}
 	waiting, err := s.coordinator.db.WaitingPlanRequests(ctx, a.OwnerScope)
 	if err != nil {
 		return nil, err

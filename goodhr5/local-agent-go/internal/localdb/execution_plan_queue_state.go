@@ -42,7 +42,28 @@ func (db *DB) TransitionPlanRequest(ctx context.Context, scope, request, from, t
 		return err
 	}
 	if n != 1 {
+		if to == "done" {
+			var state string
+			if err := db.conn.QueryRowContext(ctx, `SELECT state FROM plan_waiting_requests WHERE owner_scope=? AND request_id=?`, scope, request).Scan(&state); err == nil && state == "done" {
+				return nil
+			}
+		}
 		return ErrPlanSnapshotStale
 	}
 	return nil
+}
+
+// RepairReleasedPlanQueue 用原领取和已确认释放的同占用证据结算旧队列，不根据时间、离线或当前快照猜测。
+func (db *DB) RepairReleasedPlanQueue(ctx context.Context, scope string) (int64, error) {
+	if scope == "" {
+		return 0, ErrPlanRequestConflict
+	}
+	result, err := db.conn.ExecContext(ctx, `UPDATE plan_waiting_requests SET state='done' WHERE owner_scope=? AND state IN ('waiting','running') AND EXISTS (
+ SELECT 1 FROM plan_operations claim JOIN plan_operations released ON released.owner_scope=claim.owner_scope AND released.run_id=claim.run_id AND released.owner_id=claim.owner_id AND released.plan_id=claim.plan_id
+ WHERE claim.owner_scope=plan_waiting_requests.owner_scope AND claim.request_id=plan_waiting_requests.request_id AND claim.plan_id=plan_waiting_requests.plan_id AND claim.kind='claim' AND released.kind='release' AND released.state='confirmed'
+)`, scope)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

@@ -104,6 +104,11 @@ func (s *Server) processPlanUploads(parent context.Context, store *planoperation
 			return sentAny, nil
 		}
 		sentAny = true
+		if authority.StillCurrent() {
+			if _, err := s.db.RepairReleasedPlanQueue(ctx, authority.OwnerScope); err != nil {
+				return sentAny, err
+			}
+		}
 		s.signalPlanExecutions()
 	}
 	return sentAny, nil
