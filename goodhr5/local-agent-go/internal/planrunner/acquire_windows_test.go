@@ -127,7 +127,23 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 				current.Items[i].State, current.Items[i].Actions = item.State, item.Actions
 			}
 			finished := time.Date(2026, 10, 10, 1, 1, 0, 0, time.UTC)
+			if input.State != "waiting_window" && input.State != "completed" {
+				for i := range current.Items {
+					if current.Items[i].State == "pending" || current.Items[i].State == "running" {
+						current.Items[i].State = "stopped"
+					}
+					for action, progress := range current.Items[i].Actions {
+						if progress.State == "active" {
+							progress.State = "stopped"
+							current.Items[i].Actions[action] = progress
+						}
+					}
+				}
+			}
 			current.FinishedAt = &finished
+			if input.State == "waiting_window" {
+				current.FinishedAt = nil
+			}
 			owner := permit.Owner
 			owner.State = "released"
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": planmodel.Permit{Run: current, Owner: owner}})

@@ -27,6 +27,7 @@ func (e SafeItemFailure) Unwrap() error { return e.Cause }
 
 // ExecutionRuntime 是父计划实际运行入口，页面与持久上报分别复用既有 M1 和原请求实现。
 type ExecutionRuntime interface {
+	Boundary(context.Context, planmodel.Permit) (string, error)
 	Prepare(context.Context, planmodel.Permit) (planmodel.Permit, error)
 	Scan(context.Context, planmodel.Permit) (positionrunner.PlanScanStep, error)
 	Message(context.Context, planmodel.Permit, MessageChoice) (positionrunner.PlanMessageStep, error)
@@ -88,6 +89,16 @@ func (l *ExecutionLoop) Run(ctx context.Context, permit planmodel.Permit) (planm
 	for {
 		if err := ctx.Err(); err != nil {
 			return permit, err
+		}
+		state, err := l.runtime.Boundary(ctx, permit)
+		if err != nil {
+			return permit, err
+		}
+		if state != "" {
+			if state != "waiting_window" && state != "incomplete" {
+				return permit, fmt.Errorf("计划窗口返回未知收尾状态")
+			}
+			return l.runtime.Finish(ctx, permit.Run, state)
 		}
 		if permit.Run.CurrentItem < len(permit.Run.Items) {
 			item := permit.Run.Items[permit.Run.CurrentItem]

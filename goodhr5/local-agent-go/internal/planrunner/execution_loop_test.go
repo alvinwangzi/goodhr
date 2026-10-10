@@ -18,6 +18,11 @@ type loopRuntimeFixture struct {
 	safeScanFailure bool
 }
 
+// Boundary 为不涉及时间窗口的流程夹具保留执行资格。
+func (f *loopRuntimeFixture) Boundary(context.Context, planmodel.Permit) (string, error) {
+	return "", nil
+}
+
 // Prepare 为原项产生固定任务记录，已有记录保持原编号。
 func (f *loopRuntimeFixture) Prepare(_ context.Context, p planmodel.Permit) (planmodel.Permit, error) {
 	if p.Run.Items[p.Run.CurrentItem].TaskRunID != "" {

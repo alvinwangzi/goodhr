@@ -3,13 +3,16 @@ package planrunner
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/planclock"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"goodhr5/local-agent-go/internal/planoperations"
 	"goodhr5/local-agent-go/internal/positionrunner"
+	"math/big"
 	"time"
 )
 
@@ -24,6 +27,7 @@ type Coordinator struct {
 	client   *cloudapi.Client
 	requests *planoperations.Store
 	now      func() time.Time
+	grace    func() time.Duration
 }
 
 // New 创建计划领取协调器，传入时钟便于精确验证名义结束边界。
@@ -31,7 +35,16 @@ func New(db *localdb.DB, runner *positionrunner.Runner, client *cloudapi.Client,
 	if now == nil {
 		now = time.Now
 	}
-	return &Coordinator{db: db, runner: runner, client: client, requests: planoperations.New(db), now: now}
+	return &Coordinator{db: db, runner: runner, client: client, requests: planoperations.New(db), now: now, grace: sampleWindowGrace}
+}
+
+// sampleWindowGrace 使用系统随机源抽样三至六分钟；随机源失败由持久化校验拒绝启动。
+func sampleWindowGrace() time.Duration {
+	n, err := rand.Int(rand.Reader, big.NewInt(181))
+	if err != nil {
+		return 0
+	}
+	return 3*time.Minute + time.Duration(n.Int64())*time.Second
 }
 
 // Acquired 同时持有当前本地预留和已核对的原云端许可，后续仍需招聘账号及页面准备确认。
@@ -41,6 +54,9 @@ type Acquired struct {
 	canPrepare     func() bool
 	scope          string
 	claimRequestID string
+	window         planclock.Interval
+	finishAt       time.Time
+	lastWindow     bool
 }
 
 // CanPrepare 确认本进程仍有预留、原登录有效且在名义时段内，不把已收到许可当作永久页面授权。
@@ -97,6 +113,24 @@ func (c *Coordinator) Acquire(ctx context.Context, plan planmodel.Plan, input cl
 	if err = c.checkWindow(plan, input); err != nil {
 		return nil, err
 	}
+	window, err := plan.Config.Schedule.Current(c.now())
+	if err != nil || window == nil {
+		return nil, ErrOutsidePlanWindow
+	}
+	configuredWindow := plan.Config.Schedule.Windows[window.Order]
+	delay, err := c.db.PlanWindowGrace(ctx, scope, plan.ID, window.Date, configuredWindow.StartMinute, configuredWindow.EndMinute, c.grace)
+	if err != nil {
+		return nil, err
+	}
+	finishAt, err := window.FinishAt(delay)
+	if err != nil {
+		return nil, err
+	}
+	intervals, err := plan.Config.Schedule.OnDate(window.Start)
+	if err != nil {
+		return nil, err
+	}
+	lastWindow := window.Order == intervals[len(intervals)-1].Order
 	reservation, err := c.runner.ReservePlanBrowser(ctx, input.RunID)
 	if err != nil {
 		return nil, err
@@ -158,6 +192,7 @@ func (c *Coordinator) Acquire(ctx context.Context, plan planmodel.Plan, input cl
 	}
 	accepted = true
 	result := &Acquired{Reservation: reservation, Permit: permit, scope: scope, claimRequestID: input.RequestID}
+	result.window, result.finishAt, result.lastWindow = *window, finishAt, lastWindow
 	result.canPrepare = func() bool { return reservation.Valid() && a.StillCurrent() && c.checkWindow(plan, original) == nil }
 	return result, nil
 }

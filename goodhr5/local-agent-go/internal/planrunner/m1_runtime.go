@@ -43,6 +43,44 @@ func (r *M1ExecutionRuntime) check() error {
 	return nil
 }
 
+// Boundary 仅在安全步骤之间检查原窗口；延后期间不准备下一项，到期收尾保留当日游标。
+func (r *M1ExecutionRuntime) Boundary(ctx context.Context, p planmodel.Permit) (string, error) {
+	if err := r.check(); err != nil {
+		return "", err
+	}
+	if r.held.finishAt.IsZero() || r.held.window.End.IsZero() {
+		return "", fmt.Errorf("原计划窗口收尾时间缺失")
+	}
+	for {
+		now := r.coordinator.now()
+		if !now.Before(r.held.finishAt) {
+			if r.held.lastWindow {
+				return "incomplete", nil
+			}
+			return "waiting_window", nil
+		}
+		pending := p.Run.CurrentItem < len(p.Run.Items) && p.Run.Items[p.Run.CurrentItem].State == "pending"
+		if now.Before(r.held.window.End) || !pending {
+			return "", nil
+		}
+		// 原主项已经完成但下一项尚未开始，不借随机延后开启新岗位，也不忙循环。
+		delay := r.held.finishAt.Sub(now)
+		if delay > 5*time.Second {
+			delay = 5 * time.Second
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+		if err := r.check(); err != nil {
+			return "", err
+		}
+	}
+}
+
 // Prepare 调用原任务准备和 M1 配置链，同项在本次运行中准备过则复用。
 func (r *M1ExecutionRuntime) Prepare(ctx context.Context, p planmodel.Permit) (planmodel.Permit, error) {
 	if err := r.check(); err != nil {
@@ -248,7 +286,11 @@ func (r *M1ExecutionRuntime) Finish(ctx context.Context, run planmodel.Run, stat
 	}
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
-	op, err := r.coordinator.ReleaseAfterCleanup(cleanup, r.held, run, uuid.NewString(), state, "plan_work_finished", true)
+	reason := "plan_work_finished"
+	if state == "waiting_window" || state == "incomplete" && !r.coordinator.now().Before(r.held.finishAt) {
+		reason = "plan_window_ended"
+	}
+	op, err := r.coordinator.ReleaseAfterCleanup(cleanup, r.held, run, uuid.NewString(), state, reason, true)
 	if err != nil {
 		return planmodel.Permit{}, err
 	}
