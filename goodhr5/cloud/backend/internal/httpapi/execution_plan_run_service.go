@@ -71,6 +71,10 @@ func (s *ExecutionPlanService) ClaimRun(w http.ResponseWriter, r *http.Request) 
 // Run 提供运行快照、递增状态与收尾释放；释放不因设备重新绑定而跳过占用凭证核对。
 func (s *ExecutionPlanService) Run(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/execution-plan-runs/"), "/")
+	if len(parts) == 2 && parts[1] == "report" && executionPlanUUID.MatchString(parts[0]) {
+		s.Report(w, r, parts[0])
+		return
+	}
 	if len(parts) == 4 && parts[1] == "items" && parts[3] == "prepare" && executionPlanUUID.MatchString(parts[0]) && executionPlanUUID.MatchString(parts[2]) {
 		s.PrepareItem(w, r, parts[0], parts[2])
 		return
