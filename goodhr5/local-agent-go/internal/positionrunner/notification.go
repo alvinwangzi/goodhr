@@ -163,6 +163,9 @@ func positionBrowserViewport() (int, int) {
 // sendPositionFailNotification 通知云端岗位运行失败，由云端按岗位运行 ID 查用户并发邮件。
 // ctx 为请求上下文，positionID 为岗位运行 ID，errorMsg 为失败原因，options 为本次岗位运行启动参数。
 func (r *Runner) sendPositionFailNotification(ctx context.Context, positionID string, errorMsg string, options StartOptions) {
+	if options.PlanRunID != "" {
+		return // 计划统一生成日末或结束报告，避免子批次重复通知。
+	}
 	baseURL := strings.TrimSpace(options.CloudAPIBase)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(r.cloudAPIBase)
@@ -193,6 +196,9 @@ func (r *Runner) notifyCloudPositionCompleted(positionID string, options StartOp
 // syncCloudPositionStatus 同步云端岗位运行状态。
 // positionID 为云端岗位运行 ID，status 为云端状态，label 为岗位运行日志前缀。
 func (r *Runner) syncCloudPositionStatus(positionID string, status string, label string, options StartOptions) {
+	if options.PlanRunID != "" {
+		return // 子项不能通过旧岗位结束入口释放或覆盖父计划执行状态。
+	}
 	token := strings.TrimSpace(options.Token)
 	if token == "" {
 		if status == "completed" {

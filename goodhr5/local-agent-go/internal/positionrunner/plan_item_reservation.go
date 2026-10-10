@@ -11,11 +11,14 @@ import (
 
 // PlanItemReservation 绑定当前执行项状态句柄，旧句柄不能清除后来同岗位的新执行项。
 type PlanItemReservation struct {
-	parent     *PlanBrowserReservation
-	positionID string
-	state      *runState
-	ctx        context.Context
-	released   bool
+	parent               *PlanBrowserReservation
+	positionID           string
+	state                *runState
+	ctx                  context.Context
+	released             bool
+	messages             *actionSession // 同一项跨批次保留队列、计数和公平性，不复制 M1 消息动作。
+	ownerID              string         // 由原云端准备许可绑定，裸借用引用不能授权页面动作。
+	messageStatsRestored bool
 }
 
 // BorrowItem 只允许已持久保存的原执行项继承父占用；尚未取得 TaskRun 或正在收尾时不能附加。
@@ -58,6 +61,8 @@ func (p *PlanItemReservation) Valid() bool {
 
 // ReleaseAfterCleanup 只交还当前子项引用，未关详情或缺少明确收尾确认时继续持有；不发送云端独立结束。
 func (p *PlanItemReservation) ReleaseAfterCleanup(cleanupConfirmed bool) error {
+	p.parent.stepMu.Lock()
+	defer p.parent.stepMu.Unlock()
 	if !cleanupConfirmed {
 		return ErrPlanBrowserCleanup
 	}

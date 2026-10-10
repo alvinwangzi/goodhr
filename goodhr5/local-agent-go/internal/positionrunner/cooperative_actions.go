@@ -49,6 +49,7 @@ type actionSession struct {
 	infoQueue         []string
 	handledInfo       map[string]bool
 	greetingRemaining bool
+	lastBatch         actiondispatch.Action
 }
 
 // newActionSession 复用原回复准备和岗位快照，三种动作不会再次发起独立岗位启动。
@@ -270,6 +271,12 @@ func (s *actionSession) returnRecommendation(ctx context.Context) error {
 
 // service 在当前工作间交替执行有限批次，停止后不再领取新会话，无工作时立即结束。
 func (s *actionSession) service(ctx context.Context, greetingRemaining bool, forceCheck bool) (bool, error) {
+	return s.serviceBounded(ctx, greetingRemaining, forceCheck, false)
+}
+
+// serviceBounded 复用 M1 动作实现，计划调用只执行一批消息后交回主调度，独立岗位保持原循环。
+func (s *actionSession) serviceBounded(ctx context.Context, greetingRemaining bool, forceCheck bool, singleBatch bool) (bool, error) {
+	s.lastBatch = ""
 	s.greetingRemaining = greetingRemaining
 	if forceCheck {
 		s.scheduler.NextCheck = time.Time{}
@@ -292,6 +299,7 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 				return false, err
 			}
 		case actiondispatch.Reply:
+			s.lastBatch = action
 			if err := s.enterMessages(ctx); err != nil {
 				return false, err
 			}
@@ -314,6 +322,7 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 				return false, err
 			}
 		case actiondispatch.ReGreet:
+			s.lastBatch = action
 			if err := s.enterMessages(ctx); err != nil {
 				return false, err
 			}
@@ -363,6 +372,7 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 				return false, err
 			}
 		case actiondispatch.CandidateInfo:
+			s.lastBatch = action
 			if err := s.enterMessages(ctx); err != nil {
 				return false, err
 			}
@@ -403,7 +413,11 @@ func (s *actionSession) service(ctx context.Context, greetingRemaining bool, for
 			s.needsRescan = false
 			return rescan, nil
 		case actiondispatch.Done:
+			s.lastBatch = action
 			return false, s.saveDispatchCheckpoint(ctx, action)
+		}
+		if singleBatch && (action == actiondispatch.Reply || action == actiondispatch.ReGreet || action == actiondispatch.CandidateInfo) {
+			return false, nil
 		}
 	}
 }

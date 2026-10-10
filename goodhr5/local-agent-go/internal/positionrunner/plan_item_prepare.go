@@ -84,5 +84,8 @@ func (r *Runner) BeginPlanItem(ctx context.Context, parent *PlanBrowserReservati
 		return nil, PositionRuntimeSnapshot{}, fmt.Errorf("检查点保存后父计划许可已失效")
 	}
 	child, err := parent.BorrowItem(ownerScope, item.ID, snapshot.Options)
+	if child != nil {
+		child.ownerID = permit.Owner.OwnerID
+	}
 	return child, snapshot, err
 }

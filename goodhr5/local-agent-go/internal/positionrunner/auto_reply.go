@@ -802,6 +802,9 @@ func (r *Runner) finishAutoReply(positionID string, options StartOptions, stats 
 
 // notifyCloudAutoReplyStatus 以自动回复任务类型同步云端终态，回复不计入打招呼数量。
 func (r *Runner) notifyCloudAutoReplyStatus(positionID string, options StartOptions, status string, stats platformcore.ReplyStats) {
+	if options.PlanRunID != "" {
+		return // 原计划占用由父流程结算，回复子批次不能独立结束岗位。
+	}
 	if strings.TrimSpace(options.Token) == "" {
 		return
 	}

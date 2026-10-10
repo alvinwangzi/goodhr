@@ -102,6 +102,7 @@ type browserLease struct {
 
 // runState 保存单个运行岗位运行的控制句柄。
 type runState struct {
+	planActionError           error  // 计划子动作的失败交由父流程结算，不调用独立岗位失败通知。
 	expectedPlatformAccountID string // 仅在当前进程持有真实账号 ID，页面动作前核对，检查点只存摘要。
 	expectedAccountPlatform   string // 账号证明所属平台，页面核对由对应平台实现。
 	lease                     *browserLease

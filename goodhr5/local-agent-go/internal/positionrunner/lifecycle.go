@@ -593,6 +593,14 @@ func (r *Runner) waitUntilStopped(positionID string, timeout time.Duration) bool
 // positionID 为岗位运行 ID，msg 为失败原因，options 为本次岗位运行启动参数。
 func (r *Runner) failStart(positionID string, msg string, options StartOptions) {
 	r.positionLog(positionID, "error", "岗位运行失败：环节=岗位运行运行，错误="+msg)
+	if options.PlanRunID != "" {
+		r.mu.Lock()
+		if state := r.running[positionID]; state != nil && state.options.PlanRunID == options.PlanRunID && state.options.ItemRunID == options.ItemRunID {
+			state.planActionError = errors.New(msg)
+		}
+		r.mu.Unlock()
+		return // 父计划仍持有页面；子动作失败由父流程报告和安全收尾。
+	}
 	_, _ = r.db.UpdatePositionStatus(positionID, "failed")
 	// 自动播放失败提示音（如果岗位运行开启了提示音）
 	if position, err := r.db.GetPosition(positionID); err == nil && position.EnableSound {

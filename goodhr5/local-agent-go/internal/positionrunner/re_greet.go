@@ -553,6 +553,9 @@ func (r *Runner) updateReGreetStats(positionID string, stats reGreetStats) {
 
 // notifyCloudReGreetStatus 把复打招呼的阶段性状态同步到云端，便于跨客户端查看。
 func (r *Runner) notifyCloudReGreetStatus(positionID string, options StartOptions, status string, stats reGreetStats) {
+	if options.PlanRunID != "" {
+		return // 计划项通过父运行状态接口结算，不能使用独立岗位结束入口。
+	}
 	if options.Token == "" || options.CloudAPIBase == "" {
 		return
 	}

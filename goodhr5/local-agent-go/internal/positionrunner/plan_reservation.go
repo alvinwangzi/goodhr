@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"goodhr5/local-agent-go/internal/planmodel"
+	"sync"
 )
 
 var ErrPlanBrowserBusy = errors.New("本地有任务正在执行或收尾，请等待")
@@ -12,6 +13,7 @@ var ErrPlanBrowserCleanup = errors.New("计划尚未完成页面收尾，不能�
 
 // PlanBrowserReservation 是父计划的进程内预留证明，不能序列化为重启后的启动许可。
 type PlanBrowserReservation struct {
+	stepMu   sync.Mutex // 父计划动作和收尾串行，不能在消息批次仍执行时交还子引用。
 	runner   *Runner
 	lease    *browserLease
 	ctx      context.Context
@@ -53,6 +55,8 @@ func (p *PlanBrowserReservation) Valid() bool {
 
 // Release 只有明确完成页面清理才能释放；迟到旧句柄或重复释放不会清除新的预留。
 func (p *PlanBrowserReservation) Release(cleanupConfirmed bool) error {
+	p.stepMu.Lock()
+	defer p.stepMu.Unlock()
 	if !cleanupConfirmed {
 		return ErrPlanBrowserCleanup
 	}
