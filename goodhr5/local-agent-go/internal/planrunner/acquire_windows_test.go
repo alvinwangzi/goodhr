@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
@@ -15,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,6 +24,11 @@ import (
 
 // acquireFixture 提供真实数据库、共享执行权和只返回虚构许可的隔离云端。
 func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmodel.Permit)) (*Coordinator, planmodel.Plan, cloudapi.PlanClaimRequest, planoperations.Authority, *atomic.Int32, *atomic.Int64) {
+	return acquireFixtureWithWorker(t, mode, nil, configure...)
+}
+
+// acquireFixtureWithWorker 注入受控页面 Worker，真实 M1 适配联调仍使用同一数据库和预留对象。
+func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionrunner.BrowserWorker, configure ...func(*planmodel.Permit)) (*Coordinator, planmodel.Plan, cloudapi.PlanClaimRequest, planoperations.Authority, *atomic.Int32, *atomic.Int64) {
 	t.Helper()
 	cfg := &config.Config{DataDir: t.TempDir()}
 	db, err := localdb.Open(cfg)
@@ -40,7 +47,7 @@ func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmod
 	for _, apply := range configure {
 		apply(&permit)
 	}
-	runner := positionrunner.New(db, nil, nil, cfg.DataDir, cfg.DataDir, cfg.DataDir, cfg.DataDir, "", 0)
+	runner := positionrunner.New(db, worker, nil, cfg.DataDir, cfg.DataDir, cfg.DataDir, cfg.DataDir, "", 0)
 	now := &atomic.Int64{}
 	now.Store(time.Date(2026, 10, 10, 1, 0, 0, 0, time.UTC).UnixNano())
 	claims := &atomic.Int32{}
@@ -53,7 +60,7 @@ func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmod
 		var configuration any
 		switch r.URL.Path {
 		case "/api/positions/same-job":
-			configuration = map[string]any{"position": map[string]any{"id": "same-job", "name": "fixture", "platform_id": "boss", "common_config": map[string]any{"mode_default": "keyword", "detail_mode": "keyword"}}}
+			configuration = map[string]any{"position": map[string]any{"id": "same-job", "name": "fixture", "platform_id": "boss", "match_limit": 1, "keywords": []string{"本科"}, "common_config": map[string]any{"mode_default": "keyword", "detail_mode": "keyword"}}}
 		case "/api/subscription/status":
 			configuration = map[string]any{"subscription": map[string]any{"active": true}}
 		case "/api/config/user-preferences":
@@ -62,6 +69,10 @@ func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmod
 			configuration = map[string]any{"configs": []map[string]any{{"config_key": "platform.boss", "config_value": `{"id":"boss","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]}}`}}}
 		}
 		if configuration != nil {
+			if r.URL.Path == "/api/platforms/config/" {
+				body, _ := json.Marshal(map[string]any{"id": "boss", "auth": map[string]any{"pages": []any{map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true}}}, "position": map[string]any{"current": map[string]any{"selector": ".fixture-job"}}})
+				configuration = map[string]any{"configs": []map[string]any{{"config_key": "platform.boss", "config_value": string(body)}}}
+			}
 			_ = json.NewEncoder(w).Encode(configuration)
 			return
 		}
@@ -100,7 +111,39 @@ func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmod
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": planmodel.Permit{Run: current, Owner: owner}})
 			return
 		}
-		if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/items/"+permit.Run.Items[0].ID+"/prepare" {
+		if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/release" {
+			var input cloudapi.PlanRunUpdateRequest
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			current, err := db.PlanRunSnapshot(t.Context(), scope, permit.Run.ID)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			current.Sequence, current.State, current.CurrentItem = input.Sequence, input.State, input.CurrentItem
+			for i, item := range input.Items {
+				current.Items[i].State, current.Items[i].Actions = item.State, item.Actions
+			}
+			finished := time.Date(2026, 10, 10, 1, 1, 0, 0, time.UTC)
+			current.FinishedAt = &finished
+			owner := permit.Owner
+			owner.State = "released"
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": planmodel.Permit{Run: current, Owner: owner}})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/positions/") && !strings.HasSuffix(r.URL.Path, "/status") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			return
+		}
+		prepareIndex := -1
+		for i, item := range permit.Run.Items {
+			if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/items/"+item.ID+"/prepare" {
+				prepareIndex = i
+			}
+		}
+		if prepareIndex >= 0 {
 			var input cloudapi.PlanItemTaskRequest
 			if e := json.NewDecoder(r.Body).Decode(&input); e != nil {
 				t.Error(e)
@@ -117,11 +160,20 @@ func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmod
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 				return
 			}
-			var result planmodel.Permit
-			raw, _ := json.Marshal(permit)
-			_ = json.Unmarshal(raw, &result)
-			result.Run.Sequence++
-			result.Run.Items[0].TaskRunID = "70000000-0000-0000-0000-000000000001"
+			current, e := db.PlanRunSnapshot(t.Context(), scope, permit.Run.ID)
+			if e != nil {
+				t.Error(e)
+				w.WriteHeader(500)
+				return
+			}
+			result := planmodel.Permit{Run: current, Owner: permit.Owner}
+			if current.State == "running" {
+				result.Owner.State = "running"
+			}
+			if result.Run.Items[prepareIndex].TaskRunID == "" {
+				result.Run.Sequence++
+				result.Run.Items[prepareIndex].TaskRunID = fmt.Sprintf("70000000-0000-0000-0000-%012d", prepareIndex+1)
+			}
 			if mode.Load() == 3 {
 				now.Store(time.Date(2026, 10, 10, 4, 0, 1, 0, time.UTC).UnixNano())
 			}

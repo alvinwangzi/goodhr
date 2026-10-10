@@ -91,6 +91,23 @@ func (l *ExecutionLoop) Run(ctx context.Context, permit planmodel.Permit) (planm
 		}
 		if permit.Run.CurrentItem < len(permit.Run.Items) {
 			item := permit.Run.Items[permit.Run.CurrentItem]
+			if item.State == "running" {
+				prepared, err := l.runtime.Prepare(ctx, permit)
+				if err != nil {
+					return permit, err
+				}
+				permit = prepared
+				if permit.Run.State == "starting" {
+					next, err := cloneLoopRun(permit.Run)
+					if err != nil {
+						return permit, err
+					}
+					permit, err = l.save(ctx, permit, next)
+					if err != nil {
+						return permit, err
+					}
+				}
+			}
 			if item.State == "pending" {
 				prepared, err := l.runtime.Prepare(ctx, permit)
 				if err != nil {
