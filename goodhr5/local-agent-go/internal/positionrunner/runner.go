@@ -169,6 +169,7 @@ type platformExecutor struct {
 	runner     *Runner
 	positionID string
 	once       bool // 自动回复等发送类动作只允许一次调用，不做网络重试
+	noOverlay  bool // 计划后台预评分仅处理数据，不能跨安全边界操作当前页面浮层。
 }
 
 // Post 调用浏览器 Worker。

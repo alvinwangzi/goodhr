@@ -19,6 +19,8 @@ type PlanItemReservation struct {
 	messages             *actionSession // 同一项跨批次保留队列、计数和公平性，不复制 M1 消息动作。
 	ownerID              string         // 由原云端准备许可绑定，裸借用引用不能授权页面动作。
 	messageStatsRestored bool
+	scan                 *planScanSession
+	suspended            bool
 }
 
 // BorrowItem 只允许已持久保存的原执行项继承父占用；尚未取得 TaskRun 或正在收尾时不能附加。
@@ -36,7 +38,8 @@ func (p *PlanBrowserReservation) BorrowItem(ownerScope, itemRunID string, option
 	r := p.runner
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if p.released || r.browserLease != p.lease || p.ctx.Err() != nil || p.lease.refs != 1 || len(r.running) != 0 {
+	canBorrow := p.lease.refs == 1 || (p.suspended != nil && p.lease.refs == 2)
+	if p.released || r.browserLease != p.lease || p.ctx.Err() != nil || !canBorrow || len(r.running) != 0 {
 		return nil, ErrPlanBrowserBusy
 	}
 	options.PlanRunID, options.ItemRunID, options.LocalRunID = checkpoint.PlanRunID, checkpoint.ItemRunID, checkpoint.RunID
@@ -67,19 +70,65 @@ func (p *PlanItemReservation) ReleaseAfterCleanup(cleanupConfirmed bool) error {
 		return ErrPlanBrowserCleanup
 	}
 	r := p.parent.runner
+	if p.scan != nil && !p.scan.finished {
+		p.state.cancel()
+		for !p.scan.finished {
+			frame := <-p.scan.frames
+			p.scan.finished = frame.Done
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if p.released {
 		return nil
 	}
-	if r.browserLease != p.parent.lease || r.running[p.positionID] != p.state || p.state.pendingDetailClose != nil {
+	owned := r.running[p.positionID] == p.state || (p.suspended && p.parent.suspended == p)
+	if r.browserLease != p.parent.lease || !owned || p.state.pendingDetailClose != nil {
 		return ErrPlanBrowserCleanup
 	}
 	p.state.cancel()
 	close(p.state.done)
-	delete(r.running, p.positionID)
-	delete(r.userStopped, p.positionID)
+	if p.suspended {
+		p.parent.suspended = nil
+		p.suspended = false
+	} else {
+		delete(r.running, p.positionID)
+		delete(r.userStopped, p.positionID)
+	}
 	r.releaseBrowserLocked(p.state.lease)
 	p.released = true
+	return nil
+}
+
+// SuspendAtBoundary 只在已关闭详情和保存结果的暂停点让出当前角色，不取消扫描协程或释放父占用。
+func (p *PlanItemReservation) SuspendAtBoundary() error {
+	p.parent.stepMu.Lock()
+	defer p.parent.stepMu.Unlock()
+	r := p.parent.runner
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if p.released || p.ctx.Err() != nil || r.running[p.positionID] != p.state || p.parent.suspended != nil || p.scan == nil || p.scan.finished || !p.scan.paused || p.state.pendingDetailClose != nil {
+		return ErrPlanBrowserCleanup
+	}
+	delete(r.running, p.positionID)
+	p.suspended = true
+	p.parent.suspended = p
+	p.scan.pageChanged = true
+	return nil
+}
+
+// ResumeAtBoundary 等其他消息角色完成收尾后恢复原状态句柄，原数量、账号核对和候选人队列继续保留。
+func (p *PlanItemReservation) ResumeAtBoundary() error {
+	p.parent.stepMu.Lock()
+	defer p.parent.stepMu.Unlock()
+	r := p.parent.runner
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if p.released || p.ctx.Err() != nil || !p.suspended || p.parent.suspended != p || r.browserLease != p.parent.lease || p.parent.lease.refs != 2 || len(r.running) != 0 {
+		return ErrPlanBrowserCleanup
+	}
+	r.running[p.positionID] = p.state
+	p.parent.suspended = nil
+	p.suspended = false
 	return nil
 }

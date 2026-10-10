@@ -60,7 +60,7 @@ func (r *Runner) startCandidateDetailWorkers(ctx context.Context, position local
 					resultCh <- item
 					continue
 				}
-				showOverlay := item.Index == 0
+				showOverlay := item.Index == 0 && !exec.noOverlay
 				title := ""
 				subtitle := ""
 				if showOverlay {

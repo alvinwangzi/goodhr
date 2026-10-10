@@ -59,6 +59,9 @@ func (p *PlanItemReservation) MessageStep(permit planmodel.Permit, snapshot Posi
 	if err != nil {
 		return result, err
 	}
+	if checkpoint.PlanRunID != p.state.options.PlanRunID || checkpoint.ItemRunID != result.ItemRunID || checkpoint.CloudRunID != result.TaskRunID {
+		return result, fmt.Errorf("消息检查点原归属已变化")
+	}
 	if snapshot.Position.ID != p.positionID || !reflect.DeepEqual(snapshot.Position.PositionSnapshot, checkpoint.PositionSnapshot) {
 		return result, fmt.Errorf("消息动作岗位快照与原检查点不匹配")
 	}
@@ -66,9 +69,16 @@ func (p *PlanItemReservation) MessageStep(permit planmodel.Permit, snapshot Posi
 	options.TaskType = strings.Join(active, ",")
 	options.PrioritizeReply = options.PrioritizeReply && hasTaskType(active, "auto_reply")
 	if p.messages == nil {
+		if p.scan != nil && !p.scan.finished && p.scan.resumer == nil {
+			return result, fmt.Errorf("当前平台不支持扫描间隙的推荐进度恢复")
+		}
 		p.messages, err = p.parent.runner.newActionSession(p.ctx, snapshot.Position, options, snapshot)
 		if err != nil {
 			return result, err
+		}
+		if p.scan != nil && !p.scan.finished {
+			p.messages.cursor = p.scan.cursor
+			p.messages.resumer = p.scan.resumer
 		}
 	}
 	if !p.messageStatsRestored {

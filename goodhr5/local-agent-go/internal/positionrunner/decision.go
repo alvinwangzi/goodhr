@@ -16,7 +16,7 @@ import (
 // aiClientForCall 返回本次 AI 调用使用的客户端和清理函数。
 // title 和 subtitle 为空时不会画浏览器浮层；找不到浏览器时也不会影响 AI 请求。
 func (r *Runner) aiClientForCall(ctx context.Context, exec platformExecutor, client *localai.Client, title string, subtitle string, message string) (*localai.Client, func()) {
-	if client == nil {
+	if client == nil || exec.noOverlay {
 		return client, func() {}
 	}
 	title = strings.TrimSpace(title)

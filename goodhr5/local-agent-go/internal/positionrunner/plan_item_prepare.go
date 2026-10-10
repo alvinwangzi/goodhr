@@ -48,6 +48,7 @@ func (r *Runner) BeginPlanItem(ctx context.Context, parent *PlanBrowserReservati
 		return nil, PositionRuntimeSnapshot{}, fmt.Errorf("岗位配置与原执行项不匹配")
 	}
 	options.TaskType = strings.Join(item.Snapshot.Actions, ",")
+	options.EnableGreet = hasTaskType(item.Snapshot.Actions, "greeting")
 	options.PrioritizeReply = item.Snapshot.PrioritizeReply
 	options.PlanRunID, options.ItemRunID, options.CloudRunID = permit.Run.ID, item.ID, item.TaskRunID
 	if hasTaskType(item.Snapshot.Actions, "auto_reply") || hasTaskType(item.Snapshot.Actions, "re_greet") {

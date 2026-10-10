@@ -237,36 +237,47 @@ func (s *actionSession) returnRecommendation(ctx context.Context) error {
 	if s.onRecommendation {
 		return nil
 	}
-	if err := s.resumer.ReturnToRecommendation(ctx, s.flow.exec); err != nil {
-		return err
-	}
-	current, err := s.runtime.CurrentPositionName(ctx, s.flow.exec, s.snapshot.PlatformConfig)
+	matched, err := restoreRecommendationCursor(ctx, s.runner, s.position, s.snapshot.PlatformConfig, s.runtime, s.resumer, s.flow.exec, s.cursor)
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(normalizePositionName(current), normalizePositionName(positionPositionName(s.position))) {
-		if err := s.runtime.SelectPosition(ctx, s.flow.exec, s.snapshot.PlatformConfig, positionPositionName(s.position)); err != nil {
-			return err
-		}
-		s.cursor.Valid = false
-		s.cursor.Reason = "position_changed"
+	if !matched {
+		s.needsRescan = true
 	}
-	matched, reason, err := s.resumer.CheckRecommendationCursor(ctx, s.flow.exec, s.cursor)
+	s.onRecommendation = true
+	return s.saveDispatchCheckpoint(ctx, actiondispatch.Greeting)
+}
+
+// restoreRecommendationCursor 复用 M1 菜单、岗位和三个局部锚点核对，原位置变化时才真实回滚。
+func restoreRecommendationCursor(ctx context.Context, runner *Runner, position localdb.Position, config cloudapi.PlatformConfig, runtime platformcore.Runtime, resumer platformcore.RecommendationResumer, exec platformcore.Executor, cursor platformcore.RecommendationCursor) (bool, error) {
+	if err := resumer.ReturnToRecommendation(ctx, exec); err != nil {
+		return false, err
+	}
+	current, err := runtime.CurrentPositionName(ctx, exec, config)
+	if err != nil {
+		return false, err
+	}
+	if !strings.Contains(normalizePositionName(current), normalizePositionName(positionPositionName(position))) {
+		if err := runtime.SelectPosition(ctx, exec, config, positionPositionName(position)); err != nil {
+			return false, err
+		}
+		cursor.Valid = false
+		cursor.Reason = "position_changed"
+	}
+	matched, reason, err := resumer.CheckRecommendationCursor(ctx, exec, cursor)
 	if err != nil {
 		matched = false
 		reason = "anchor_read_failed"
 	}
 	if matched {
-		s.runner.positionLog(s.position.ID, "info", "resume_anchor_match：局部锚点匹配，保留队列和本次数量继续")
+		runner.positionLog(position.ID, "info", "resume_anchor_match：局部锚点匹配，保留队列和本次数量继续")
 	} else {
-		if err := s.resumer.RewindRecommendation(ctx, s.flow.exec); err != nil {
-			return err
+		if err := resumer.RewindRecommendation(ctx, exec); err != nil {
+			return false, err
 		}
-		s.needsRescan = true
-		s.runner.positionLog(s.position.ID, "info", "resume_rescan：按本次记录恢复，原因="+reason)
+		runner.positionLog(position.ID, "info", "resume_rescan：按本次记录恢复，原因="+reason)
 	}
-	s.onRecommendation = true
-	return s.saveDispatchCheckpoint(ctx, actiondispatch.Greeting)
+	return matched, nil
 }
 
 // service 在当前工作间交替执行有限批次，停止后不再领取新会话，无工作时立即结束。

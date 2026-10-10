@@ -82,6 +82,30 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 	queue := make([]map[string]any, 0)
 	totalResult := batchProcessResult{}
 	persistedResult := batchProcessResult{}
+	if options.PlanRunID != "" {
+		checkpoint, err := r.db.LoadActionCheckpoint(ctx, options.LocalRunID)
+		if err != nil {
+			return nil, err
+		}
+		if checkpoint.PlanRunID != options.PlanRunID || checkpoint.ItemRunID != options.ItemRunID || checkpoint.CloudRunID != options.CloudRunID || checkpoint.PositionID != position.ID {
+			return nil, fmt.Errorf("计划扫描检查点与原执行项不匹配")
+		}
+		totalResult = batchProcessResult{Scanned: checkpoint.Scanned, Greeted: checkpoint.Greeted, Skipped: checkpoint.Skipped, Failed: checkpoint.Failed}
+		persistedResult = totalResult // 恢复数量只用于本项上限，不重复累计岗位统计。
+		states, err := r.db.ActionCandidateStates(ctx, options.LocalRunID, position.ID)
+		if err != nil {
+			return nil, err
+		}
+		for id, state := range states {
+			readSeen[id] = struct{}{}
+			if state == "completed" || state == "skipped" {
+				seen[id] = struct{}{}
+			}
+		}
+		for _, candidate := range checkpoint.Queue {
+			readSeen[stringFromMap(candidate, "id")] = struct{}{}
+		}
+	}
 	// flushPositionCounts 只保存尚未落库的增量；重复调用不会重复累计。
 	flushPositionCounts := func(syncCtx context.Context) {
 		nextPersisted, persistErr := r.persistPositionCountProgress(syncCtx, position, totalResult, persistedResult, options)
@@ -240,6 +264,24 @@ scanLoop:
 			}
 		}
 		flushPositionCounts(ctx)
+		if options.PlanRunID != "" && len(filtered) == 0 && skipped > 0 && options.scanBoundary != nil {
+			rescan, err := options.scanBoundary(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if rescan {
+				ids, err := r.db.ActionCompletedIDs(ctx, options.LocalRunID, position.ID)
+				if err != nil {
+					return nil, err
+				}
+				seen = map[string]struct{}{}
+				for _, id := range ids {
+					seen[id] = struct{}{}
+				}
+				emptyLoads = 0
+				continue scanLoop
+			}
+		}
 		r.positionLog(position.ID, "info", fmt.Sprintf("列表过滤：完成，保留=%d，跳过=%d", len(filtered), skipped))
 		if skipped > 0 {
 			r.positionLog(position.ID, "info", fmt.Sprintf("列表过滤：有 %d 个候选人已跳过", skipped))
@@ -262,7 +304,9 @@ scanLoop:
 			if needsAI {
 				workerCount := candidatePipelineConcurrency(len(filtered))
 				r.positionLog(position.ID, "info", fmt.Sprintf("AI 预判断：开始并发分析，数量=%d，并发数=%d", len(filtered), workerCount))
-				r.startCandidateDetailWorkers(pipelineCtx, position, exec, aiClient, aiJobs, precheckCh, workerCount)
+				precheckExec := exec
+				precheckExec.noOverlay = options.PlanRunID != ""
+				r.startCandidateDetailWorkers(pipelineCtx, position, precheckExec, aiClient, aiJobs, precheckCh, workerCount)
 			}
 			go r.feedCandidatePipeline(pipelineCtx, position, filtered, needsAI, aiJobs, precheckCh)
 
@@ -483,15 +527,13 @@ scanLoop:
 					}
 					if rescan {
 						pipelineCancel()
-						states, stateErr := r.db.ActionCandidateStates(ctx, options.LocalRunID, position.ID)
+						ids, stateErr := r.db.ActionCompletedIDs(ctx, options.LocalRunID, position.ID)
 						if stateErr != nil {
 							return nil, stateErr
 						}
 						seen = map[string]struct{}{}
-						for id, state := range states {
-							if state == "completed" || state == "skipped" {
-								seen[id] = struct{}{}
-							}
+						for _, id := range ids {
+							seen[id] = struct{}{}
 						}
 						queue = nil
 						emptyLoads = 0

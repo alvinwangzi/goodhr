@@ -13,11 +13,12 @@ var ErrPlanBrowserCleanup = errors.New("计划尚未完成页面收尾，不能�
 
 // PlanBrowserReservation 是父计划的进程内预留证明，不能序列化为重启后的启动许可。
 type PlanBrowserReservation struct {
-	stepMu   sync.Mutex // 父计划动作和收尾串行，不能在消息批次仍执行时交还子引用。
-	runner   *Runner
-	lease    *browserLease
-	ctx      context.Context
-	released bool
+	stepMu    sync.Mutex // 父计划动作和收尾串行，不能在消息批次仍执行时交还子引用。
+	runner    *Runner
+	lease     *browserLease
+	ctx       context.Context
+	released  bool
+	suspended *PlanItemReservation // 安全边界挂起的唯一主扫描，仍保留自身引用。
 }
 
 // ReservePlanBrowser 与手动启动及已有收尾任务共用同一锁，预留成功前不能申请云端开始。
