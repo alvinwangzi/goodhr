@@ -50,7 +50,21 @@ func (s *PostgresAgentStore) ListBindings(email string) ([]AgentBinding, error) 
 
 // ListBindings 开发包装也只返回实际保存的绑定，不伪造设备列表。
 func (s *permissiveAgentStore) ListBindings(email string) ([]AgentBinding, error) {
-	return s.inner.ListBindings(email)
+	stored, err := s.inner.ListBindings(email)
+	if err != nil {
+		return nil, err
+	}
+	items := []AgentBinding{}
+	seen := map[string]bool{}
+	for _, binding := range stored {
+		physical, ok := physicalDevelopmentBinding(binding)
+		if !ok || seen[physical.MachineID] {
+			continue
+		}
+		seen[physical.MachineID] = true
+		items = append(items, physical)
+	}
+	return items, nil
 }
 
 // Bindings 返回当前登录账号全部有效绑定，输出只含选择电脑所需信息。

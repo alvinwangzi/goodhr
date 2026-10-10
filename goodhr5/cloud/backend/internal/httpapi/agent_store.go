@@ -178,10 +178,18 @@ func (s *permissiveAgentStore) SaveBinding(binding AgentBinding) (AgentBinding, 
 	}
 	var conflict *AgentBindingConflictError
 	if errors.As(err, &conflict) {
-		// 冲突时追加唯一后缀绕过设备占用检测，让当前账号也能绑定成功。
+		// 开发模式使用可还原且绑定原账号的内部键，保持对外物理编号和重复绑定一致。
 		unique := binding
-		unique.MachineID = fmt.Sprintf("%sdev-%d", stableAgentMachineIDPrefix, time.Now().UnixNano())
-		return s.inner.SaveBinding(unique)
+		unique.MachineID = developmentBindingKey(binding.UserEmail, binding.MachineID)
+		result, err := s.inner.SaveBinding(unique)
+		if err != nil {
+			return AgentBinding{}, err
+		}
+		physical, ok := physicalDevelopmentBinding(result)
+		if !ok {
+			return AgentBinding{}, errors.New("开发绑定编号无法核对，请重新连接本地程序")
+		}
+		return physical, nil
 	}
 	return result, err
 }
@@ -191,9 +199,16 @@ func (s *permissiveAgentStore) HasActiveBinding(userEmail string, machineID stri
 	return true, nil
 }
 
-// CurrentBinding 透传到内层存储。
+// CurrentBinding 返回最近可核对的物理设备，未知旧替代编号需重新绑定。
 func (s *permissiveAgentStore) CurrentBinding(userEmail string) (AgentBinding, error) {
-	return s.inner.CurrentBinding(userEmail)
+	items, err := s.ListBindings(userEmail)
+	if err != nil {
+		return AgentBinding{}, err
+	}
+	if len(items) == 0 {
+		return AgentBinding{}, ErrNotFound
+	}
+	return items[0], nil
 }
 
 // DisableBindings 透传到内层存储。
