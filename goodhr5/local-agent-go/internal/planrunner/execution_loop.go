@@ -69,14 +69,33 @@ func cloneLoopRun(run planmodel.Run) (planmodel.Run, error) {
 func (l *ExecutionLoop) save(ctx context.Context, current planmodel.Permit, next planmodel.Run) (planmodel.Permit, error) {
 	next.Sequence = current.Run.Sequence + 1
 	next.State = "running"
-	result, err := l.runtime.Save(ctx, next)
+	var result planmodel.Permit
+	var err error
+	atomic, canAtomic := l.runtime.(AtomicMessageStateRuntime)
+	if canAtomic && l.messageStateLoaded {
+		if err = l.services.Sync(next, l.runtime.Platform); err != nil {
+			return current, err
+		}
+		raw, encodeErr := l.services.Snapshot()
+		if encodeErr != nil {
+			return current, encodeErr
+		}
+		result, err = atomic.SaveMessageProgress(ctx, next, raw)
+	} else {
+		result, err = l.runtime.Save(ctx, next)
+	}
 	if err != nil {
 		return current, err
 	}
 	if result.Run.ID != next.ID || result.Run.OwnerID != next.OwnerID || result.Run.Sequence != next.Sequence || result.Run.CurrentItem != next.CurrentItem || result.Run.State != "running" {
 		return current, fmt.Errorf("计划步骤没有得到原运行进度确认")
 	}
-	if durable, ok := l.runtime.(MessageStateRuntime); ok && l.messageStateLoaded {
+	if canAtomic && l.messageStateLoaded {
+		if err := l.services.ConfirmProgress(result.Run, l.runtime.Platform); err != nil {
+			return result, err
+		}
+	}
+	if durable, ok := l.runtime.(MessageStateRuntime); ok && l.messageStateLoaded && !canAtomic {
 		if err := l.services.Sync(result.Run, l.runtime.Platform); err != nil {
 			return result, err
 		}

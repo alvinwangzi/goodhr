@@ -10,7 +10,7 @@ import (
 )
 
 // ConfirmPlanOperationSnapshot 核对原请求身份和摘要后原子保存回执；已有较新运行时仅确认旧回执。
-func (db *DB) ConfirmPlanOperationSnapshot(ctx context.Context, scope, requestID, hash string, run planmodel.Run) error {
+func (db *DB) ConfirmPlanOperationSnapshot(ctx context.Context, scope, requestID, hash string, run planmodel.Run, dispatch ...[]byte) error {
 	if err := run.Validate(); err != nil {
 		return err
 	}
@@ -49,6 +49,17 @@ func (db *DB) ConfirmPlanOperationSnapshot(ctx context.Context, scope, requestID
 	if !newer {
 		if err = savePlanRunSnapshotTx(ctx, tx, scope, run); err != nil {
 			return err
+		}
+		if len(dispatch) > 1 {
+			return ErrPlanRequestConflict
+		}
+		if len(dispatch) == 1 && len(dispatch[0]) > 0 {
+			if op.Kind != "status" {
+				return ErrPlanRequestConflict
+			}
+			if err = saveConfirmedDispatchTx(ctx, tx, scope, run, dispatch[0]); err != nil {
+				return err
+			}
 		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE plan_operations SET state='confirmed' WHERE owner_scope=? AND request_id=? AND body_hash=?`, scope, requestID, hash)

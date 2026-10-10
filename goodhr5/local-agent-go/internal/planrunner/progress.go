@@ -14,7 +14,7 @@ import (
 
 // PersistProgress 先加密保存本次原状态，再发送；不明确响应保留原编号，调用方不能据此推进下一岗位。
 // next 是步骤已发生的事实，规范开始时间与停止结果仍以云端明确回执为准。
-func (c *Coordinator) PersistProgress(ctx context.Context, held *Acquired, next planmodel.Run, requestID string, a planoperations.Authority) (planmodel.Permit, error) {
+func (c *Coordinator) PersistProgress(ctx context.Context, held *Acquired, next planmodel.Run, requestID string, a planoperations.Authority, dispatch ...[]byte) (planmodel.Permit, error) {
 	if held == nil || held.Reservation == nil || !held.Reservation.Valid() || a.StillCurrent == nil || !a.StillCurrent() || a.OwnerScope != held.scope {
 		return planmodel.Permit{}, ErrPlanAuthority
 	}
@@ -70,7 +70,7 @@ func (c *Coordinator) PersistProgress(ctx context.Context, held *Acquired, next 
 	if cloudapi.SessionOwnerScope(c.client.BaseURL, identity.UserEmail) != held.scope || !a.StillCurrent() || !held.Reservation.Valid() {
 		return planmodel.Permit{}, ErrPlanAuthority
 	}
-	op, err := c.requests.StageUpdate(ctx, held.scope, next.PlanID, input)
+	op, err := c.requests.StageUpdate(ctx, held.scope, next.PlanID, input, dispatch...)
 	if err != nil {
 		return planmodel.Permit{}, err
 	}
@@ -90,7 +90,11 @@ func (c *Coordinator) PersistProgress(ctx context.Context, held *Acquired, next 
 		if !held.Reservation.Valid() {
 			return ErrPlanAuthority
 		}
-		return c.db.ConfirmPlanOperationSnapshot(ctx, held.scope, op.RequestID, op.BodyHash, permit.Run)
+		originalDispatch, err := c.requests.OriginalMessageDispatch(ctx, held.scope, requestID)
+		if err != nil {
+			return err
+		}
+		return c.db.ConfirmPlanOperationSnapshot(ctx, held.scope, op.RequestID, op.BodyHash, permit.Run, originalDispatch)
 	}
 	if !a.StillCurrent() || !held.Reservation.Valid() {
 		return planmodel.Permit{}, ErrPlanAuthority

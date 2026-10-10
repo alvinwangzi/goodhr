@@ -10,7 +10,9 @@ import (
 	"errors"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
+	"goodhr5/local-agent-go/internal/planmodel"
 	"goodhr5/local-agent-go/internal/protectedsession"
+	"reflect"
 	"sync"
 )
 
@@ -25,15 +27,16 @@ func New(db *localdb.DB) *Store { return &Store{db: db} }
 
 // envelope 将不可变路由、原编号与实际请求一起加密，防止 SQLite 元数据换指向。
 type envelope struct {
-	Kind      string                         `json:"kind"`
-	PlanID    string                         `json:"plan_id"`
-	RunID     string                         `json:"run_id"`
-	OwnerID   string                         `json:"owner_id"`
-	RequestID string                         `json:"request_id"`
-	ItemRunID string                         `json:"item_run_id,omitempty"`
-	Claim     *cloudapi.PlanClaimRequest     `json:"claim,omitempty"`
-	Update    *cloudapi.PlanRunUpdateRequest `json:"update,omitempty"`
-	Prepare   *cloudapi.PlanItemTaskRequest  `json:"prepare,omitempty"`
+	Kind            string                         `json:"kind"`
+	PlanID          string                         `json:"plan_id"`
+	RunID           string                         `json:"run_id"`
+	OwnerID         string                         `json:"owner_id"`
+	RequestID       string                         `json:"request_id"`
+	ItemRunID       string                         `json:"item_run_id,omitempty"`
+	Claim           *cloudapi.PlanClaimRequest     `json:"claim,omitempty"`
+	Update          *cloudapi.PlanRunUpdateRequest `json:"update,omitempty"`
+	Prepare         *cloudapi.PlanItemTaskRequest  `json:"prepare,omitempty"`
+	MessageDispatch json.RawMessage                `json:"message_dispatch,omitempty"`
 }
 
 // requestHash 为不可变原内容计算摘要，不保存凭证原文。
@@ -62,11 +65,44 @@ func (s *Store) StageClaim(ctx context.Context, scope string, input cloudapi.Pla
 }
 
 // StageUpdate 在发送状态前保存完整原事实，重试不能替换数量、清理结论或序号。
-func (s *Store) StageUpdate(ctx context.Context, scope, planID string, input cloudapi.PlanRunUpdateRequest) (localdb.PlanOperation, error) {
+func (s *Store) StageUpdate(ctx context.Context, scope, planID string, input cloudapi.PlanRunUpdateRequest, dispatch ...[]byte) (localdb.PlanOperation, error) {
 	if input.Validate() != nil {
 		return localdb.PlanOperation{}, localdb.ErrPlanRequestConflict
 	}
-	return s.save(ctx, scope, envelope{Kind: input.Action, PlanID: planID, RunID: input.RunID, OwnerID: input.OwnerID, RequestID: input.RequestID, Update: &input}, input.Sequence)
+	if len(dispatch) > 1 || len(dispatch) == 1 && (input.Action != "status" || !json.Valid(dispatch[0])) {
+		return localdb.PlanOperation{}, localdb.ErrPlanRequestConflict
+	}
+	e := envelope{Kind: input.Action, PlanID: planID, RunID: input.RunID, OwnerID: input.OwnerID, RequestID: input.RequestID, Update: &input}
+	if len(dispatch) == 1 {
+		if err := validateMessageDispatch(scope, planID, input, dispatch[0]); err != nil {
+			return localdb.PlanOperation{}, err
+		}
+		e.MessageDispatch = append(json.RawMessage{}, dispatch[0]...)
+	}
+	return s.save(ctx, scope, e, input.Sequence)
+}
+
+// validateMessageDispatch 在发送前核对轮换所属的原进度，避免云端已确认后才发现来源不匹配。
+func validateMessageDispatch(scope, planID string, input cloudapi.PlanRunUpdateRequest, raw []byte) error {
+	var saved struct {
+		Schema     int
+		OwnerScope string
+		Run        planmodel.Run
+	}
+	if json.Unmarshal(raw, &saved) != nil || saved.Schema != 1 || saved.OwnerScope != scope || saved.Run.Validate() != nil {
+		return localdb.ErrPlanRequestConflict
+	}
+	run := saved.Run
+	if run.PlanID != planID || run.ID != input.RunID || run.OwnerID != input.OwnerID || run.Sequence != input.Sequence || run.State != input.State || run.CurrentItem != input.CurrentItem || run.EndReason != input.EndReason || len(run.Items) != len(input.Items) {
+		return localdb.ErrPlanRequestConflict
+	}
+	for index, item := range run.Items {
+		update := input.Items[index]
+		if item.ID != update.ID || item.ItemID != update.ItemID || item.State != update.State || !reflect.DeepEqual(item.Actions, update.Actions) {
+			return localdb.ErrPlanRequestConflict
+		}
+	}
+	return nil
 }
 
 // StagePrepare 在云端创建岗位任务前保存原执行项准备请求，后台补传不会发送本请求。
@@ -148,6 +184,18 @@ func (s *Store) OriginalUpdate(ctx context.Context, scope, request string) (clou
 	return input, nil
 }
 
+// OriginalMessageDispatch 恢复与原状态请求共同加密的轮换，不能从调用方新内存取代原内容。
+func (s *Store) OriginalMessageDispatch(ctx context.Context, scope, request string) ([]byte, error) {
+	e, _, err := s.load(ctx, scope, request)
+	if err != nil {
+		return nil, err
+	}
+	if len(e.MessageDispatch) > 0 && (e.Kind != "status" || e.Update == nil || !json.Valid(e.MessageDispatch)) {
+		return nil, localdb.ErrPlanRequestConflict
+	}
+	return append([]byte{}, e.MessageDispatch...), nil
+}
+
 // Authority 是本轮上传的进程内登录证明，切换或退出后 StillCurrent 必须变为 false。
 type Authority struct {
 	Token          string `json:"-"`
@@ -198,7 +246,11 @@ func (s *Store) UploadNext(ctx context.Context, client *cloudapi.Client, a Autho
 		return false, errors.New("计划原回执已收到，等待同账号重新核对")
 	}
 	confirm := func() error {
-		return s.db.ConfirmPlanOperationSnapshot(ctx, a.OwnerScope, record.RequestID, record.BodyHash, permit.Run)
+		dispatch, err := s.OriginalMessageDispatch(ctx, a.OwnerScope, record.RequestID)
+		if err != nil {
+			return err
+		}
+		return s.db.ConfirmPlanOperationSnapshot(ctx, a.OwnerScope, record.RequestID, record.BodyHash, permit.Run, dispatch)
 	}
 	if a.ConfirmCurrent != nil {
 		err = a.ConfirmCurrent(confirm)

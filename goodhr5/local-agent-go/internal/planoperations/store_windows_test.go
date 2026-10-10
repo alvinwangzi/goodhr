@@ -69,6 +69,87 @@ func TestProtectedPrepareRestart(t *testing.T) {
 	}
 }
 
+// TestProtectedDispatchRestart 验证轮换随原请求加密保存，重开后补传同时确认进度和轮换。
+func TestProtectedDispatchRestart(t *testing.T) {
+	db, cfg, permit, claim := operationFixture(t)
+	next := permit.Run
+	next.Sequence++
+	next.State = "running"
+	input := cloudapi.PlanRunUpdateRequest{RunID: next.ID, Action: "status", RequestID: "60000000-0000-0000-0000-000000000008", OwnerID: claim.OwnerID, MachineID: claim.MachineID, Credential: claim.Credential, Sequence: next.Sequence, State: next.State}
+	for _, item := range next.Items {
+		input.Items = append(input.Items, planmodel.ItemUpdate{ID: item.ID, ItemID: item.ItemID, State: item.State, Actions: item.Actions})
+	}
+	var posts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/me" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "fixture@example.com"}})
+			return
+		}
+		if r.URL.Path != "/api/execution-plan-runs/"+next.ID+"/status" {
+			t.Error("补传路径不匹配", r.URL.Path)
+		}
+		var actual cloudapi.PlanRunUpdateRequest
+		if json.NewDecoder(r.Body).Decode(&actual) != nil || actual.RequestID != input.RequestID || actual.Sequence != input.Sequence {
+			t.Error("补传改变原编号或序号")
+		}
+		posts.Add(1)
+		result := permit
+		result.Run = next
+		result.Owner.State = "running"
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": result})
+	}))
+	defer server.Close()
+	scope := cloudapi.SessionOwnerScope(server.URL, "fixture@example.com")
+	if err := db.SavePlanRunSnapshot(t.Context(), scope, permit.Run); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"Schema": 1, "OwnerScope": scope, "Run": next, "PagesSinceScan": 2})
+	store := New(db)
+	if _, err := store.StageUpdate(t.Context(), scope, next.PlanID, input, raw); err != nil {
+		t.Fatal(err)
+	}
+	changed, _ := json.Marshal(map[string]any{"Schema": 1, "OwnerScope": scope, "Run": next, "PagesSinceScan": 3})
+	if _, err := store.StageUpdate(t.Context(), scope, next.PlanID, input, changed); !errors.Is(err, localdb.ErrPlanRequestConflict) {
+		t.Fatal("原编号可替换轮换", err)
+	}
+	wrong, _ := json.Marshal(map[string]any{"Schema": 1, "OwnerScope": "other", "Run": next})
+	if _, err := store.StageUpdate(t.Context(), scope, next.PlanID, input, wrong); !errors.Is(err, localdb.ErrPlanRequestConflict) {
+		t.Fatal("错误账号轮换可登记", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := localdb.Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	restored := New(reopened)
+	original, err := restored.OriginalMessageDispatch(t.Context(), scope, input.RequestID)
+	if err != nil || !bytes.Equal(original, raw) {
+		t.Fatal("重开改变原轮换", err)
+	}
+	if sent, err := restored.UploadNext(t.Context(), cloudapi.New(server.URL), Authority{Token: "fixture-token", OwnerScope: scope, StillCurrent: func() bool { return true }}); err != nil || !sent {
+		t.Fatal("原状态补传失败", err)
+	}
+	current, err := reopened.PlanRunSnapshot(t.Context(), scope, next.ID)
+	if err != nil || current.Sequence != next.Sequence {
+		t.Fatal("补传未确认规范进度", err)
+	}
+	dispatch, err := reopened.PlanMessageDispatch(t.Context(), scope, next.ID)
+	var saved struct {
+		PagesSinceScan int
+		Run            planmodel.Run
+	}
+	if err != nil || json.Unmarshal(dispatch, &saved) != nil || saved.PagesSinceScan != 2 || saved.Run.Sequence != next.Sequence {
+		t.Fatal("补传丢失原轮换", err)
+	}
+	op, err := reopened.PlanOperation(t.Context(), scope, input.RequestID)
+	if err != nil || op.State != "confirmed" || posts.Load() != 1 {
+		t.Fatal("回执没有共同确认", err)
+	}
+}
+
 // operationFixture 为当前用户创建独立测试数据库和不含登录凭证的原运行夹具。
 func operationFixture(t *testing.T) (*localdb.DB, *config.Config, planmodel.Permit, cloudapi.PlanClaimRequest) {
 	t.Helper()

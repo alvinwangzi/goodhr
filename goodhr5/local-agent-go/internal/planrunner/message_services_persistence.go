@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/planmodel"
 )
 
@@ -12,6 +13,16 @@ import (
 type MessageStateRuntime interface {
 	LoadMessageState(context.Context, planmodel.Run) ([]byte, error)
 	SaveMessageState(context.Context, planmodel.Run, []byte) error
+}
+
+// AtomicMessageStateRuntime 把轮换与原状态共同落盘，旧只读接口不授予页面权限。
+type AtomicMessageStateRuntime interface {
+	SaveMessageProgress(context.Context, planmodel.Run, []byte) (planmodel.Permit, error)
+}
+
+// SaveMessageProgress 使用原加密状态请求携带轮换，规范回执和轮换由同一个事务确认。
+func (r *M1ExecutionRuntime) SaveMessageProgress(ctx context.Context, run planmodel.Run, raw []byte) (planmodel.Permit, error) {
+	return r.coordinator.PersistProgress(ctx, r.held, run, uuid.NewString(), r.authority, raw)
 }
 
 // LoadMessageState 只读原账号和当天运行；不存在记录时让原服务重新核对当前工作。

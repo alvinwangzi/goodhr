@@ -8,6 +8,36 @@ import (
 	"time"
 )
 
+// TestMessageServicesCanonicalReceipt 验证规范开始时间可确认，改变动作数量的回执不能替换原服务。
+func TestMessageServicesCanonicalReceipt(t *testing.T) {
+	run := serviceRunFixture(t)
+	services := NewMessageServices("fixture-owner")
+	if err := services.Sync(run, servicePlatform); err != nil {
+		t.Fatal(err)
+	}
+	canonical := run
+	started := time.Date(2026, 10, 10, 1, 0, 0, 0, time.UTC)
+	canonical.StartedAt = &started
+	if err := services.ConfirmProgress(canonical, servicePlatform); err != nil {
+		t.Fatal("规范时间拒绝确认", err)
+	}
+	if err := services.Sync(canonical, servicePlatform); err != nil {
+		t.Fatal("后续轮换拒绝规范时间", err)
+	}
+	before, _ := services.Snapshot()
+	wrong, _ := cloneLoopRun(canonical)
+	progress := wrong.Items[0].Actions["auto_reply"]
+	progress.Count++
+	wrong.Items[0].Actions["auto_reply"] = progress
+	if err := services.ConfirmProgress(wrong, servicePlatform); err == nil {
+		t.Fatal("改变原数量仍确认")
+	}
+	after, _ := services.Snapshot()
+	if !bytes.Equal(before, after) {
+		t.Fatal("错误回执改变服务")
+	}
+}
+
 // TestMessageServicesSnapshotRoundTrip 验证待处理与扫描预算恢复后选择保持一致，错任务拒绝。
 func TestMessageServicesSnapshotRoundTrip(t *testing.T) {
 	run := serviceRunFixture(t)

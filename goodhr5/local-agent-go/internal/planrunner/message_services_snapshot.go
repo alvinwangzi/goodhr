@@ -64,6 +64,20 @@ func (s *MessageServices) Snapshot() ([]byte, error) {
 	return json.Marshal(value)
 }
 
+// ConfirmProgress 只接纳云端规范时间，其他步骤事实必须与已暂存轮换完全相同。
+func (s *MessageServices) ConfirmProgress(run planmodel.Run, platformForItem func(string) (string, error)) error {
+	if s.lastRun == nil {
+		return fmt.Errorf("消息服务尚未核对原运行")
+	}
+	staged := *s.lastRun
+	staged.StartedAt, staged.FinishedAt = run.StartedAt, run.FinishedAt
+	if !reflect.DeepEqual(staged, run) {
+		return fmt.Errorf("消息服务回执改变原步骤事实")
+	}
+	s.lastRun = &staged
+	return s.Sync(run, platformForItem)
+}
+
 // Restore 不把快照当激活许可；原配置一致、当前规范序号不倒退后，再过滤已经结束的来源。
 func (s *MessageServices) Restore(raw []byte, run planmodel.Run, platformForItem func(string) (string, error)) error {
 	var value MessageServicesSnapshot
