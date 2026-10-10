@@ -27,6 +27,7 @@ type ExecutionPlanStore interface {
 	ConfirmStopped(context.Context, string, string, string, ExecutionPlanStopConfirmation) (ExecutionPlan, error)
 	ClaimRun(context.Context, string, string, ExecutionPlanRunClaim) (ExecutionPlanRunPermit, error)
 	GetRun(context.Context, string, string, string) (ExecutionPlanRun, error)
+	VerifyReportMachine(context.Context, string, string, string, string) error
 	ListRuns(context.Context, string, string, string) ([]ExecutionPlanRun, error)
 	RuntimeSnapshot(context.Context, string, string, string) (ExecutionPlanRuntimeSnapshot, error)
 	RecordWait(context.Context, string, string, ExecutionPlanWait) (ExecutionPlanWait, error)

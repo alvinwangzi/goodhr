@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 )
@@ -244,19 +245,17 @@ func (s *ExecutionPlanService) Report(w http.ResponseWriter, r *http.Request, id
 		writeError(w, 400, "请提供完整原报告及执行电脑")
 		return
 	}
-	run, err := s.store.GetRun(r.Context(), tenant, email, id)
-	if err != nil {
-		writePlanStoreError(w, err)
-		return
-	}
-	p, err := s.store.Get(r.Context(), tenant, email, run.PlanID)
-	if err != nil {
-		writePlanStoreError(w, err)
-		return
-	}
 	bound, err := s.agents.HasActiveBinding(email, input.MachineID)
-	if err != nil || !bound || p.MachineID != input.MachineID {
-		writeError(w, 403, "只有指定执行电脑可以上传原报告")
+	if err != nil || !bound {
+		writeError(w, 403, "请先连接仍与当前账号绑定的原执行电脑")
+		return
+	}
+	if err := s.store.VerifyReportMachine(r.Context(), tenant, email, id, input.MachineID); err != nil {
+		if errors.Is(err, ErrAccountExecutionProof) {
+			writeError(w, 403, "只有原执行电脑可以补传这份历史报告")
+		} else {
+			writePlanStoreError(w, err)
+		}
 		return
 	}
 	result, err := s.store.SaveReport(r.Context(), tenant, email, input.Summary, input.SyncState)

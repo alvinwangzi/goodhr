@@ -21,9 +21,13 @@ func planRunClaimFixture(t *testing.T, p ExecutionPlan) ExecutionPlanRunClaim {
 }
 
 // createArmedPlanFixture 保存并启用一个独立计划，测试不调用招聘页面。
-func createArmedPlanFixture(t *testing.T, s ExecutionPlanStore, email string) ExecutionPlan {
+func createArmedPlanFixture(t *testing.T, s ExecutionPlanStore, email string, machine ...string) ExecutionPlan {
 	t.Helper()
-	p, err := s.Save(t.Context(), ExecutionPlan{UserEmail: email, MachineID: "A", Config: postgresPlanConfig()}, 0)
+	device := "A"
+	if len(machine) > 0 {
+		device = machine[0]
+	}
+	p, err := s.Save(t.Context(), ExecutionPlan{UserEmail: email, MachineID: device, Config: postgresPlanConfig()}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

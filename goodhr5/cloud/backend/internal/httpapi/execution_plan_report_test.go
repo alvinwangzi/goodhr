@@ -14,9 +14,9 @@ import (
 )
 
 // endedReportFixture 创建实际停止后的独立执行项摘要，报告不修改计划启用状态。
-func endedReportFixture(t *testing.T, store ExecutionPlanStore, email string) (ExecutionPlan, ExecutionPlanReportSummary) {
+func endedReportFixture(t *testing.T, store ExecutionPlanStore, email string, machine ...string) (ExecutionPlan, ExecutionPlanReportSummary) {
 	t.Helper()
-	p := createArmedPlanFixture(t, store, email)
+	p := createArmedPlanFixture(t, store, email, machine...)
 	claim := planRunClaimFixture(t, p)
 	permit, err := store.ClaimRun(t.Context(), "", email, claim)
 	if err != nil {
@@ -142,7 +142,7 @@ func TestOriginalReportHTTP(t *testing.T) {
 	token := loginForTest(t, routes, email)
 	bindPositionDeviceForTest(t, routes, token)
 	store := server.executionPlans.store.(*MemoryExecutionPlanStore)
-	p, summary := endedReportFixture(t, store, email)
+	p, summary := endedReportFixture(t, store, email, positionTestMachineID)
 	if server.positions.auth.tenantStore != nil {
 		tenant, err := server.positions.auth.tenantStore.GetOrCreateTenant(email)
 		if err != nil {
@@ -167,6 +167,28 @@ func TestOriginalReportHTTP(t *testing.T) {
 	}
 	if result := post(positionTestMachineID); result.Code != 200 {
 		t.Fatal("原报告上传失败", result.Code, result.Body.String())
+	}
+	stopped := stopReportPlanFixture(t, store, p)
+	otherMachine := "goodhr-device-v1-report-history-B"
+	if _, err := server.executionPlans.agents.SaveBinding(AgentBinding{UserEmail: email, MachineID: otherMachine, BindStatus: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	stopped.MachineID = otherMachine
+	changed, err := store.Save(t.Context(), stopped, stopped.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := post(otherMachine); result.Code != 403 {
+		t.Fatal("绑定的当前 B 电脑冒领 A 的报告", result.Code, result.Body.String())
+	}
+	if result := post(positionTestMachineID); result.Code != 200 {
+		t.Fatal("改到 B 后 A 不能补传历史报告", result.Code, result.Body.String())
+	}
+	if err := store.Delete(t.Context(), p.TenantID, email, p.ID, changed.Version); err != nil {
+		t.Fatal(err)
+	}
+	if result := post(positionTestMachineID); result.Code != 200 {
+		t.Fatal("软删除后 A 不能补传历史报告", result.Code, result.Body.String())
 	}
 	other := loginForTest(t, routes, "other-report-api@example.com")
 	request := httptest.NewRequest(http.MethodGet, "/api/execution-plan-runs/"+summary.RunID+"/report", nil)
