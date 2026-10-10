@@ -59,6 +59,12 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 		}
 		var configuration any
 		switch r.URL.Path {
+		case "/api/execution-plan-runs/" + permit.Run.ID:
+			if r.Method != http.MethodGet {
+				t.Error("运行核对必须只读")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "run": permit.Run})
+			return
 		case "/api/positions/same-job":
 			configuration = map[string]any{"position": map[string]any{"id": "same-job", "name": "fixture", "platform_id": "boss", "match_limit": 1, "keywords": []string{"本科"}, "common_config": map[string]any{"mode_default": "keyword", "detail_mode": "keyword"}}}
 		case "/api/subscription/status":
@@ -189,6 +195,12 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 			if result.Run.Items[prepareIndex].TaskRunID == "" {
 				result.Run.Sequence++
 				result.Run.Items[prepareIndex].TaskRunID = fmt.Sprintf("70000000-0000-0000-0000-%012d", prepareIndex+1)
+			}
+			if mode.Load() == 7 {
+				// 云端创建成功但客户端没有收到任务许可，随后 GET 可以核对真实关联。
+				permit.Run = result.Run
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+				return
 			}
 			if mode.Load() == 3 {
 				now.Store(time.Date(2026, 10, 10, 4, 0, 1, 0, time.UTC).UnixNano())

@@ -132,6 +132,24 @@ func (db *DB) PlanOperation(ctx context.Context, scope, request string) (PlanOpe
 	return scanPlanOperation(db.conn.QueryRowContext(ctx, `SELECT `+planOperationColumns+` FROM plan_operations WHERE owner_scope=? AND request_id=?`, scope, request))
 }
 
+// PlanRunOperations 按原落盘顺序读取指定运行的操作，异常收尾据此保留未确认步骤和释放事实。
+func (db *DB) PlanRunOperations(ctx context.Context, scope, runID string) ([]PlanOperation, error) {
+	rows, err := db.conn.QueryContext(ctx, `SELECT `+planOperationColumns+` FROM plan_operations WHERE owner_scope=? AND run_id=? ORDER BY sequence`, scope, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []PlanOperation{}
+	for rows.Next() {
+		operation, err := scanPlanOperation(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, operation)
+	}
+	return result, rows.Err()
+}
+
 // NextPlanUpdate 仅查找状态和释放，绝不在后台补传线程重新领取页面执行权。
 func (db *DB) NextPlanUpdate(ctx context.Context, scope string) (PlanOperation, error) {
 	return scanPlanOperation(db.conn.QueryRowContext(ctx, `SELECT `+planOperationColumns+` FROM plan_operations WHERE owner_scope=? AND state='pending' AND kind IN ('status','release') ORDER BY sequence LIMIT 1`, scope))
