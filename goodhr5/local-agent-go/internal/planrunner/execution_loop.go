@@ -40,9 +40,10 @@ type ExecutionRuntime interface {
 
 // ExecutionLoop 按原岗位顺序推进，不创建独立账号占用或等待未来消息。
 type ExecutionLoop struct {
-	runtime  ExecutionRuntime
-	services *MessageServices
-	now      func() time.Time
+	runtime            ExecutionRuntime
+	services           *MessageServices
+	now                func() time.Time
+	messageStateLoaded bool
 }
 
 // NewExecutionLoop 连接真实步骤适配器和当前账号活跃服务，时钟可替换用于验收。
@@ -74,6 +75,18 @@ func (l *ExecutionLoop) save(ctx context.Context, current planmodel.Permit, next
 	}
 	if result.Run.ID != next.ID || result.Run.OwnerID != next.OwnerID || result.Run.Sequence != next.Sequence || result.Run.CurrentItem != next.CurrentItem || result.Run.State != "running" {
 		return current, fmt.Errorf("计划步骤没有得到原运行进度确认")
+	}
+	if durable, ok := l.runtime.(MessageStateRuntime); ok && l.messageStateLoaded {
+		if err := l.services.Sync(result.Run, l.runtime.Platform); err != nil {
+			return result, err
+		}
+		raw, err := l.services.Snapshot()
+		if err != nil {
+			return result, err
+		}
+		if err = durable.SaveMessageState(ctx, result.Run, raw); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -145,6 +158,20 @@ func (l *ExecutionLoop) Run(ctx context.Context, permit planmodel.Permit) (planm
 		}
 		if err := l.services.Sync(permit.Run, l.runtime.Platform); err != nil {
 			return permit, err
+		}
+		if !l.messageStateLoaded {
+			if durable, ok := l.runtime.(MessageStateRuntime); ok {
+				raw, err := durable.LoadMessageState(ctx, permit.Run)
+				if err != nil {
+					return permit, err
+				}
+				if len(raw) > 0 {
+					if err = l.services.Restore(raw, permit.Run, l.runtime.Platform); err != nil {
+						return permit, err
+					}
+				}
+			}
+			l.messageStateLoaded = true
 		}
 		finalPass := permit.Run.CurrentItem == len(permit.Run.Items)
 		greeting, priority := false, false
