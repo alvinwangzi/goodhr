@@ -56,13 +56,16 @@ type ExecutionPlanReportSummary struct {
 
 // ExecutionPlanReport 分离原摘要、当前同步状态与通知状态，未发送不称为已通知。
 type ExecutionPlanReport struct {
-	RunID             string                     `json:"run_id"`
-	BodyHash          string                     `json:"body_hash"`
-	Summary           ExecutionPlanReportSummary `json:"summary"`
-	SyncState         string                     `json:"sync_state"`
-	NotificationState string                     `json:"notification_state"`
-	CreatedAt         time.Time                  `json:"created_at"`
-	UpdatedAt         time.Time                  `json:"updated_at"`
+	RunID                 string                     `json:"run_id"`
+	BodyHash              string                     `json:"body_hash"`
+	Summary               ExecutionPlanReportSummary `json:"summary"`
+	SyncState             string                     `json:"sync_state"`
+	NotificationState     string                     `json:"notification_state"`
+	CreatedAt             time.Time                  `json:"created_at"`
+	UpdatedAt             time.Time                  `json:"updated_at"`
+	NotificationRecipient string                     `json:"notification_recipient,omitempty"`
+	NotificationError     string                     `json:"notification_error,omitempty"`
+	NotificationToken     string                     `json:"-"`
 }
 
 // validateAgainst 对照原运行核对独立执行项及任务身份，不接受跨岗位混算或负数量。
@@ -255,6 +258,11 @@ func (s *ExecutionPlanService) Report(w http.ResponseWriter, r *http.Request, id
 	if err != nil {
 		writePlanStoreError(w, err)
 		return
+	}
+	if err := s.notifyExecutionReport(r.Context(), tenant, email, id); err == nil {
+		if refreshed, err := s.store.GetReport(r.Context(), tenant, email, id); err == nil {
+			result = refreshed
+		}
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "report": result})
 }

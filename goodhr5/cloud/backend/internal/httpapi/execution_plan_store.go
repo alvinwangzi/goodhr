@@ -31,6 +31,8 @@ type ExecutionPlanStore interface {
 	PrepareItemTask(context.Context, string, string, ExecutionPlanItemTaskRequest) (ExecutionPlanRunPermit, error)
 	SaveReport(context.Context, string, string, ExecutionPlanReportSummary, string) (ExecutionPlanReport, error)
 	GetReport(context.Context, string, string, string) (ExecutionPlanReport, error)
+	ClaimReportNotification(context.Context, string, string, string, string) (ExecutionPlanReport, bool, error)
+	FinishReportNotification(context.Context, string, string, string, string, string, string) error
 }
 
 // newExecutionPlanID 生成真实 UUID，内存与 PostgreSQL 使用相同编号格式。
