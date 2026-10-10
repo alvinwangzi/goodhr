@@ -2,6 +2,7 @@
 "use client";
 
 import { cloudRequest, getToken, localRequest } from "./admin-api";
+import type { ExecutionReport } from "./execution-plan-report";
 
 export type PlanAction = "greeting" | "auto_reply" | "re_greet";
 export type PlanWindow = { order: number; start_minute: number; end_minute: number };
@@ -9,7 +10,7 @@ export type PlanItem = { id: string; position_id: string; order: number; actions
 export type PlanConfig = { name: string; schedule: { cycle: "once" | "daily" | "weekly"; timezone: string; once_date?: string; start_date?: string; end_date?: string; weekdays: number[]; windows: PlanWindow[] }; items: PlanItem[] };
 export type ExecutionPlan = { id: string; machine_id: string; version: number; state_sequence: number; activation_id: string; state: string; stop_requested: boolean; config: PlanConfig };
 export type PlanDevice = { machine_id: string; agent_version: string; last_seen_at: string };
-export type ExecutionRun = { id: string; activation_id: string; execution_date: string; state: string; current_item: number; end_reason: string; items: { id: string; item_id: string; task_run_id?: string; state: string; actions: Record<string, { state: string; count: number; unknown_count: number }> }[] };
+export type ExecutionRun = { id: string; activation_id: string; execution_date: string; state: string; current_item: number; end_reason: string; snapshot: PlanConfig; items: { id: string; item_id: string; task_run_id?: string; state: string; actions: Record<string, { state: string; count: number; unknown_count: number }> }[] };
 export const PLAN_ACTION_LABELS: Record<PlanAction, string> = { greeting: "打招呼", auto_reply: "自动回复", re_greet: "自动复打招呼" };
 
 /** emptyPlanConfig 创建默认编排，同岗位可重复添加独立执行项。 */
@@ -62,7 +63,7 @@ export async function startExecutionPlan(base: string, plan: ExecutionPlan) { re
 export async function executionPlanRuns(id: string): Promise<ExecutionRun[]> { const result = await cloudRequest(`/api/execution-plans/${id}/runs`); return result.runs || []; }
 
 /** readExecutionReport 读取云端已保存的原报告及通知状态。 */
-export async function readExecutionReport(runID: string) { const result = await cloudRequest(`/api/execution-plan-runs/${runID}/report`); return result.report; }
+export async function readExecutionReport(runID: string): Promise<ExecutionReport> { const result = await cloudRequest(`/api/execution-plan-runs/${runID}/report`); if (result.report?.run_id !== runID || result.report?.summary?.run_id !== runID) throw new Error("报告与原运行不一致，请刷新核对"); return result.report; }
 
 /** canEditExecutionPlan 停止收尾确认后才开放编辑，不能只看按钮或本地连接状态。 */
 export function canEditExecutionPlan(plan: ExecutionPlan) { return plan.state === "stopped" && !plan.stop_requested; }

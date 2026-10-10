@@ -6,6 +6,8 @@ import { Alert, Button, Checkbox, Chip, FormControlLabel, MenuItem, Stack, TextF
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import { useAdmin } from "@/components/admin/AdminApp";
 import AdminDialog from "@/components/admin/AdminDialog";
+import ExecutionPlanReport from "@/components/admin/ExecutionPlanReport";
+import { EXECUTION_STATE_LABELS, reportReasonText, type ExecutionReport } from "@/lib/execution-plan-report";
 import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import { canUseAutoReply } from "@/lib/subscription";
@@ -14,7 +16,7 @@ import { canEditExecutionPlan, emptyPlanConfig, executionPlanIntent, executionPl
 
 type PositionOption = { id: string; name: string; platform_id: string; match_limit?: number };
 type WindowDraft = { id: string; start: string; end: string };
-const RUN_LABELS: Record<string, string> = { pending: "等待执行", waiting_resource: "等待当前任务结束", starting: "正在准备", running: "执行中", draining: "正在收尾", waiting_window: "等待下一时段", completed: "完成", incomplete: "当天未完成", stopped: "已停止", blocked: "需要核对" };
+const RUN_LABELS = EXECUTION_STATE_LABELS;
 
 /** ExecutionPlansPage 展示和保存独立编排，加载页面仅读取事实，不重发开始命令。 */
 export default function ExecutionPlansPage() {
@@ -34,7 +36,11 @@ export default function ExecutionPlansPage() {
   const [config, setConfig] = useState<PlanConfig>(emptyPlanConfig);
   const [windows, setWindows] = useState<WindowDraft[]>([]);
   const [runs, setRuns] = useState<Record<string, ExecutionRun[]>>({});
-  const [report, setReport] = useState<any>();
+  const [report, setReport] = useState<ExecutionReport>();
+  const [reportTimezone, setReportTimezone] = useState("UTC");
+  const [reportRefreshError, setReportRefreshError] = useState("");
+  const reportRequest = useRef(0);
+  const reportOpenRun = useRef<ExecutionRun | undefined>(undefined);
   const generation = useRef(0);
   const intents = useRef(new Map<string, string>());
 
@@ -47,13 +53,21 @@ export default function ExecutionPlansPage() {
       if (current !== generation.current) return;
       setPlans(items); setPositions(jobs.positions || []); setDevices(bindings.agents || []); setDeviceError(bindings.error || "");
       const history = await Promise.all(items.map(async plan => [plan.id, await executionPlanRuns(plan.id)] as const));
-      if (current === generation.current) setRuns(Object.fromEntries(history));
+      if (current === generation.current) {
+        setRuns(Object.fromEntries(history));
+        const opened = reportOpenRun.current; const request = reportRequest.current;
+        if (opened) {
+          try { const updated = await readExecutionReport(opened.id); if (current === generation.current && request === reportRequest.current) { setReport(updated); setReportRefreshError(""); } }
+          catch { if (current === generation.current && request === reportRequest.current) setReportRefreshError("报告更新暂未确认，当前显示上次读取的记录，可刷新后核对。"); }
+        }
+      }
     } catch (error) { if (current === generation.current) notify(error instanceof Error ? error.message : "计划暂时无法读取", "error"); }
     finally { if (current === generation.current) setLoading(false); }
   }, [notify]);
 
   useEffect(() => {
-    setPlans([]); setPositions([]); setDevices([]); setDeviceError(""); setRuns({}); setReport(undefined); setDialog(false); setOriginal(undefined); intents.current.clear(); setStatusConnected(false); void load();
+    reportRequest.current++; reportOpenRun.current = undefined;
+    setPlans([]); setPositions([]); setDevices([]); setDeviceError(""); setRuns({}); setReport(undefined); setReportRefreshError(""); setDialog(false); setOriginal(undefined); intents.current.clear(); setStatusConnected(false); void load();
     const disconnect = subscribeExecutionPlanEvents(load, setStatusConnected);
     return () => { disconnect(); generation.current++; };
   }, [load, user?.email]);
@@ -106,7 +120,13 @@ export default function ExecutionPlansPage() {
   /** move 调整独立执行项顺序，同岗位条目仍保留不同编号。 */
   function move(index: number, delta: number) { setConfig(value => { const items = [...value.items]; [items[index], items[index + delta]] = [items[index + delta], items[index]]; return { ...value, items: items.map((item, order) => ({ ...item, order })) }; }); }
   /** openReport 读取原报告，待核对和待补传单独显示。 */
-  async function openReport(runID: string) { try { setReport(await readExecutionReport(runID)); } catch (error) { notify(error instanceof Error ? error.message : "报告暂时未同步", "warning"); } }
+  async function openReport(run: ExecutionRun) {
+    const request = ++reportRequest.current; reportOpenRun.current = run;
+    try { const value = await readExecutionReport(run.id); if (request === reportRequest.current) { setReportTimezone(run.snapshot?.schedule?.timezone || "UTC"); setReportRefreshError(""); setReport(value); } }
+    catch (error) { if (request === reportRequest.current) { reportOpenRun.current = undefined; notify(error instanceof Error ? error.message : "报告暂时未同步", "warning"); } }
+  }
+  /** closeReport 关闭原报告并取消迟到响应的页面更新，不发送任务操作。 */
+  function closeReport() { reportRequest.current++; reportOpenRun.current = undefined; setReport(undefined); setReportRefreshError(""); }
 
   return <>
     <PageHeader title="执行计划" description="按工作时间安排岗位顺序，同一岗位可添加多次，选择不同动作。" actions={<><RefreshButton loading={loading} onClick={() => void load()} /><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => edit()}>新建计划</Button></>} />
@@ -119,12 +139,12 @@ export default function ExecutionPlansPage() {
         <Typography color="text.secondary">{plan.config.schedule.cycle === "once" ? `一次性 · ${plan.config.schedule.once_date}` : plan.config.schedule.cycle === "weekly" ? "每周执行" : "每天执行"} · {plan.config.schedule.windows.map(window => `${timeText(window.start_minute)}–${timeText(window.end_minute)}`).join("，")}</Typography>
         <Typography color="text.secondary">执行电脑：{plan.machine_id === connectedMachine ? "当前电脑" : `电脑 ${plan.machine_id.slice(-8)}`} · 计划启用不代表电脑正在执行</Typography>
         <Typography>岗位顺序：{plan.config.items.map((item, index) => `${index + 1}. ${positions.find(position => position.id === item.position_id)?.name || "原岗位"}（${item.actions.map(action => PLAN_ACTION_LABELS[action]).join("、")}）`).join(" → ")}</Typography>
-        {latest && <Typography color="text.secondary">执行日期 {latest.execution_date} · 当前第 {Math.min(latest.current_item + 1, latest.items.length)} 项{latest.end_reason ? ` · ${latest.end_reason}` : ""}</Typography>}
+        {latest && <Typography color="text.secondary">执行日期 {latest.execution_date} · 当前第 {Math.min(latest.current_item + 1, latest.items.length)} 项{latest.end_reason ? ` · ${reportReasonText(latest.end_reason)}` : ""}</Typography>}
         <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
           {canEditExecutionPlan(plan) ? <Button disabled={!!busy || !supported} onClick={() => void intent(plan, "arm")}>启用定时</Button> : <Button color="error" disabled={!!busy || plan.stop_requested} onClick={() => void intent(plan, "stop")}>停止</Button>}
           <Button disabled={!!busy || !supported || plan.stop_requested} onClick={() => canEditExecutionPlan(plan) ? void intent(plan, "arm", true) : void start(plan)}>立马开始</Button>
           <Button disabled={!!busy || !canEditExecutionPlan(plan)} onClick={() => edit(plan)}>编辑</Button>
-          {history.map(run => <Button key={run.id} onClick={() => void openReport(run.id)}>报告 {run.execution_date}</Button>)}
+          {history.map(run => <Button key={run.id} onClick={() => void openReport(run)}>报告 {run.execution_date}</Button>)}
         </Stack>
       </Stack></SectionPanel>;
     })}</Stack>
@@ -157,6 +177,6 @@ export default function ExecutionPlansPage() {
         <Button onClick={() => setConfig(value => ({ ...value, items: [...value.items, { id: crypto.randomUUID(), position_id: positions[0]?.id || "", order: value.items.length, actions: ["greeting"], prioritize_reply: false }] }))}>添加岗位执行项</Button>
       </Stack>
     </AdminDialog>
-    <AdminDialog open={!!report} title="执行报告" maxWidth="md" onClose={() => setReport(undefined)}><Stack spacing={2}>{report && <><Typography>日期：{report.summary.execution_date} · 同步：{report.sync_state === "confirmed" ? "已同步" : "待补传"} · 通知：{report.notification_state === "sent" ? "已发送" : report.notification_state === "not_configured" ? "邮件未配置" : "待发送或待核对"}</Typography>{report.summary.items.map((item: any) => <SectionPanel key={item.id}><Typography>第 {item.order + 1} 项 · {RUN_LABELS[item.state] || item.state}</Typography>{Object.entries(item.actions).map(([action, value]: [string, any]) => <Typography key={action}>{PLAN_ACTION_LABELS[action as PlanAction] || action}：{value.confirmed}，待核对 {value.unknown}，失败 {value.failed}</Typography>)}</SectionPanel>)}</>}</Stack></AdminDialog>
+    <AdminDialog open={!!report} title="执行报告" maxWidth="md" onClose={closeReport}><Stack spacing={2}>{reportRefreshError && <Alert severity="warning">{reportRefreshError}</Alert>}{report && <ExecutionPlanReport report={report} timezone={reportTimezone} positionNames={Object.fromEntries(positions.map(position => [position.id, position.name]))} />}</Stack></AdminDialog>
   </>;
 }

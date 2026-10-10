@@ -7,6 +7,7 @@ const machine = "m2-test-computer-A";
 const positions = [{ id: "20000000-0000-0000-0000-000000000001", name: "M2 Java测试岗位", platform_id: "boss", match_limit: 2, common_config: { position_name: "Java开发工程师" } }];
 const plans = [];
 const runs = new Map();
+const reports = new Map();
 const mutations = [];
 const subscribers = new Set();
 let starts = 0;
@@ -15,8 +16,24 @@ let supportsPlans = true;
 /** changed 仅向隔离网页提示重读夹具状态，不会调度本地任务。 */
 function changed() { for (const response of subscribers) response.write("event: changed\ndata: {}\n\n"); }
 
+/** seedReport 创建已结束的独立项报告，数量和状态为虚构固定事实，供界面验收。 */
+function seedReport() {
+  const id=randomUUID(), activation_id=randomUUID(), runID=randomUUID();
+  const config={name:"M2 报告验收",schedule:{cycle:"daily",timezone:"Asia/Shanghai",weekdays:[1,2,3,4,5],windows:[{order:0,start_minute:540,end_minute:720}]},items:[{id:randomUUID(),position_id:positions[0].id,order:0,actions:["greeting","auto_reply","re_greet"],prioritize_reply:true},{id:randomUUID(),position_id:positions[0].id,order:1,actions:["greeting"],prioritize_reply:false}]};
+  const plan={id,machine_id:machine,version:1,state_sequence:1,activation_id,state:"enabled",stop_requested:false,config};
+  plans.push(plan);
+  const items=config.items.map((item,index)=>({id:randomUUID(),item_id:item.id,position_id:item.position_id,order:index,task_run_id:index===0?randomUUID():undefined,state:index===0?"completed":"pending",scanned:index===0?10:0,details_available:index===0,actions:Object.fromEntries(item.actions.map(action=>[action,{state:index===0?"completed":"pending",confirmed:index===0?3:0,unknown:action==="auto_reply"?1:0,skipped:index===0?2:0,failed:0}])),information:index===0?{resume:{state:"pending_check",confirmed:1,unknown:1,skipped:0,failed:0},phone:{state:"completed",confirmed:1,unknown:0,skipped:0,failed:0},wechat:{state:"pending_check",confirmed:0,unknown:1,skipped:0,failed:0}}:{}}));
+  runs.set(id,[{id:runID,activation_id,execution_date:"2026-10-10",state:"incomplete",current_item:1,end_reason:"plan_window_ended",snapshot:config,items:items.map(item=>({...item,actions:Object.fromEntries(Object.entries(item.actions).map(([action,count])=>[action,{state:count.state,count:count.confirmed,unknown_count:count.unknown}]))}))}]);
+  reports.set(runID,{run_id:runID,body_hash:"fixture-only-report",sync_state:"pending",notification_state:"unknown",notification_error:"夹具发送回执未确认",created_at:"2026-10-10T12:05:00Z",updated_at:"2026-10-10T12:05:00Z",summary:{schema_version:1,run_id:runID,plan_id:id,activation_id,config_version:1,execution_date:"2026-10-10",plan_name:config.name,kind:"day_incomplete",run_state:"incomplete",end_reason:"plan_window_ended",generated_at:"2026-10-10T12:05:00Z",finished_at:"2026-10-10T12:04:00Z",next_nominal_at:"2026-10-11T01:00:00Z",items,unfinished_item_ids:items.map(item=>item.id)}});
+  changed(); return {plan_id:id,run_id:runID};
+}
+
 /** fixtureResult 提供表单与状态演示，所有开始只登记计数，没有执行器。 */
 function fixtureResult(path, body, method) {
+  if (path === "/__fixture/report-seed") return seedReport();
+  if (path === "/__fixture/report-sync") { for (const report of reports.values()) { report.sync_state="confirmed"; report.notification_state="not_configured"; report.notification_error="夹具邮件未配置"; report.updated_at="2026-10-10T12:06:00Z"; } changed(); return {ok:true}; }
+  const reportMatch=path.match(/^\/api\/execution-plan-runs\/([^/]+)\/report$/);
+  if (reportMatch) return {report:reports.get(reportMatch[1])};
   if (path === "/__fixture/old-agent") { supportsPlans = false; return { ok: true }; }
   if (path === "/__fixture/new-agent") { supportsPlans = true; return { ok: true }; }
   if (path === "/__fixture/state") return { plans, runs: Object.fromEntries(runs), mutations, starts };
