@@ -27,11 +27,17 @@ func createArmedPlanFixture(t *testing.T, s ExecutionPlanStore, email string, ma
 	if len(machine) > 0 {
 		device = machine[0]
 	}
-	p, err := s.Save(t.Context(), ExecutionPlan{UserEmail: email, MachineID: device, Config: postgresPlanConfig()}, 0)
+	return createArmedPlanFixtureOwned(t, s, email, device, "")
+}
+
+// createArmedPlanFixtureOwned 在原真实团队作用域内创建夹具，不在领取后更改历史归属。
+func createArmedPlanFixtureOwned(t *testing.T, s ExecutionPlanStore, email, device, tenant string) ExecutionPlan {
+	t.Helper()
+	p, err := s.Save(t.Context(), ExecutionPlan{TenantID: tenant, UserEmail: email, MachineID: device, Config: postgresPlanConfig()}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err = s.Intent(t.Context(), "", email, p.ID, planIntentFixture(t, "arm"))
+	p, err = s.Intent(t.Context(), tenant, email, p.ID, planIntentFixture(t, "arm"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,14 +16,24 @@ import (
 // endedReportFixture 创建实际停止后的独立执行项摘要，报告不修改计划启用状态。
 func endedReportFixture(t *testing.T, store ExecutionPlanStore, email string, machine ...string) (ExecutionPlan, ExecutionPlanReportSummary) {
 	t.Helper()
-	p := createArmedPlanFixture(t, store, email, machine...)
+	device := "A"
+	if len(machine) > 0 {
+		device = machine[0]
+	}
+	return endedReportFixtureOwned(t, store, email, device, "")
+}
+
+// endedReportFixtureOwned 从原团队的真实领取、释放结果构建原摘要，供跨模块 SDK 联调。
+func endedReportFixtureOwned(t *testing.T, store ExecutionPlanStore, email, device, tenant string) (ExecutionPlan, ExecutionPlanReportSummary) {
+	t.Helper()
+	p := createArmedPlanFixtureOwned(t, store, email, device, tenant)
 	claim := planRunClaimFixture(t, p)
-	permit, err := store.ClaimRun(t.Context(), "", email, claim)
+	permit, err := store.ClaimRun(t.Context(), tenant, email, claim)
 	if err != nil {
 		t.Fatal(err)
 	}
 	release := planRunUpdateFixture(t, claim, permit.Run.Sequence+1, "release", "incomplete")
-	permit, err = store.UpdateRun(t.Context(), "", email, release)
+	permit, err = store.UpdateRun(t.Context(), tenant, email, release)
 	if err != nil {
 		t.Fatal(err)
 	}
