@@ -163,6 +163,15 @@ func (r *M1ExecutionRuntime) Scan(ctx context.Context, p planmodel.Permit) (posi
 	if step.Done {
 		r.scanning[id] = false
 	}
+	message := fmt.Sprintf("找简历步骤返回：扫描=%d，打招呼=%d，跳过=%d，失败=%d，剩余=%d，工作结束=%t", step.Scanned, step.Greeted, step.Skipped, step.Failed, step.Remaining, step.Done)
+	level := "info"
+	if err != nil {
+		level = "warning"
+		message = "找简历步骤未确认，保留原进度待核对"
+	}
+	if logErr := r.recordItemStepLog(ctx, id, level, message); logErr != nil && err == nil {
+		return step, logErr
+	}
 	return step, err
 }
 
@@ -191,6 +200,10 @@ func (r *M1ExecutionRuntime) Message(ctx context.Context, p planmodel.Permit, c 
 	item := r.items[c.ItemRunID]
 	step, err := item.Reservation.MessageActionStep(p, item.Snapshot, c.ForceCheck, c.Action)
 	if err != nil {
+		_ = r.recordItemStepLog(ctx, c.ItemRunID, "warning", "消息步骤未确认，保留原进度待核对")
+		return step, err
+	}
+	if err = r.recordItemStepLog(ctx, c.ItemRunID, "info", fmt.Sprintf("消息批次返回：当前无待处理=%t，尚有待处理=%t。统计与未知结果按原检查点核对", step.NoWork, step.Remaining)); err != nil {
 		return step, err
 	}
 	if old != "" && old != c.ItemRunID {
