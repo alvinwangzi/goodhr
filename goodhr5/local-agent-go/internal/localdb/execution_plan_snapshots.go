@@ -74,9 +74,17 @@ func (db *DB) SaveCachedPlan(ctx context.Context, scope string, p planmodel.Plan
 		return err
 	}
 	defer tx.Rollback()
+	if err := saveCachedPlanTx(ctx, tx, scope, p, raw); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// saveCachedPlanTx 在调用方事务内保存已验证快照，供原回执和确认标记原子提交。
+func saveCachedPlanTx(ctx context.Context, tx *sql.Tx, scope string, p planmodel.Plan, raw []byte) error {
 	var oldVersion, oldSequence int64
 	var oldRaw string
-	err = tx.QueryRowContext(ctx, `SELECT config_version,state_sequence,plan_json FROM plan_cache WHERE owner_scope=? AND plan_id=?`, scope, p.ID).Scan(&oldVersion, &oldSequence, &oldRaw)
+	err := tx.QueryRowContext(ctx, `SELECT config_version,state_sequence,plan_json FROM plan_cache WHERE owner_scope=? AND plan_id=?`, scope, p.ID).Scan(&oldVersion, &oldSequence, &oldRaw)
 	if err == nil {
 		var old planmodel.Plan
 		if err = json.Unmarshal([]byte(oldRaw), &old); err != nil {
@@ -101,7 +109,7 @@ func (db *DB) SaveCachedPlan(ctx context.Context, scope string, p planmodel.Plan
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 // CachedPlans 读取指定账号的缓存，不通过缓存状态自行给予启动许可。

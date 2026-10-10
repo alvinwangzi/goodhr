@@ -43,6 +43,7 @@ func backgroundPlanFixtureConfigured(t *testing.T, holdPreparation bool, afterPr
 	var mu sync.Mutex
 	claims, releases := &atomic.Int32{}, &atomic.Int32{}
 	stopped := &atomic.Bool{}
+	stopConfirmed := &atomic.Bool{}
 	preparing := make(chan struct{})
 	var notified sync.Once
 	var scope string
@@ -68,11 +69,28 @@ func backgroundPlanFixtureConfigured(t *testing.T, holdPreparation bool, afterPr
 			copy := plan
 			if stopped.Load() {
 				copy.State = "stopped"
-				copy.StopRequested = true
+				copy.StopRequested = !stopConfirmed.Load()
 				copy.StateSequence++
+				if stopConfirmed.Load() {
+					copy.StateSequence++
+				}
 			}
 			allPlans := append([]planmodel.Plan{copy}, extraPlans...)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "plans": allPlans})
+		case strings.HasSuffix(r.URL.Path, "/confirm-stop"):
+			var input cloudapi.PlanStopRequest
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			if record, err := s.db.NextPlanStop(t.Context(), scope); err != nil || record.RequestID != input.RequestID {
+				t.Error("停止确认前没有原请求", err)
+			}
+			stopConfirmed.Store(true)
+			result := plan
+			result.State = "stopped"
+			result.StopRequested = false
+			result.StateSequence += 2
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "plan": result})
 		case r.URL.Path == "/api/execution-plan-runs/claim":
 			var input cloudapi.PlanClaimRequest
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -125,6 +143,28 @@ func backgroundPlanFixtureConfigured(t *testing.T, holdPreparation bool, afterPr
 	scope = cloudapi.SessionOwnerScope(cloud.URL, plan.UserEmail)
 	identity := protectedsession.Session{Token: "fixture-plan-execution", UserEmail: plan.UserEmail, TenantID: plan.TenantID, MachineID: plan.MachineID, CloudBase: cloud.URL}
 	return s, identity, claims, releases, stopped, preparing
+}
+
+// TestBackgroundIdleStopConfirmation 验证后台将已空闲的停止计划可靠确认，不领取任务或启动页面。
+func TestBackgroundIdleStopConfirmation(t *testing.T) {
+	s, identity, claims, _, stopped, _ := backgroundPlanFixture(t, false)
+	stopped.Store(true)
+	if err := s.commitProtectedSession(t.Context(), 0, identity); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	executionDone, uploadDone := make(chan struct{}), make(chan struct{})
+	go func() { defer close(executionDone); s.runPlanExecutions(ctx) }()
+	go func() { defer close(uploadDone); s.runPlanUploads(ctx) }()
+	defer func() { cancel(); <-executionDone; <-uploadDone }()
+	scope := cloudapi.SessionOwnerScope(identity.CloudBase, identity.UserEmail)
+	waitBackgroundCondition(t, func() bool {
+		plans, err := s.db.CachedPlans(t.Context(), scope)
+		return err == nil && len(plans) == 1 && !plans[0].StopRequested
+	})
+	if claims.Load() != 0 {
+		t.Fatal("停止确认领取了执行权")
+	}
 }
 
 // TestBackgroundPreparationCrossesWindow 验证岗位准备回执跨过名义结束后，保存等待下午而不是错误停止当天计划。

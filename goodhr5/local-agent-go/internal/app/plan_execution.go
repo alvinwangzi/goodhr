@@ -132,6 +132,26 @@ func (s *Server) processPlanExecutions(parent context.Context) error {
 	if !a.StillCurrent() {
 		return planrunner.ErrPlanAuthority
 	}
+	stopStore := planoperations.New(s.db)
+	for _, plan := range plans {
+		if plan.MachineID != identity.MachineID || plan.State != "stopped" || !plan.StopRequested {
+			continue
+		}
+		if active != nil && active.execution.Plan.ID == plan.ID {
+			continue
+		}
+		ready, err := s.db.PlanStopReady(ctx, a.OwnerScope, plan.ID)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			continue
+		}
+		if _, err := stopStore.StageStop(ctx, identity.CloudBase, a.OwnerScope, plan); err != nil {
+			return err
+		}
+		s.signalPlanUploads()
+	}
 	if active != nil {
 		allowed := false
 		for _, plan := range plans {
