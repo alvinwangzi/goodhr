@@ -21,6 +21,19 @@ type PlanMessageStep struct {
 
 // MessageStep 在当前父许可下处理一批已激活消息；未开始项、未激活动作和旧任务归属均拒绝。
 func (p *PlanItemReservation) MessageStep(permit planmodel.Permit, snapshot PositionRuntimeSnapshot, forceCheck bool) (PlanMessageStep, error) {
+	return p.messageStep(permit, snapshot, forceCheck, "")
+}
+
+// MessageActionStep 由父消息编排指定一个已激活的动作，其他已发现队列保留且本次不执行。
+func (p *PlanItemReservation) MessageActionStep(permit planmodel.Permit, snapshot PositionRuntimeSnapshot, forceCheck bool, action string) (PlanMessageStep, error) {
+	if action != "auto_reply" && action != "re_greet" {
+		return PlanMessageStep{}, fmt.Errorf("计划消息动作不支持")
+	}
+	return p.messageStep(permit, snapshot, forceCheck, action)
+}
+
+// messageStep 复用消息安全批次；动作选择和最新策略不改写原 TaskRun、检查点或队列归属。
+func (p *PlanItemReservation) messageStep(permit planmodel.Permit, snapshot PositionRuntimeSnapshot, forceCheck bool, selected string) (PlanMessageStep, error) {
 	p.parent.stepMu.Lock()
 	defer p.parent.stepMu.Unlock()
 	result := PlanMessageStep{ItemRunID: p.state.options.ItemRunID, TaskRunID: p.state.options.CloudRunID}
@@ -40,6 +53,7 @@ func (p *PlanItemReservation) MessageStep(permit planmodel.Permit, snapshot Posi
 		return result, fmt.Errorf("父计划尚未确认运行或原占用不匹配")
 	}
 	active := []string{}
+	allActive := []string{}
 	found := false
 	for _, item := range permit.Run.Items {
 		if item.ID != result.ItemRunID {
@@ -48,7 +62,10 @@ func (p *PlanItemReservation) MessageStep(permit planmodel.Permit, snapshot Posi
 		found = item.TaskRunID == result.TaskRunID && item.Snapshot.PositionID == p.positionID && item.Order <= permit.Run.CurrentItem && (item.State == "running" || item.State == "completed")
 		for _, action := range []string{"auto_reply", "re_greet"} {
 			if item.Actions[action].State == "active" && hasTaskType(parseTaskTypes(p.state.options.TaskType), action) {
-				active = append(active, action)
+				allActive = append(allActive, action)
+				if selected == "" || selected == action {
+					active = append(active, action)
+				}
 			}
 		}
 	}
@@ -68,6 +85,25 @@ func (p *PlanItemReservation) MessageStep(permit planmodel.Permit, snapshot Posi
 	options := p.state.options
 	options.TaskType = strings.Join(active, ",")
 	options.PrioritizeReply = options.PrioritizeReply && hasTaskType(active, "auto_reply")
+	if hasTaskType(active, "auto_reply") {
+		for _, candidate := range permit.Run.Items {
+			if candidate.Order <= permit.Run.CurrentItem && candidate.Snapshot.PositionID == p.positionID && candidate.Actions["auto_reply"].State == "active" && (candidate.State == "running" || candidate.State == "completed") {
+				policy := checkpoint
+				if candidate.ID != checkpoint.ItemRunID {
+					policy, err = p.parent.runner.db.LoadActionCheckpoint(p.ctx, candidate.ID)
+					if err != nil {
+						return result, err
+					}
+				}
+				if policy.PlanRunID != checkpoint.PlanRunID || policy.OwnerScope != checkpoint.OwnerScope || policy.CloudRunID != candidate.TaskRunID {
+					return result, fmt.Errorf("最新消息设置不属于原计划或任务")
+				}
+				if policy.Platform == checkpoint.Platform {
+					options.PrioritizeReply = candidate.Snapshot.PrioritizeReply
+				}
+			}
+		}
+	}
 	if p.messages == nil {
 		if p.scan != nil && !p.scan.finished && p.scan.resumer == nil {
 			return result, fmt.Errorf("当前平台不支持扫描间隙的推荐进度恢复")
@@ -98,15 +134,15 @@ func (p *PlanItemReservation) MessageStep(permit planmodel.Permit, snapshot Posi
 	}
 	p.messages.options = options
 	p.messages.scheduler.PrioritizeReply = options.PrioritizeReply
-	if !hasTaskType(active, "auto_reply") {
+	if !hasTaskType(allActive, "auto_reply") {
 		p.messages.replies = nil
 	}
-	if !hasTaskType(active, "re_greet") {
+	if !hasTaskType(allActive, "re_greet") {
 		p.messages.reGreets = nil
 	}
 	_, err = p.messages.serviceBounded(p.ctx, false, forceCheck, true)
 	result.Action = string(p.messages.lastBatch)
-	result.Remaining = len(p.messages.replies) > 0 || len(p.messages.reGreets) > 0 || len(p.messages.infoQueue) > 0
+	result.Remaining = (hasTaskType(active, "auto_reply") && len(p.messages.replies) > 0) || (hasTaskType(active, "re_greet") && len(p.messages.reGreets) > 0) || len(p.messages.infoQueue) > 0
 	result.NoWork = p.messages.lastBatch == actiondispatch.Done && !result.Remaining
 	p.parent.runner.mu.Lock()
 	childError := p.state.planActionError

@@ -297,7 +297,8 @@ func (s *actionSession) serviceBounded(ctx context.Context, greetingRemaining bo
 			s.scheduler.Stop()
 			return false, context.Canceled
 		}
-		work := actiondispatch.Work{Greeting: greetingRemaining, Reply: len(s.replies) > 0, ReGreet: len(s.reGreets) > 0, CandidateInfo: len(s.infoQueue) > 0}
+		types := parseTaskTypes(s.options.TaskType)
+		work := actiondispatch.Work{Greeting: greetingRemaining, Reply: len(s.replies) > 0 && hasTaskType(types, "auto_reply"), ReGreet: len(s.reGreets) > 0 && hasTaskType(types, "re_greet"), CandidateInfo: len(s.infoQueue) > 0}
 		if len(s.reGreets) > 0 {
 			work.ReGreetDue = s.reGreets[0].due
 			work.ReGreetWaitingSince = s.reGreets[0].queuedAt

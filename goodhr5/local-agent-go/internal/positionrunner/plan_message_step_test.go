@@ -289,3 +289,56 @@ func TestPlanMessageCleanupWaitsForBatch(t *testing.T) {
 		t.Fatal("批次结束后没有保留父占用", err)
 	}
 }
+
+// TestPlanMessageSelectedActionPreservesOtherQueue 验证指定复打步骤不执行已有回复队列，下一回复步骤仍保留队列和原归属。
+func TestPlanMessageSelectedActionPreservesOtherQueue(t *testing.T) {
+	child, permit, snapshot, page := planMessageFixture(t, 4, func(p *planmodel.Permit) {
+		p.Run.Snapshot.Items[0].Actions = []string{"auto_reply", "re_greet"}
+		p.Run.Items[0].Snapshot = p.Run.Snapshot.Items[0]
+		p.Run.Items[0].Actions["re_greet"] = planmodel.ActionProgress{State: "active"}
+	})
+	for _, current := range page.reads {
+		child.messages.replies = append(child.messages.replies, current.Conversation)
+	}
+	child.messages.scheduler.Checked(child.messages.now())
+	step, err := child.MessageActionStep(permit, snapshot, false, "re_greet")
+	if err != nil || !step.NoWork || step.Remaining || page.sends != 0 || len(child.messages.replies) != 4 {
+		t.Fatal("指定动作清掉或执行了另一个动作队列", step, err)
+	}
+	step, err = child.MessageActionStep(permit, snapshot, false, "auto_reply")
+	if err != nil || page.sends != 3 || !step.Remaining || step.TaskRunID != permit.Run.Items[0].TaskRunID {
+		t.Fatal("原回复队列无法继续", step, err)
+	}
+}
+
+// TestPlanMessageUsesLatestStartedPriority 验证采用同岗位新项策略时，原队列发送和累计值仍属于原任务。
+func TestPlanMessageUsesLatestStartedPriority(t *testing.T) {
+	child, permit, snapshot, page := planMessageFixture(t, 1)
+	permit.Run.Snapshot.Items[1].Actions = []string{"auto_reply"}
+	permit.Run.Items[1].Snapshot = permit.Run.Snapshot.Items[1]
+	permit.Run.Items[1].Actions = map[string]planmodel.ActionProgress{"auto_reply": {State: "active"}}
+	permit.Run.Items[1].State = "running"
+	permit.Run.Items[1].TaskRunID = "70000000-0000-0000-0000-000000000002"
+	permit.Run.Items[0].State = "completed"
+	permit.Run.CurrentItem = 1
+	cp, err := child.parent.runner.db.LoadActionCheckpoint(t.Context(), child.state.options.LocalRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := cp
+	latest.ItemRunID = permit.Run.Items[1].ID
+	latest.CloudRunID = permit.Run.Items[1].TaskRunID
+	latest.PrioritizeReply = false
+	latest.AccountBound = false
+	if _, err = child.parent.runner.db.EnsurePlanActionRun(t.Context(), latest); err != nil {
+		t.Fatal(err)
+	}
+	step, err := child.MessageActionStep(permit, snapshot, true, "auto_reply")
+	if err != nil || page.sends != 1 || child.messages.scheduler.PrioritizeReply || step.TaskRunID != cp.CloudRunID {
+		t.Fatal("新策略未生效或改写原任务归属", step, err)
+	}
+	old, err := child.parent.runner.db.LoadActionCheckpoint(t.Context(), cp.RunID)
+	if err != nil || old.Replied != 6 || !old.PrioritizeReply {
+		t.Fatal("发送被改计到新项或改写原项配置", err)
+	}
+}
