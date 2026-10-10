@@ -28,6 +28,7 @@ type ExecutionPlanStore interface {
 	ClaimRun(context.Context, string, string, ExecutionPlanRunClaim) (ExecutionPlanRunPermit, error)
 	GetRun(context.Context, string, string, string) (ExecutionPlanRun, error)
 	ListRuns(context.Context, string, string, string) ([]ExecutionPlanRun, error)
+	RuntimeSnapshot(context.Context, string, string, string) (ExecutionPlanRuntimeSnapshot, error)
 	UpdateRun(context.Context, string, string, ExecutionPlanRunUpdate) (ExecutionPlanRunPermit, error)
 	PrepareItemTask(context.Context, string, string, ExecutionPlanItemTaskRequest) (ExecutionPlanRunPermit, error)
 	SaveReport(context.Context, string, string, ExecutionPlanReportSummary, string) (ExecutionPlanReport, error)

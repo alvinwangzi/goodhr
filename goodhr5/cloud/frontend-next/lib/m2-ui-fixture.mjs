@@ -12,6 +12,7 @@ const mutations = [];
 const subscribers = new Set();
 let starts = 0;
 let supportsPlans = true;
+let runtimeMode = "waiting_time";
 
 /** changed 仅向隔离网页提示重读夹具状态，不会调度本地任务。 */
 function changed() { for (const response of subscribers) response.write("event: changed\ndata: {}\n\n"); }
@@ -31,6 +32,7 @@ function seedReport() {
 /** fixtureResult 提供表单与状态演示，所有开始只登记计数，没有执行器。 */
 function fixtureResult(path, body, method) {
   if (path === "/__fixture/report-seed") return seedReport();
+  if (path === "/__fixture/runtime-mode") { runtimeMode = body.mode; changed(); return {ok:true}; }
   if (path === "/__fixture/report-sync") { for (const report of reports.values()) { report.sync_state="confirmed"; report.notification_state="not_configured"; report.notification_error="夹具邮件未配置"; report.updated_at="2026-10-10T12:06:00Z"; } changed(); return {ok:true}; }
   const reportMatch=path.match(/^\/api\/execution-plan-runs\/([^/]+)\/report$/);
   if (reportMatch) return {report:reports.get(reportMatch[1])};
@@ -57,11 +59,18 @@ function fixtureResult(path, body, method) {
     if (old) plans.splice(plans.indexOf(old), 1, plan); else plans.push(plan);
     mutations.push({ action: "save", plan }); changed(); return { plan };
   }
-  const match = path.match(/^\/api\/execution-plans\/([^/]+)\/(arm|stop|runs)$/);
+  const match = path.match(/^\/api\/execution-plans\/([^/]+)\/(arm|stop|runs|runtime)$/);
   if (match) {
     const plan = plans.find(plan => plan.id === match[1]);
     if (!plan) return { ok: false, error: "夹具计划不存在" };
     if (match[2] === "runs") return { runs: runs.get(plan.id) || [] };
+    if (match[2] === "runtime") {
+      const history = runs.get(plan.id) || [];
+      const current = history.find(run => run.activation_id === plan.activation_id);
+      if (runtimeMode === "executing" && current) { current.state = "running"; current.current_item = 0; current.items[0].state = "running"; }
+      const reason = plan.stop_requested ? "stopping" : plan.state === "stopped" ? "stopped" : runtimeMode;
+      return {runtime:{plan,runs:history,observed_at:"2026-10-10T02:00:00Z",wait_reason:reason,...(current?{current_run:current}:{}),...(reason==="waiting_time"?{nominal_at:"2026-10-11T01:00:00Z"}:{}),...(reason==="account_busy"?{nominal_at:"2026-10-10T01:00:00Z",account_owner:{owner_id:randomUUID(),owner_type:"manual",machine_id:"m2-test-computer-B",state:"draining"}}:{})}};
+    }
     if (match[2] === "arm") { plan.state = "enabled"; plan.activation_id = randomUUID(); }
     else plan.stop_requested = true;
     plan.state_sequence++; mutations.push({ action: match[2], request: body }); changed(); return { plan };

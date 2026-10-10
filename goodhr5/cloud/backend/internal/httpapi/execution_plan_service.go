@@ -171,6 +171,10 @@ func (s *ExecutionPlanService) Item(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/execution-plans/")
 	parts := strings.Split(id, "/")
+	if len(parts) == 2 && parts[1] == "runtime" && executionPlanUUID.MatchString(parts[0]) {
+		s.runtimeView(w, r, tenant, email, parts[0])
+		return
+	}
 	if len(parts) == 2 && parts[1] == "runs" && executionPlanUUID.MatchString(parts[0]) {
 		if r.Method != http.MethodGet {
 			writeError(w, 405, "此接口只支持读取执行记录")
