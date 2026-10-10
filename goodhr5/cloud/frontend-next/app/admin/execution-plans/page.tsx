@@ -9,6 +9,7 @@ import AdminDialog from "@/components/admin/AdminDialog";
 import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import { canUseAutoReply } from "@/lib/subscription";
+import { subscribeExecutionPlanEvents } from "@/lib/execution-plan-events";
 import { canEditExecutionPlan, emptyPlanConfig, executionPlanIntent, executionPlanRuns, listExecutionPlans, PLAN_ACTION_LABELS, readExecutionReport, saveExecutionPlan, startExecutionPlan, timeMinute, timeText, validatePlanConfig, type ExecutionPlan, type ExecutionRun, type PlanAction, type PlanConfig } from "@/lib/execution-plans";
 
 type PositionOption = { id: string; name: string; platform_id: string; match_limit?: number };
@@ -17,7 +18,7 @@ const RUN_LABELS: Record<string, string> = { pending: "等待执行", waiting_re
 
 /** ExecutionPlansPage 展示和保存独立编排，加载页面仅读取事实，不重发开始命令。 */
 export default function ExecutionPlansPage() {
-  const { agentBase, notify, confirm, subscription } = useAdmin();
+  const { agentBase, notify, confirm, subscription, user } = useAdmin();
   const [plans, setPlans] = useState<ExecutionPlan[]>([]);
   const [positions, setPositions] = useState<PositionOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,6 +26,7 @@ export default function ExecutionPlansPage() {
   const [machine, setMachine] = useState("");
   const [connectedMachine, setConnectedMachine] = useState("");
   const [supported, setSupported] = useState(false);
+  const [statusConnected, setStatusConnected] = useState(false);
   const [dialog, setDialog] = useState(false);
   const [original, setOriginal] = useState<ExecutionPlan>();
   const [config, setConfig] = useState<PlanConfig>(emptyPlanConfig);
@@ -48,17 +50,16 @@ export default function ExecutionPlansPage() {
     finally { if (current === generation.current) setLoading(false); }
   }, [notify]);
 
-  useEffect(() => { void load(); return () => { generation.current++; }; }, [load]);
+  useEffect(() => {
+    setPlans([]); setPositions([]); setRuns({}); setReport(undefined); setDialog(false); setOriginal(undefined); intents.current.clear(); setStatusConnected(false); void load();
+    const disconnect = subscribeExecutionPlanEvents(load, setStatusConnected);
+    return () => { disconnect(); generation.current++; };
+  }, [load, user?.email]);
   useEffect(() => {
     let active = true; setSupported(false); setConnectedMachine("");
     if (agentBase) void localRequest(agentBase, "/health").then(data => { if (active) { setSupported(data.capabilities?.execution_plans === true); setConnectedMachine(String(data.machine_id || "")); } }).catch(() => { if (active) setSupported(false); });
     return () => { active = false; };
   }, [agentBase]);
-  useEffect(() => {
-    if (!plans.some(plan => plan.stop_requested)) return;
-    const timer = window.setInterval(() => { void load(); }, 5000);
-    return () => window.clearInterval(timer);
-  }, [plans, load]);
 
   /** edit 拷贝配置到编辑草稿，原运行中的计划不能打开编辑入口。 */
   function edit(plan?: ExecutionPlan) {
@@ -108,6 +109,7 @@ export default function ExecutionPlansPage() {
   return <>
     <PageHeader title="执行计划" description="按工作时间安排岗位顺序，同一岗位可添加多次，选择不同动作。" actions={<><RefreshButton loading={loading} onClick={() => void load()} /><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => edit()}>新建计划</Button></>} />
     {!supported && <Alert severity="info" sx={{ mb: 2 }}>当前本地程序未提供执行计划能力，运行前请更新并连接。计划配置仍可查看。</Alert>}
+    {!statusConnected && <Alert severity="warning" sx={{ mb: 2 }}>状态通知正在连接，当前显示可能不是最新状态，可点击刷新核对。</Alert>}
     <Stack spacing={2}>{!plans.length && !loading ? <EmptyState text="暂无执行计划" /> : plans.map(plan => {
       const history = runs[plan.id] || []; const latest = history.find(run => run.activation_id === plan.activation_id);
       return <SectionPanel key={plan.id}><Stack spacing={1.5}>

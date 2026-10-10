@@ -110,6 +110,9 @@ func NewServer() (*Server, error) {
 	positionExecution := NewPositionExecutionService(auth, positionStore, *positionLogs, tenantStore, candidateStore, screeningStore, subscriptionStore, systemConfigStore, aiWalletStore, aiConfigStore, mailer, dailyStatsStore, userFlowStore, agentStore, taskRunStore)
 	planService := NewExecutionPlanService(positionService, agentStore, planStore)
 	planService.execution = positionExecution
+	if db != nil {
+		planService.eventDSN = config.PostgresDSN
+	}
 	return &Server{
 		executionPlans:      planService,
 		auth:                auth,
@@ -147,10 +150,11 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	// 注册健康检查接口，用于部署和本地开发确认服务在线。
 	mux.HandleFunc("/health", s.health)
-	mux.HandleFunc("/api/execution-plans", s.executionPlans.Collection)
-	mux.HandleFunc("/api/execution-plans/", s.executionPlans.Item)
-	mux.HandleFunc("/api/execution-plan-runs/claim", s.executionPlans.ClaimRun)
-	mux.HandleFunc("/api/execution-plan-runs/", s.executionPlans.Run)
+	mux.HandleFunc("/api/execution-plan-events", s.executionPlans.Events)
+	mux.HandleFunc("/api/execution-plans", s.executionPlans.notifyMutation(s.executionPlans.Collection))
+	mux.HandleFunc("/api/execution-plans/", s.executionPlans.notifyMutation(s.executionPlans.Item))
+	mux.HandleFunc("/api/execution-plan-runs/claim", s.executionPlans.notifyMutation(s.executionPlans.ClaimRun))
+	mux.HandleFunc("/api/execution-plan-runs/", s.executionPlans.notifyMutation(s.executionPlans.Run))
 	// 注册认证接口，用于邮箱验证码登录和登录态校验。
 	mux.HandleFunc("/api/auth/send-code", s.auth.SendCode)
 	mux.HandleFunc("/api/auth/login", s.auth.Login)

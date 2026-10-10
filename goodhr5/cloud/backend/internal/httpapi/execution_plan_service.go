@@ -15,11 +15,13 @@ type ExecutionPlanService struct {
 	agents    AgentStore
 	store     ExecutionPlanStore
 	execution *PositionExecutionService
+	events    *planEventHub
+	eventDSN  string
 }
 
 // NewExecutionPlanService 复用岗位服务的登录与权限依赖。
 func NewExecutionPlanService(positions *PositionService, agents AgentStore, store ExecutionPlanStore) *ExecutionPlanService {
-	return &ExecutionPlanService{positions: positions, agents: agents, store: store}
+	return &ExecutionPlanService{positions: positions, agents: agents, store: store, events: &planEventHub{}}
 }
 
 // identity 以真实会话决定所有者与团队，不接受客户端传入用户归属。
