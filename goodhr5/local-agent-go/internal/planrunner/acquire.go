@@ -133,10 +133,7 @@ func (c *Coordinator) Acquire(ctx context.Context, plan planmodel.Plan, input cl
 		if !reservation.Valid() || !a.StillCurrent() {
 			return ErrPlanAuthority
 		}
-		if err := c.db.SavePlanRunSnapshot(ctx, scope, permit.Run); err != nil {
-			return err
-		}
-		return c.db.ConfirmPlanOperation(ctx, scope, operation.RequestID, operation.BodyHash)
+		return c.db.ConfirmPlanOperationSnapshot(ctx, scope, operation.RequestID, operation.BodyHash, permit.Run)
 	}
 	// 登录锁内只做保存；该锁由调用方提供，内部不能再次调用它的 StillCurrent。
 	if a.ConfirmCurrent != nil {
@@ -144,10 +141,7 @@ func (c *Coordinator) Acquire(ctx context.Context, plan planmodel.Plan, input cl
 			if !reservation.Valid() {
 				return ErrPlanAuthority
 			}
-			if err := c.db.SavePlanRunSnapshot(ctx, scope, permit.Run); err != nil {
-				return err
-			}
-			return c.db.ConfirmPlanOperation(ctx, scope, operation.RequestID, operation.BodyHash)
+			return c.db.ConfirmPlanOperationSnapshot(ctx, scope, operation.RequestID, operation.BodyHash, permit.Run)
 		})
 	} else {
 		err = confirm()

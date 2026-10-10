@@ -60,10 +60,7 @@ func (c *Coordinator) PrepareItem(ctx context.Context, held *Acquired, run planm
 		if !held.Reservation.Valid() {
 			return ErrPlanAuthority
 		}
-		if err := c.db.SavePlanRunSnapshot(ctx, held.scope, result.Run); err != nil {
-			return err
-		}
-		return c.db.ConfirmPlanOperation(ctx, held.scope, operation.RequestID, operation.BodyHash)
+		return c.db.ConfirmPlanOperationSnapshot(ctx, held.scope, operation.RequestID, operation.BodyHash, result.Run)
 	}
 	if !a.StillCurrent() || !held.Reservation.Valid() {
 		return planmodel.Permit{}, ErrPlanAuthority

@@ -152,3 +152,56 @@ func TestExecutionPlanClientRejectsAmbiguous(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanUpdateChecksOriginalItemFacts 验证正确序号但错误数量或动作状态的响应不能确认原请求。
+func TestPlanUpdateChecksOriginalItemFacts(t *testing.T) {
+	for _, wrong := range []string{"valid", "valid_settled", "count", "unknown", "state"} {
+		t.Run(wrong, func(t *testing.T) {
+			p := cloudPlanFixture(t)
+			p.Run.State, p.Owner.State = "running", "running"
+			p.Run.Sequence = 2
+			p.Run.Items[0].State = "running"
+			p.Run.Items[0].Actions["auto_reply"] = planmodel.ActionProgress{State: "active", Count: 5, UnknownCount: 1}
+			input := PlanRunUpdateRequest{RunID: p.Run.ID, Action: "status", RequestID: "60000000-0000-0000-0000-000000000008", OwnerID: p.Owner.OwnerID, MachineID: p.Owner.MachineID, Credential: strings.Repeat("fixture-secret", 4), Sequence: 2, State: "running"}
+			for _, item := range p.Run.Items {
+				actions := map[string]planmodel.ActionProgress{}
+				for action, progress := range item.Actions {
+					actions[action] = progress
+				}
+				input.Items = append(input.Items, planmodel.ItemUpdate{ID: item.ID, ItemID: item.ItemID, State: item.State, Actions: actions})
+			}
+			if wrong == "valid_settled" {
+				input.Action, input.State, input.CleanupConfirmed = "release", "stopped", true
+				p.Run.State, p.Owner.State = "stopped", "released"
+				for index, item := range p.Run.Items {
+					p.Run.Items[index].State = "stopped"
+					for action, progress := range item.Actions {
+						if progress.State == "active" {
+							progress.State = "stopped"
+						}
+						p.Run.Items[index].Actions[action] = progress
+					}
+				}
+			}
+			progress := p.Run.Items[0].Actions["auto_reply"]
+			switch wrong {
+			case "count":
+				progress.Count = 0
+			case "unknown":
+				progress.UnknownCount = 0
+			case "state":
+				progress.State = "completed"
+			}
+			p.Run.Items[0].Actions["auto_reply"] = progress
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": p})
+			}))
+			defer server.Close()
+			_, err := New(server.URL).UpdateExecutionPlanRun(t.Context(), "fixture-token", input)
+			valid := wrong == "valid" || wrong == "valid_settled"
+			if (valid && err != nil) || (!valid && err == nil) {
+				t.Fatal("原事实回执判断错误", wrong, err)
+			}
+		})
+	}
+}

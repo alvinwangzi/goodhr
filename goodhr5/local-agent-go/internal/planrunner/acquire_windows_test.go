@@ -65,6 +65,41 @@ func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmod
 			_ = json.NewEncoder(w).Encode(configuration)
 			return
 		}
+		if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/status" {
+			var input cloudapi.PlanRunUpdateRequest
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			operation, err := db.PlanOperation(t.Context(), scope, input.RequestID)
+			if err != nil || operation.Kind != "status" || operation.RunSequence != input.Sequence {
+				t.Error("状态发送前没有原请求", err)
+			}
+			if mode.Load() == 2 {
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+				return
+			}
+			current, err := db.PlanRunSnapshot(t.Context(), scope, permit.Run.ID)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			current.Sequence, current.State, current.CurrentItem = input.Sequence, input.State, input.CurrentItem
+			if current.StartedAt == nil && input.State == "running" {
+				started := time.Date(2026, 10, 10, 1, 0, 7, 0, time.UTC)
+				current.StartedAt = &started
+			}
+			for i, item := range input.Items {
+				current.Items[i].State, current.Items[i].Actions = item.State, item.Actions
+			}
+			owner := permit.Owner
+			owner.State = "running"
+			if input.State == "draining" {
+				owner.State = "releasing"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": planmodel.Permit{Run: current, Owner: owner}})
+			return
+		}
 		if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/items/"+permit.Run.Items[0].ID+"/prepare" {
 			var input cloudapi.PlanItemTaskRequest
 			if e := json.NewDecoder(r.Body).Decode(&input); e != nil {

@@ -190,13 +190,16 @@ func (s *Store) UploadNext(ctx context.Context, client *cloudapi.Client, a Autho
 	if !a.StillCurrent() {
 		return false, errors.New("计划补传登录证明已变化")
 	}
-	if _, err = client.UpdateExecutionPlanRun(ctx, a.Token, input); err != nil {
+	permit, err := client.UpdateExecutionPlanRun(ctx, a.Token, input)
+	if err != nil {
 		return false, err
 	}
 	if !a.StillCurrent() {
 		return false, errors.New("计划原回执已收到，等待同账号重新核对")
 	}
-	confirm := func() error { return s.db.ConfirmPlanOperation(ctx, a.OwnerScope, record.RequestID, record.BodyHash) }
+	confirm := func() error {
+		return s.db.ConfirmPlanOperationSnapshot(ctx, a.OwnerScope, record.RequestID, record.BodyHash, permit.Run)
+	}
 	if a.ConfirmCurrent != nil {
 		err = a.ConfirmCurrent(confirm)
 	} else {

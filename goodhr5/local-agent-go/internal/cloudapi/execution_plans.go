@@ -241,5 +241,29 @@ func (c *Client) UpdateExecutionPlanRun(ctx context.Context, token string, input
 	if result.Run.Sequence != input.Sequence || result.Run.State != input.State || result.Run.CurrentItem != input.CurrentItem || (input.Action == "release" && result.Owner.State != "released") {
 		return planmodel.Permit{}, fmt.Errorf("云端未确认原状态序号或收尾结果")
 	}
+	if input.Items != nil {
+		if len(input.Items) != len(result.Run.Items) {
+			return planmodel.Permit{}, fmt.Errorf("云端没有确认完整原执行项")
+		}
+		for index, original := range input.Items {
+			actual := result.Run.Items[index]
+			settled := input.Action == "release" && input.State != "waiting_window" && input.State != "completed"
+			state := original.State
+			if settled && (state == "pending" || state == "running") {
+				state = "stopped"
+			}
+			if actual.ID != original.ID || actual.ItemID != original.ItemID || actual.State != state || len(actual.Actions) != len(original.Actions) {
+				return planmodel.Permit{}, fmt.Errorf("云端执行项回执与原事实不匹配")
+			}
+			for action, progress := range original.Actions {
+				if settled && progress.State == "active" {
+					progress.State = "stopped"
+				}
+				if actual.Actions[action] != progress {
+					return planmodel.Permit{}, fmt.Errorf("云端动作数量或状态与原事实不匹配")
+				}
+			}
+		}
+	}
 	return result, nil
 }

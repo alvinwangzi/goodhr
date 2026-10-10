@@ -166,6 +166,19 @@ func validatePlanSnapshotAdvance(old, next planmodel.Run) error {
 
 // SavePlanRunSnapshot 按原运行编号保存完整安全进度，重复回执不覆盖新计数。
 func (db *DB) SavePlanRunSnapshot(ctx context.Context, scope string, r planmodel.Run) error {
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = savePlanRunSnapshotTx(ctx, tx, scope, r); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// savePlanRunSnapshotTx 复用安全快照校验，由独立保存或原请求回执确认事务控制提交。
+func savePlanRunSnapshotTx(ctx context.Context, tx *sql.Tx, scope string, r planmodel.Run) error {
 	if scope == "" {
 		return ErrPlanRequestConflict
 	}
@@ -184,11 +197,6 @@ func (db *DB) SavePlanRunSnapshot(ctx context.Context, scope string, r planmodel
 	if err != nil {
 		return err
 	}
-	tx, err := db.conn.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	var oldRaw string
 	err = tx.QueryRowContext(ctx, `SELECT snapshot_json FROM plan_run_snapshots WHERE owner_scope=? AND run_id=?`, scope, r.ID).Scan(&oldRaw)
 	if err == nil {
@@ -223,7 +231,7 @@ func (db *DB) SavePlanRunSnapshot(ctx context.Context, scope string, r planmodel
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 // PlanRunSnapshot 读取指定账号的完整原运行，结构损坏时不自动重建或重置进度。
