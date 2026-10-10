@@ -52,6 +52,7 @@ type Server struct {
 	activePlanExecution     *planExecution
 	planNow                 func() time.Time
 	planExecutionContext    context.Context
+	planReportFailure       string
 	cfg                     *config.Config
 	runtime                 *runtime.Manager
 	worker                  *browser.WorkerManager

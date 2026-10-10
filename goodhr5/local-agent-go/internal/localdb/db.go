@@ -254,7 +254,10 @@ INSERT OR REPLACE INTO local_meta(key, value) VALUES('schema_version', '1');
 	if err := db.migratePlanCleanup(); err != nil {
 		return err
 	}
-	return db.migrateInfoAttribution()
+	if err := db.migrateInfoAttribution(); err != nil {
+		return err
+	}
+	return db.migratePlanReports()
 }
 
 // migrateDownloadSources 为既有下载记录添加来源摘要，保留原有文件和记录，不根据文件名猜测候选人。

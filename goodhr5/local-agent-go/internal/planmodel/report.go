@@ -1,7 +1,10 @@
 // 本文件定义 HRPlus 执行报告安全快照，区分已确认数量、结果待核对和同步等待，不包含凭证。
 package planmodel
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // ReportAction 区分动作结束状态及实际确认、未知、跳过、失败数量。
 type ReportAction struct {
@@ -45,4 +48,41 @@ type Report struct {
 	NextNominalAt     *time.Time   `json:"next_nominal_at,omitempty"`
 	Items             []ReportItem `json:"items"`
 	UnfinishedItemIDs []string     `json:"unfinished_item_ids"`
+}
+
+// Validate 拒绝不完整报告及负数量，不把待核对动作视为已确认完成。
+func (r Report) Validate() error {
+	if r.SchemaVersion != 1 || !ValidID(r.RunID) || !ValidID(r.PlanID) || !ValidID(r.ActivationID) || r.ConfigVersion < 1 || r.RunSequence < 1 || r.GeneratedAt.IsZero() || len(r.Items) == 0 {
+		return fmt.Errorf("报告原运行信息不完整")
+	}
+	if _, err := time.Parse("2006-01-02", r.ExecutionDate); err != nil {
+		return err
+	}
+	kinds := map[string]string{"completed": "completed", "day_incomplete": "incomplete", "stopped": "stopped", "failed": "blocked"}
+	expected, known := kinds[r.Kind]
+	if !known || expected != r.RunState || r.SyncState != "confirmed" && r.SyncState != "pending" {
+		return fmt.Errorf("报告结果或同步状态不支持")
+	}
+	seen := map[string]bool{}
+	for index, item := range r.Items {
+		if !ValidID(item.ID) || item.ItemID == "" || item.PositionID == "" || item.Order != index || seen[item.ID] || item.Scanned < 0 || item.TaskRunID != "" && !ValidID(item.TaskRunID) {
+			return fmt.Errorf("报告执行项身份不完整")
+		}
+		seen[item.ID] = true
+		for _, stats := range []map[string]ReportAction{item.Actions, item.Information} {
+			for _, value := range stats {
+				if value.Confirmed < 0 || value.Unknown < 0 || value.Skipped < 0 || value.Failed < 0 {
+					return fmt.Errorf("报告数量不能小于零")
+				}
+			}
+		}
+	}
+	unfinished := map[string]bool{}
+	for _, id := range r.UnfinishedItemIDs {
+		if !seen[id] || unfinished[id] {
+			return fmt.Errorf("报告未完成项不属于原运行")
+		}
+		unfinished[id] = true
+	}
+	return nil
 }

@@ -142,6 +142,14 @@ func (s *Server) processPlanExecutionsRequest(parent context.Context, requested 
 	if !a.StillCurrent() {
 		return planrunner.ErrPlanAuthority
 	}
+	if err := s.saveEndedPlanReports(ctx, plans, a); err != nil {
+		if err.Error() != s.planReportFailure {
+			log.Printf("[执行计划报告] 原报告等待保存：%s", err.Error())
+			s.planReportFailure = err.Error()
+		}
+	} else {
+		s.planReportFailure = ""
+	}
 	if requested != nil {
 		matches := false
 		for _, plan := range plans {
