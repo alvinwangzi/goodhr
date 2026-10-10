@@ -65,6 +65,9 @@ func TestHandleHealthExposesAutoReplyCapability(t *testing.T) {
 	if payload.Data.Capabilities["cooperative_actions"] != true {
 		t.Fatal("缺少单岗位协同动作能力标志")
 	}
+	if payload.Data.Capabilities["execution_plans"] != true {
+		t.Fatal("缺少执行计划能力标志，网页无法开放已实现的开始入口")
+	}
 }
 
 // TestStartOptionsFromPayloadCarriesTaskType 验证启动请求中的任务类型和打招呼开关被完整透传。

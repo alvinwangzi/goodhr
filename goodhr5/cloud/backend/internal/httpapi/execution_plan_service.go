@@ -169,6 +169,19 @@ func (s *ExecutionPlanService) Item(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/execution-plans/")
 	parts := strings.Split(id, "/")
+	if len(parts) == 2 && parts[1] == "runs" && executionPlanUUID.MatchString(parts[0]) {
+		if r.Method != http.MethodGet {
+			writeError(w, 405, "此接口只支持读取执行记录")
+			return
+		}
+		runs, err := s.store.ListRuns(r.Context(), tenant, email, parts[0])
+		if err != nil {
+			writePlanStoreError(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "runs": runs})
+		return
+	}
 	if len(parts) == 2 && parts[1] == "confirm-stop" {
 		s.confirmStop(w, r, tenant, email, parts[0])
 		return

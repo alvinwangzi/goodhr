@@ -236,9 +236,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // autoReplyCapabilities 返回本地程序支持的扩展能力标志；前端只在标志明确为 true 时开放入口。
-// 当前包含：auto_reply（AI 自动回复）、re_greet（复打招呼）。
+// 当前包含单岗位协同动作及执行计划；旧程序没有标志时前端禁用对应运行入口。
 func autoReplyCapabilities() map[string]any {
-	return map[string]any{"auto_reply": true, "re_greet": true, "cooperative_actions": true}
+	return map[string]any{"auto_reply": true, "re_greet": true, "cooperative_actions": true, "execution_plans": true}
 }
 
 // handleSessionBind 接收前端传来的登录令牌，读取或生成设备编号后请求云端绑定。

@@ -1,0 +1,152 @@
+/** 本文件负责 HRPlus 执行计划管理，允许同岗位多次编排，停止确认后才能编辑。 */
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, Button, Checkbox, Chip, FormControlLabel, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import { useAdmin } from "@/components/admin/AdminApp";
+import AdminDialog from "@/components/admin/AdminDialog";
+import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/components/admin/AdminUI";
+import { cloudRequest, localRequest } from "@/lib/admin-api";
+import { canUseAutoReply } from "@/lib/subscription";
+import { canEditExecutionPlan, emptyPlanConfig, executionPlanIntent, executionPlanRuns, listExecutionPlans, PLAN_ACTION_LABELS, readExecutionReport, saveExecutionPlan, startExecutionPlan, timeMinute, timeText, validatePlanConfig, type ExecutionPlan, type ExecutionRun, type PlanAction, type PlanConfig } from "@/lib/execution-plans";
+
+type PositionOption = { id: string; name: string; platform_id: string; match_limit?: number };
+type WindowDraft = { id: string; start: string; end: string };
+const RUN_LABELS: Record<string, string> = { pending: "等待执行", waiting_resource: "等待当前任务结束", starting: "正在准备", running: "执行中", draining: "正在收尾", waiting_window: "等待下一时段", completed: "完成", incomplete: "当天未完成", stopped: "已停止", blocked: "需要核对" };
+
+/** ExecutionPlansPage 展示和保存独立编排，加载页面仅读取事实，不重发开始命令。 */
+export default function ExecutionPlansPage() {
+  const { agentBase, notify, confirm, subscription } = useAdmin();
+  const [plans, setPlans] = useState<ExecutionPlan[]>([]);
+  const [positions, setPositions] = useState<PositionOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [machine, setMachine] = useState("");
+  const [connectedMachine, setConnectedMachine] = useState("");
+  const [supported, setSupported] = useState(false);
+  const [dialog, setDialog] = useState(false);
+  const [original, setOriginal] = useState<ExecutionPlan>();
+  const [config, setConfig] = useState<PlanConfig>(emptyPlanConfig);
+  const [windows, setWindows] = useState<WindowDraft[]>([]);
+  const [runs, setRuns] = useState<Record<string, ExecutionRun[]>>({});
+  const [report, setReport] = useState<any>();
+  const generation = useRef(0);
+  const intents = useRef(new Map<string, string>());
+
+  /** load 并行读取岗位与计划，迟到旧读取不能覆盖后续页面状态。 */
+  const load = useCallback(async () => {
+    const current = ++generation.current;
+    setLoading(true);
+    try {
+      const [items, jobs] = await Promise.all([listExecutionPlans(), cloudRequest("/api/positions")]);
+      if (current !== generation.current) return;
+      setPlans(items); setPositions(jobs.positions || []);
+      const history = await Promise.all(items.map(async plan => [plan.id, await executionPlanRuns(plan.id)] as const));
+      if (current === generation.current) setRuns(Object.fromEntries(history));
+    } catch (error) { if (current === generation.current) notify(error instanceof Error ? error.message : "计划暂时无法读取", "error"); }
+    finally { if (current === generation.current) setLoading(false); }
+  }, [notify]);
+
+  useEffect(() => { void load(); return () => { generation.current++; }; }, [load]);
+  useEffect(() => {
+    let active = true; setSupported(false); setConnectedMachine("");
+    if (agentBase) void localRequest(agentBase, "/health").then(data => { if (active) { setSupported(data.capabilities?.execution_plans === true); setConnectedMachine(String(data.machine_id || "")); } }).catch(() => { if (active) setSupported(false); });
+    return () => { active = false; };
+  }, [agentBase]);
+  useEffect(() => {
+    if (!plans.some(plan => plan.stop_requested)) return;
+    const timer = window.setInterval(() => { void load(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [plans, load]);
+
+  /** edit 拷贝配置到编辑草稿，原运行中的计划不能打开编辑入口。 */
+  function edit(plan?: ExecutionPlan) {
+    if (plan && !canEditExecutionPlan(plan)) { notify("请先停止并等待收尾，再编辑", "warning"); return; }
+    const draft = plan ? structuredClone(plan.config) : emptyPlanConfig();
+    setOriginal(plan); setConfig(draft); setWindows(draft.schedule.windows.map(window => ({ id: crypto.randomUUID(), start: timeText(window.start_minute), end: timeText(window.end_minute) }))); setMachine(plan?.machine_id || connectedMachine); setDialog(true);
+  }
+  /** save 只提交本次草稿及原版本，服务端拒绝时保留草稿并刷新事实。 */
+  async function save() {
+    const submitted = { ...config, schedule: { ...config.schedule, windows: windows.map((window, order) => ({ order, start_minute: timeMinute(window.start), end_minute: timeMinute(window.end) })) } };
+    const problem = validatePlanConfig(submitted);
+    if (problem || !machine.trim()) { notify(problem || "请选择执行电脑", "warning"); return; }
+    setBusy("save");
+    try { await saveExecutionPlan(submitted, machine, original); setDialog(false); notify("计划已保存", "success"); await load(); }
+    catch (error) { notify(error instanceof Error ? error.message : "计划保存未确认", "error"); await load(); }
+    finally { setBusy(""); }
+  }
+  /** intent 对启用和停止保留原请求编号，响应不明后重试不能生成新批次。 */
+  async function intent(plan: ExecutionPlan, action: "arm" | "stop", immediate = false) {
+    if (action === "stop" && !await confirm("停止计划", "停止后等待当前动作收尾，再允许编辑。重新启用会从第一个岗位开始。")) return;
+    if (action === "arm" && (!supported || !agentBase)) { notify("请连接支持执行计划的本地程序", "warning"); return; }
+    const key = `${plan.id}:${plan.version}:${plan.activation_id}:${action}`;
+    const requestID = intents.current.get(key) || crypto.randomUUID(); intents.current.set(key, requestID);
+    setBusy(plan.id);
+    try {
+      const updated = await executionPlanIntent(plan, action, requestID, immediate ? "immediate" : "scheduled"); intents.current.delete(key);
+      setPlans(values => values.map(value => value.id === plan.id ? updated : value));
+      if (immediate) { const result = await startExecutionPlan(agentBase, updated); notify(result.message || "已登记开始请求", "info"); }
+      else notify(action === "stop" ? "正在收尾，确认停止后才能编辑" : "计划已启用，等待定时执行", "success");
+      await load();
+    } catch (error) { notify(error instanceof Error ? error.message : "计划操作未确认", "error"); await load(); }
+    finally { setBusy(""); }
+  }
+  /** start 仅在原已启用批次请求立即开始，页面成功反馈以实际接口状态为准。 */
+  async function start(plan: ExecutionPlan) {
+    if (!supported || !agentBase) { notify("请更新并连接支持执行计划的本地程序", "warning"); return; }
+    setBusy(plan.id);
+    try { const result = await startExecutionPlan(agentBase, plan); notify(result.message || "已登记开始请求", "info"); await load(); }
+    catch (error) { notify(error instanceof Error ? error.message : "开始请求未确认", "error"); }
+    finally { setBusy(""); }
+  }
+  /** move 调整独立执行项顺序，同岗位条目仍保留不同编号。 */
+  function move(index: number, delta: number) { setConfig(value => { const items = [...value.items]; [items[index], items[index + delta]] = [items[index + delta], items[index]]; return { ...value, items: items.map((item, order) => ({ ...item, order })) }; }); }
+  /** openReport 读取原报告，待核对和待补传单独显示。 */
+  async function openReport(runID: string) { try { setReport(await readExecutionReport(runID)); } catch (error) { notify(error instanceof Error ? error.message : "报告暂时未同步", "warning"); } }
+
+  return <>
+    <PageHeader title="执行计划" description="按工作时间安排岗位顺序，同一岗位可添加多次，选择不同动作。" actions={<><RefreshButton loading={loading} onClick={() => void load()} /><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => edit()}>新建计划</Button></>} />
+    {!supported && <Alert severity="info" sx={{ mb: 2 }}>当前本地程序未提供执行计划能力，运行前请更新并连接。计划配置仍可查看。</Alert>}
+    <Stack spacing={2}>{!plans.length && !loading ? <EmptyState text="暂无执行计划" /> : plans.map(plan => {
+      const history = runs[plan.id] || []; const latest = history.find(run => run.activation_id === plan.activation_id);
+      return <SectionPanel key={plan.id}><Stack spacing={1.5}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Typography variant="h6">{plan.config.name}</Typography><Chip size="small" label={plan.stop_requested ? "正在收尾" : plan.state === "enabled" ? "已启用" : "已停止"} />{latest && <Chip size="small" variant="outlined" label={RUN_LABELS[latest.state] || "待核对"} />}</Stack>
+        <Typography color="text.secondary">{plan.config.schedule.cycle === "once" ? `一次性 · ${plan.config.schedule.once_date}` : plan.config.schedule.cycle === "weekly" ? "每周执行" : "每天执行"} · {plan.config.schedule.windows.map(window => `${timeText(window.start_minute)}–${timeText(window.end_minute)}`).join("，")}</Typography>
+        <Typography>岗位顺序：{plan.config.items.map((item, index) => `${index + 1}. ${positions.find(position => position.id === item.position_id)?.name || "原岗位"}（${item.actions.map(action => PLAN_ACTION_LABELS[action]).join("、")}）`).join(" → ")}</Typography>
+        {latest && <Typography color="text.secondary">执行日期 {latest.execution_date} · 当前第 {Math.min(latest.current_item + 1, latest.items.length)} 项{latest.end_reason ? ` · ${latest.end_reason}` : ""}</Typography>}
+        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+          {canEditExecutionPlan(plan) ? <Button disabled={!!busy || !supported} onClick={() => void intent(plan, "arm")}>启用定时</Button> : <Button color="error" disabled={!!busy || plan.stop_requested} onClick={() => void intent(plan, "stop")}>停止</Button>}
+          <Button disabled={!!busy || !supported || plan.stop_requested} onClick={() => canEditExecutionPlan(plan) ? void intent(plan, "arm", true) : void start(plan)}>立马开始</Button>
+          <Button disabled={!!busy || !canEditExecutionPlan(plan)} onClick={() => edit(plan)}>编辑</Button>
+          {history.map(run => <Button key={run.id} onClick={() => void openReport(run.id)}>报告 {run.execution_date}</Button>)}
+        </Stack>
+      </Stack></SectionPanel>;
+    })}</Stack>
+    <AdminDialog open={dialog} title={original ? "编辑执行计划" : "新建执行计划"} maxWidth="md" loading={busy === "save"} onClose={() => setDialog(false)} onConfirm={() => void save()}>
+      <Stack spacing={3}>
+        <Typography sx={{ fontWeight: 700 }}>名称与周期</Typography>
+        <TextField label="计划名称" value={config.name} onChange={event => setConfig(value => ({ ...value, name: event.target.value }))} />
+        <TextField label="执行电脑编号" helperText="计划只在指定电脑执行，可从本地程序连接信息查看。" value={machine} onChange={event => setMachine(event.target.value)} />
+        <TextField select label="任务周期" value={config.schedule.cycle} onChange={event => setConfig(value => ({ ...value, schedule: { ...value.schedule, cycle: event.target.value as PlanConfig["schedule"]["cycle"] } }))}><MenuItem value="once">一次性</MenuItem><MenuItem value="daily">每天</MenuItem><MenuItem value="weekly">每周</MenuItem></TextField>
+        {config.schedule.cycle === "once" ? <TextField type="date" label="执行日期" slotProps={{ inputLabel: { shrink: true } }} value={config.schedule.once_date || ""} onChange={event => setConfig(value => ({ ...value, schedule: { ...value.schedule, once_date: event.target.value } }))} /> : <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>{(["start_date", "end_date"] as const).map(key => <TextField key={key} type="date" label={key === "start_date" ? "生效日期（可选）" : "结束日期（可选）"} slotProps={{ inputLabel: { shrink: true } }} value={config.schedule[key] || ""} onChange={event => setConfig(value => ({ ...value, schedule: { ...value.schedule, [key]: event.target.value } }))} />)}</Stack>}
+        {config.schedule.cycle === "weekly" && <Stack direction="row" sx={{ flexWrap: "wrap" }}>{[1, 2, 3, 4, 5, 6, 7].map(day => <FormControlLabel key={day} label={`周${"一二三四五六日"[day - 1]}`} control={<Checkbox checked={config.schedule.weekdays.includes(day)} onChange={(_, checked) => setConfig(value => ({ ...value, schedule: { ...value.schedule, weekdays: checked ? [...value.schedule.weekdays, day] : value.schedule.weekdays.filter(value => value !== day) } }))} />} />)}</Stack>}
+        <Typography sx={{ fontWeight: 700 }}>执行时间段（时区：{config.schedule.timezone}）</Typography>
+        {windows.map(window => <Stack direction={{ xs: "column", sm: "row" }} spacing={1} key={window.id}>{(["start", "end"] as const).map(key => <TextField key={key} label={key === "start" ? "开始时间" : "结束时间"} placeholder="09:00" value={window[key]} onChange={event => setWindows(values => values.map(value => value.id === window.id ? { ...value, [key]: event.target.value } : value))} />)}<Button color="error" onClick={() => setWindows(values => values.filter(value => value.id !== window.id))}>删除时间段</Button></Stack>)}
+        <Button onClick={() => setWindows(values => [...values, { id: crypto.randomUUID(), start: "09:00", end: "12:00" }])}>添加时间段</Button>
+        <Typography sx={{ fontWeight: 700 }}>岗位执行顺序</Typography>
+        {config.items.map((item, index) => { const position = positions.find(value => value.id === item.position_id); return <SectionPanel key={item.id}><Stack spacing={1}>
+          <Typography>第 {index + 1} 项</Typography>
+          <TextField select label="招聘岗位" value={item.position_id} onChange={event => setConfig(value => ({ ...value, items: value.items.map(entry => entry.id === item.id ? { ...entry, position_id: event.target.value, actions: ["greeting"], prioritize_reply: false } : entry) }))}>{positions.map(position => <MenuItem value={position.id} key={position.id}>{position.name}</MenuItem>)}</TextField>
+          <Stack direction="row" sx={{ flexWrap: "wrap" }}>{(Object.keys(PLAN_ACTION_LABELS) as PlanAction[]).map(action => <FormControlLabel key={action} label={PLAN_ACTION_LABELS[action]} control={<Checkbox checked={item.actions.includes(action)} disabled={action !== "greeting" && (position?.platform_id !== "boss" || !canUseAutoReply(subscription))} onChange={(_, checked) => setConfig(value => ({ ...value, items: value.items.map(entry => entry.id === item.id ? { ...entry, actions: checked ? [...entry.actions, action] : entry.actions.filter(value => value !== action) } : entry) }))} />} />)}</Stack>
+          {item.actions.includes("auto_reply") && <FormControlLabel label="优先回复新消息" control={<Checkbox checked={item.prioritize_reply} onChange={(_, checked) => setConfig(value => ({ ...value, items: value.items.map(entry => entry.id === item.id ? { ...entry, prioritize_reply: checked } : entry) }))} />} />}
+          {item.actions.includes("greeting") && <Typography color="text.secondary">打招呼按原岗位上限执行：{position?.match_limit ?? "原岗位配置"}</Typography>}
+          <Typography color="text.secondary">回复和复打目前仅支持 BOSS，且需要对应会员权限。</Typography>
+          <Stack direction="row"><Button disabled={!index} onClick={() => move(index, -1)}>上移</Button><Button disabled={index === config.items.length - 1} onClick={() => move(index, 1)}>下移</Button><Button color="error" onClick={() => setConfig(value => ({ ...value, items: value.items.filter(entry => entry.id !== item.id).map((entry, order) => ({ ...entry, order })) }))}>删除执行项</Button></Stack>
+        </Stack></SectionPanel>; })}
+        <Button onClick={() => setConfig(value => ({ ...value, items: [...value.items, { id: crypto.randomUUID(), position_id: positions[0]?.id || "", order: value.items.length, actions: ["greeting"], prioritize_reply: false }] }))}>添加岗位执行项</Button>
+      </Stack>
+    </AdminDialog>
+    <AdminDialog open={!!report} title="执行报告" maxWidth="md" onClose={() => setReport(undefined)}><Stack spacing={2}>{report && <><Typography>日期：{report.summary.execution_date} · 同步：{report.sync_state === "confirmed" ? "已同步" : "待补传"} · 通知：{report.notification_state === "sent" ? "已发送" : report.notification_state === "not_configured" ? "邮件未配置" : "待发送或待核对"}</Typography>{report.summary.items.map((item: any) => <SectionPanel key={item.id}><Typography>第 {item.order + 1} 项 · {RUN_LABELS[item.state] || item.state}</Typography>{Object.entries(item.actions).map(([action, value]: [string, any]) => <Typography key={action}>{PLAN_ACTION_LABELS[action as PlanAction] || action}：{value.confirmed}，待核对 {value.unknown}，失败 {value.failed}</Typography>)}</SectionPanel>)}</>}</Stack></AdminDialog>
+  </>;
+}
