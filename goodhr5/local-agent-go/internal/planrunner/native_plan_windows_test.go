@@ -11,6 +11,7 @@ import (
 	"goodhr5/local-agent-go/internal/positionrunner"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,14 @@ func (w nativePlanWorker) CallOnce(ctx context.Context, path string, payload any
 
 // TestNativePlanTwoPositions 验证完整浏览器中 Java 后销售，原任务独立、原计数确认后整体结束。
 func TestNativePlanTwoPositions(t *testing.T) {
+	runNativePlanPositions(t, false)
+}
+
+// TestNativePlanFourItems 验证两个岗位先扫描后回复，四条任务原归属及消息激活顺序真实保留。
+func TestNativePlanFourItems(t *testing.T) { runNativePlanPositions(t, true) }
+
+// runNativePlanPositions 复用同一隔离原生环境，编排数量只来自原配置，不伪造成功返回。
+func runNativePlanPositions(t *testing.T, messages bool) {
 	if os.Getenv("HRPLUS_M2_NATIVE_PLAN_TEST") != "1" {
 		t.Skip("需要显式启用原生多岗位受控验收")
 	}
@@ -124,17 +133,39 @@ func TestNativePlanTwoPositions(t *testing.T) {
 	if !ready {
 		t.Fatal("本次 Worker 实际健康未就绪")
 	}
+	if messages {
+		ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"action":"reply","text":"岗位仍在招聘，欢迎沟通。","reason":"夹具岗位问答","request_resume":false}`}}}})
+		}))
+		defer ai.Close()
+		t.Setenv("HRPLUS_M2_NATIVE_AI_BASE", ai.URL)
+	}
 	c, plan, claim, authority, _, _ := acquireFixtureWithWorker(t, &atomic.Int32{}, worker, func(p *planmodel.Permit) {
+		if messages {
+			for index := 2; index < 4; index++ {
+				config := p.Run.Snapshot.Items[index-2]
+				config.ID = fmt.Sprintf("native-message-%d", index)
+				config.Order = index
+				config.Actions = []string{"auto_reply"}
+				config.PrioritizeReply = true
+				p.Run.Snapshot.Items = append(p.Run.Snapshot.Items, config)
+				p.Run.Items = append(p.Run.Items, planmodel.ItemRun{ID: fmt.Sprintf("50000000-0000-0000-0000-%012d", index+1), ItemID: config.ID, Order: index, Snapshot: config, State: "pending", Actions: map[string]planmodel.ActionProgress{"auto_reply": {State: "pending"}}})
+			}
+		}
 		for index := range p.Run.Snapshot.Items {
 			position := "native-java"
-			if index == 1 {
+			if index%2 == 1 {
 				position = "native-sales"
 			}
 			p.Run.Snapshot.Items[index].PositionID = position
-			p.Run.Snapshot.Items[index].Actions = []string{"greeting"}
-			p.Run.Snapshot.Items[index].PrioritizeReply = false
+			action := "greeting"
+			if index >= 2 {
+				action = "auto_reply"
+			}
+			p.Run.Snapshot.Items[index].Actions = []string{action}
+			p.Run.Snapshot.Items[index].PrioritizeReply = index >= 2
 			p.Run.Items[index].Snapshot = p.Run.Snapshot.Items[index]
-			p.Run.Items[index].Actions = map[string]planmodel.ActionProgress{"greeting": {State: "pending"}}
+			p.Run.Items[index].Actions = map[string]planmodel.ActionProgress{action: {State: "pending"}}
 		}
 	})
 	held, err := c.Acquire(t.Context(), plan, claim, authority)
@@ -166,7 +197,11 @@ func TestNativePlanTwoPositions(t *testing.T) {
 		}
 		t.Fatal("原生多岗位执行失败", err)
 	}
-	if result.Run.State != "completed" || result.Run.CurrentItem != 2 || result.Run.Items[0].TaskRunID == result.Run.Items[1].TaskRunID || result.Run.Items[0].Actions["greeting"].Count != 1 || result.Run.Items[1].Actions["greeting"].Count != 1 || held.Reservation.Valid() {
+	expectedItems := 2
+	if messages {
+		expectedItems = 4
+	}
+	if result.Run.State != "completed" || result.Run.CurrentItem != expectedItems || result.Run.Items[0].TaskRunID == result.Run.Items[1].TaskRunID || result.Run.Items[0].Actions["greeting"].Count != 1 || result.Run.Items[1].Actions["greeting"].Count != 1 || held.Reservation.Valid() {
 		for _, item := range result.Run.Items {
 			entries, _ := c.db.ListPlanItemLogs(t.Context(), authority.OwnerScope, result.Run.ID, item.ID, 0, 200)
 			for _, entry := range entries {
@@ -190,5 +225,27 @@ func TestNativePlanTwoPositions(t *testing.T) {
 	}
 	if json.Unmarshal(raw, &evidence) != nil || len(evidence.Greets) != 2 || evidence.Greets[0] != "java-person" || evidence.Greets[1] != "sales-person" {
 		t.Fatal("真实点击顺序错误", string(raw))
+	}
+	if messages {
+		if result.Run.Items[2].Actions["auto_reply"].Count != 1 || result.Run.Items[3].Actions["auto_reply"].Count != 1 {
+			t.Fatal("消息确认未按原任务记录", result.Run)
+		}
+		seen := map[string]bool{}
+		for _, item := range result.Run.Items {
+			if seen[item.TaskRunID] {
+				t.Fatal("四执行项覆盖原任务")
+			}
+			seen[item.TaskRunID] = true
+		}
+		wanted := []string{"greet:Java", "greet:销售", "reply:Java", "reply:销售"}
+		actual := []string{}
+		for _, event := range evidence.Timeline {
+			if strings.HasPrefix(event, "greet:") || strings.HasPrefix(event, "reply:") {
+				actual = append(actual, event)
+			}
+		}
+		if fmt.Sprint(actual) != fmt.Sprint(wanted) {
+			t.Fatal("后续消息提前执行或岗位顺序错误", actual)
+		}
 	}
 }

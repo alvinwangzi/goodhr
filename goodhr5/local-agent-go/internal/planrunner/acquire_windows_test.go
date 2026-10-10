@@ -57,6 +57,10 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "fixture@example.com"}})
 			return
 		}
+		if r.URL.Path == "/api/config/effective-ai" && os.Getenv("HRPLUS_M2_NATIVE_AI_BASE") != "" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]any{"base_url": os.Getenv("HRPLUS_M2_NATIVE_AI_BASE"), "api_key": "fixture-only", "model": "fixture"}})
+			return
+		}
 		if r.URL.Path == "/api/positions/native-java" || r.URL.Path == "/api/positions/native-sales" {
 			id, name := "native-java", "Java"
 			if strings.HasSuffix(r.URL.Path, "native-sales") {
@@ -76,7 +80,7 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 		case "/api/positions/same-job":
 			configuration = map[string]any{"position": map[string]any{"id": "same-job", "name": "fixture", "platform_id": "boss", "match_limit": 1, "keywords": []string{"本科"}, "common_config": map[string]any{"mode_default": "keyword", "detail_mode": "keyword"}}}
 		case "/api/subscription/status":
-			configuration = map[string]any{"subscription": map[string]any{"active": true}}
+			configuration = map[string]any{"subscription": map[string]any{"active": true, "allow_auto_reply": true}}
 		case "/api/config/user-preferences":
 			configuration = map[string]any{"config": map[string]any{}}
 		case "/api/platforms/config/":
