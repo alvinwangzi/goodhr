@@ -80,18 +80,18 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 			return nil, fmt.Errorf("复打招呼暂未开放：%w", err)
 		}
 	}
-	r.positionLog(positionID, "info", "岗位运行启动：正在准备本地运行环境")
-	r.positionLog(positionID, "info", fmt.Sprintf("岗位运行启动：岗位运行配置读取完成，平台=%s，岗位=%s，模式=%s，轮次=%d", position.PlatformID, positionPositionName(position), position.Mode, scanRounds(options)))
+	r.positionContextLog(ctx, positionID, "info", "岗位运行启动：正在准备本地运行环境")
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("岗位运行启动：岗位运行配置读取完成，平台=%s，岗位=%s，模式=%s，轮次=%d", position.PlatformID, positionPositionName(position), position.Mode, scanRounds(options)))
 	runCtx, cancel := context.WithCancel(context.Background())
 	if !r.setRunning(positionID, cancel, options) {
 		cancel()
 		return nil, fmt.Errorf("本地程序有任务正在运行，一次只能跑一个岗位。请先停止当前任务再开始")
 	}
-	r.positionLog(positionID, "info", "岗位运行启动：本地运行锁已创建")
+	r.positionContextLog(ctx, positionID, "info", "岗位运行启动：本地运行锁已创建")
 	if err := r.ensurePowerProtection(positionID); err != nil {
-		r.positionLog(positionID, "warning", "岗位运行启动：防睡眠保护启动失败，错误="+err.Error())
+		r.positionContextLog(ctx, positionID, "warning", "岗位运行启动：防睡眠保护启动失败，错误="+err.Error())
 	} else {
-		r.positionLog(positionID, "info", "岗位运行启动：防睡眠保护已开启")
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：防睡眠保护已开启")
 	}
 	totalRounds := scanRounds(options)
 	r.updateProgress(positionID, Progress{Stage: "starting", Message: "岗位运行准备启动", TotalRounds: totalRounds})
@@ -128,18 +128,18 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		syncResult, syncErr := client.SyncTaskStatus(syncCtx, options.Token, positionID, cloudapi.TaskStatusRequest{Status: "running", TaskType: taskTypeForSync, MachineID: options.MachineID})
 		if syncErr != nil {
 			syncCancel()
-			r.positionLog(positionID, "error", "岗位运行启动：云端未允许"+taskLabel+"，错误="+syncErr.Error())
+			r.positionContextLog(ctx, positionID, "error", "岗位运行启动：云端未允许"+taskLabel+"，错误="+syncErr.Error())
 			_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
 			r.clear(positionID)
 			return nil, fmt.Errorf("云端未允许%s，任务未开始：%w", taskLabel, syncErr)
 		}
 		snapshot.Options.CloudRunID = syncResult.RunID
 		options.CloudRunID = syncResult.RunID
-		r.positionLog(positionID, "info", "岗位运行启动：云端已许可"+taskLabel+"，本次执行任务记录 ID="+syncResult.RunID)
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：云端已许可"+taskLabel+"，本次执行任务记录 ID="+syncResult.RunID)
 	} else if syncResult, syncErr := client.SyncPositionStatus(syncCtx, options.Token, positionID, "running", options.MachineID); syncErr != nil {
 		syncCancel()
 		cancel()
-		r.positionLog(positionID, "error", "岗位运行启动：云端未允许本次运行，错误="+syncErr.Error())
+		r.positionContextLog(ctx, positionID, "error", "岗位运行启动：云端未允许本次运行，错误="+syncErr.Error())
 		_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
 		r.clear(positionID)
 		return nil, fmt.Errorf("云端未允许岗位运行，任务未开始：%w", syncErr)
@@ -148,7 +148,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		// runPosition 会用 snapshot.Options 覆盖启动参数，漏写会导致候选人结果丢失归组 ID。
 		snapshot.Options.CloudRunID = syncResult.RunID
 		options.CloudRunID = syncResult.RunID
-		r.positionLog(positionID, "info", "岗位运行启动：本次执行任务记录 ID="+syncResult.RunID)
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：本次执行任务记录 ID="+syncResult.RunID)
 	}
 	syncCancel()
 	checkpoint, checkpointErr := r.db.CreateActionRun(ctx, localdb.ActionCheckpoint{
@@ -174,7 +174,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 		return nil, ownerErr
 	}
 	r.BindVerifiedReGreetUploadSession(options.Token, CloudOwnerScope(client.BaseURL, owner), uploadVersion, client.BaseURL)
-	r.positionLog(positionID, "info", "岗位运行启动：已进入后台运行")
+	r.positionContextLog(ctx, positionID, "info", "岗位运行启动：已进入后台运行")
 	go r.runPosition(runCtx, position, options, snapshot)
 	return map[string]any{"position": updated, "running": true}, nil
 }
@@ -202,7 +202,7 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	}
 	r.initRestState(positionID, options)
 	r.updateProgress(positionID, Progress{Stage: "running", Message: "岗位运行已开始执行", TotalRounds: totalRounds})
-	r.positionLog(positionID, "info", "岗位运行启动：本地岗位运行运行器已启动，准备进入扫描流程")
+	r.positionContextLog(ctx, positionID, "info", "岗位运行启动：本地岗位运行运行器已启动，准备进入扫描流程")
 	scanResult, err := r.scanOnce(ctx, position, snapshot.PlatformConfig, options)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -213,7 +213,7 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 			}
 			r.updateProgress(positionID, Progress{Stage: "stopped", Message: "岗位运行已停止", TotalRounds: totalRounds})
 			_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
-			r.positionLog(positionID, "info", "岗位运行停止：收到停止信号，正在同步云端停止状态")
+			r.positionContextLog(ctx, positionID, "info", "岗位运行停止：收到停止信号，正在同步云端停止状态")
 			r.notifyCloudPositionStopped(positionID, options)
 			// 用户停止岗位后浏览器保持打开，后台继续检查待索要名单中候选人是否已回复。
 			r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
@@ -223,7 +223,7 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 			r.updateProgress(positionID, Progress{Stage: "stopped", Message: "浏览器已关闭，岗位运行已自动结束", TotalRounds: totalRounds})
 			_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
 			message := "浏览器已关闭，岗位运行已自动结束：" + err.Error()
-			r.positionLog(positionID, "error", "岗位运行失败：环节=浏览器运行，错误="+message)
+			r.positionContextLog(ctx, positionID, "error", "岗位运行失败：环节=浏览器运行，错误="+message)
 			r.sendPositionFailNotification(context.Background(), positionID, message, options)
 			return
 		}
@@ -236,7 +236,7 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 		return
 	}
 	if r.isUserStopped(positionID) {
-		r.positionLog(positionID, "info", "岗位运行停止：岗位运行已被用户停止，忽略扫描完成结果")
+		r.positionContextLog(ctx, positionID, "info", "岗位运行停止：岗位运行已被用户停止，忽略扫描完成结果")
 		// 用户停止岗位后浏览器保持打开，后台继续检查待索要名单中候选人是否已回复。
 		r.asyncCheckResumeRequests(position, snapshot.PlatformConfig, options)
 		return
@@ -256,7 +256,7 @@ func (r *Runner) runPosition(ctx context.Context, position localdb.Position, opt
 	}
 	r.updateProgress(positionID, Progress{Stage: "completed", Message: "岗位运行已完成", Round: totalRounds, TotalRounds: totalRounds})
 	_, _ = r.db.UpdatePositionStatus(positionID, "completed")
-	r.positionLog(positionID, "info", fmt.Sprintf(
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf(
 		"岗位运行完成：本次运行结束，扫描=%d，打招呼=%d，跳过=%d，失败=%d",
 		intFromMap(scanResult, "candidates_count"),
 		intFromMap(scanResult, "greeted_count"),

@@ -46,6 +46,9 @@ func (p *PlanItemReservation) ScanStep(permit planmodel.Permit, snapshot Positio
 	if !p.Valid() {
 		return result, ErrPlanBrowserBusy
 	}
+	if failure := planLogFailure(p.ctx); failure != nil {
+		return result, failure
+	}
 	p.parent.runner.mu.Lock()
 	previousError := p.state.planActionError
 	p.parent.runner.mu.Unlock()
@@ -91,7 +94,7 @@ func (p *PlanItemReservation) ScanStep(permit planmodel.Permit, snapshot Positio
 			if p.scan.resumer == nil {
 				return result, fmt.Errorf("当前平台不支持跨岗位恢复推荐进度")
 			}
-			matched, err := restoreRecommendationCursor(p.ctx, p.parent.runner, snapshot.Position, snapshot.PlatformConfig, p.scan.runtime, p.scan.resumer, platformExecutor{runner: p.parent.runner, positionID: p.positionID}, p.scan.cursor)
+			matched, err := restoreRecommendationCursor(p.ctx, p.parent.runner, snapshot.Position, snapshot.PlatformConfig, p.scan.runtime, p.scan.resumer, platformExecutor{runner: p.parent.runner, positionID: p.positionID, logContext: p.ctx}, p.scan.cursor)
 			if err != nil {
 				return result, err
 			}
@@ -115,11 +118,12 @@ func (p *PlanItemReservation) ScanStep(permit planmodel.Permit, snapshot Positio
 	}
 	frame := <-p.scan.frames
 	p.scan.last, p.scan.finished = frame, frame.Done
-	return frame, errors.Join(frame.err, p.ctx.Err())
+	return frame, errors.Join(frame.err, p.ctx.Err(), planLogFailure(p.ctx))
 }
 
 // planScanFrame 只读取已保存的计数和剩余队列，不把未来候选人或未知发送计入成功。
 func (p *PlanItemReservation) planScanFrame(done bool, failure error) PlanScanStep {
+	failure = errors.Join(failure, planLogFailure(p.ctx))
 	result := PlanScanStep{ItemRunID: p.state.options.ItemRunID, TaskRunID: p.state.options.CloudRunID, Done: done, err: failure}
 	checkpoint, err := p.parent.runner.db.LoadActionCheckpoint(context.WithoutCancel(p.ctx), p.state.options.LocalRunID)
 	if err != nil {
@@ -158,7 +162,7 @@ func (p *PlanItemReservation) runPlanScan() {
 			if err != nil {
 				return false, err
 			}
-			cursor, err := s.resumer.CaptureRecommendationCursor(ctx, platformExecutor{runner: p.parent.runner, positionID: p.positionID}, checkpoint.Anchors)
+			cursor, err := s.resumer.CaptureRecommendationCursor(ctx, platformExecutor{runner: p.parent.runner, positionID: p.positionID, logContext: ctx}, checkpoint.Anchors)
 			if err != nil {
 				cursor = platformcore.RecommendationCursor{Reason: "anchor_capture_failed"}
 			}

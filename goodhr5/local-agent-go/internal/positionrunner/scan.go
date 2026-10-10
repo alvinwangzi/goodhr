@@ -21,9 +21,9 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 		return nil, fmt.Errorf("浏览器 Worker 未配置")
 	}
 	// 调试日志：打印打招呼上限值，用于排查 match_limit 是否正确加载
-	r.positionLog(position.ID, "info", fmt.Sprintf("扫描开始：岗位打招呼上限 match_limit=%d", position.MatchLimit))
+	r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("扫描开始：岗位打招呼上限 match_limit=%d", position.MatchLimit))
 	if r.devScanLimit > 0 {
-		r.positionLog(position.ID, "warning", fmt.Sprintf("开发测试：dev_scan_limit=%d，扫描达到此数后自动停止", r.devScanLimit))
+		r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("开发测试：dev_scan_limit=%d，扫描达到此数后自动停止", r.devScanLimit))
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -32,21 +32,21 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 	if err != nil {
 		return nil, err
 	}
-	exec := platformExecutor{runner: r, positionID: position.ID}
+	exec := platformExecutor{runner: r, positionID: position.ID, logContext: ctx}
 	entryURL := platformEntryURL(platformConfig)
 	if entryURL == "" {
 		return nil, fmt.Errorf("云端平台配置缺少入口页面地址")
 	}
 	// 1. 准备平台运行时和浏览器。
-	r.positionLog(position.ID, "info", "页面准备：正在打开招聘平台页面")
+	r.positionContextLog(ctx, position.ID, "info", "页面准备：正在打开招聘平台页面")
 	workerStatus, err := r.worker.Start(ctx)
 	if err != nil {
 		return nil, err
 	}
-	r.positionLog(position.ID, "info", fmt.Sprintf("页面准备：浏览器 Worker 已启动，running=%v，base_url=%s", workerStatus.Running, workerStatus.BaseURL))
+	r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("页面准备：浏览器 Worker 已启动，running=%v，base_url=%s", workerStatus.Running, workerStatus.BaseURL))
 	profileName := positionProfileName(position)
 	userDataDir := filepath.Join(r.profilesDir, profileName)
-	r.positionLog(position.ID, "info", "页面准备：正在启动浏览器账号目录="+profileName)
+	r.positionContextLog(ctx, position.ID, "info", "页面准备：正在启动浏览器账号目录="+profileName)
 	// 测试期间取消浏览器启动时的固定窗口尺寸参数。
 	// viewportWidth, viewportHeight := positionBrowserViewport()
 	if _, err := r.worker.Call(ctx, "/api/v1/browser/start", map[string]any{
@@ -57,22 +57,22 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 		// "viewport_width":  viewportWidth,
 		// "viewport_height": viewportHeight,
 	}); err != nil {
-		r.positionLog(position.ID, "error", "页面准备：浏览器启动或显示校准失败，任务停止，错误="+err.Error())
+		r.positionContextLog(ctx, position.ID, "error", "页面准备：浏览器启动或显示校准失败，任务停止，错误="+err.Error())
 		return nil, err
 	}
-	r.positionLog(position.ID, "info", "页面准备：浏览器启动完成，准备确认当前页面")
+	r.positionContextLog(ctx, position.ID, "info", "页面准备：浏览器启动完成，准备确认当前页面")
 	onEntryPage, err := platformRuntime.IsPositionEntryPage(ctx, exec, platformConfig)
 	if err != nil {
-		r.positionLog(position.ID, "warning", "页面准备：读取当前页面地址失败，将打开入口页面，错误="+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "页面准备：读取当前页面地址失败，将打开入口页面，错误="+err.Error())
 	}
 	if onEntryPage {
-		r.positionLog(position.ID, "info", "页面准备：当前页面已命中入口地址，跳过入口页跳转")
+		r.positionContextLog(ctx, position.ID, "info", "页面准备：当前页面已命中入口地址，跳过入口页跳转")
 	} else {
-		r.positionLog(position.ID, "info", "页面准备：当前页面未命中入口地址，准备打开入口页面")
+		r.positionContextLog(ctx, position.ID, "info", "页面准备：当前页面未命中入口地址，准备打开入口页面")
 		if err := platformRuntime.OpenEntryPage(ctx, exec, platformConfig, entryURL); err != nil {
 			return nil, err
 		}
-		r.positionLog(position.ID, "info", "页面准备：招聘平台页面打开完成")
+		r.positionContextLog(ctx, position.ID, "info", "页面准备：招聘平台页面打开完成")
 	}
 	seen := map[string]struct{}{}
 	if _, _, err := r.bindPlatformAccountScope(ctx, exec, platformRuntime, position, options); err != nil {
@@ -110,7 +110,7 @@ func (r *Runner) scanOnce(ctx context.Context, position localdb.Position, platfo
 	flushPositionCounts := func(syncCtx context.Context) {
 		nextPersisted, persistErr := r.persistPositionCountProgress(syncCtx, position, totalResult, persistedResult, options)
 		if persistErr != nil {
-			r.positionLog(position.ID, "warning", "统计保存：本地累计更新失败，稍后会重试，错误="+persistErr.Error())
+			r.positionContextLog(ctx, position.ID, "warning", "统计保存：本地累计更新失败，稍后会重试，错误="+persistErr.Error())
 			return
 		}
 		persistedResult = nextPersisted
@@ -141,45 +141,45 @@ scanLoop:
 			forcePositionSelection := shouldSelectPositionDirectly(platformRuntime)
 			// 2. 确认当前网页已经进入岗位运行入口，并切到岗位运行对应岗位。
 			r.updateProgress(position.ID, Progress{Stage: "page_ready", Message: "正在确认页面和岗位"})
-			r.positionLog(position.ID, "info", "页面准备：正在确认当前页面和岗位")
+			r.positionContextLog(ctx, position.ID, "info", "页面准备：正在确认当前页面和岗位")
 			if err := r.waitPositionEntryPage(ctx, position.ID, platformRuntime, exec, platformConfig); err != nil {
 				return nil, err
 			}
 			r.prepareEntryPage(ctx, position.ID, platformRuntime, exec, platformConfig)
 			if !positionSearchPrepared {
 				if preparer, ok := platformRuntime.(platformcore.PositionSearchPreparer); ok {
-					r.positionLog(position.ID, "info", "候选人搜索：正在应用岗位搜索条件")
+					r.positionContextLog(ctx, position.ID, "info", "候选人搜索：正在应用岗位搜索条件")
 					if err := preparer.PreparePositionSearch(ctx, exec, platformConfig, position.PositionSnapshot); err != nil {
 						return nil, fmt.Errorf("应用岗位搜索条件失败：%w", err)
 					}
-					r.positionLog(position.ID, "info", "候选人搜索：岗位搜索条件已应用")
+					r.positionContextLog(ctx, position.ID, "info", "候选人搜索：岗位搜索条件已应用")
 					forcePositionSelection = !skipPositionSelection
 				}
 				positionSearchPrepared = true
 			}
 			if skipPositionSelection {
-				r.positionLog(position.ID, "info", "页面准备：平台无需读取或切换页面岗位，继续候选人流程")
+				r.positionContextLog(ctx, position.ID, "info", "页面准备：平台无需读取或切换页面岗位，继续候选人流程")
 			} else {
 				positionName := positionPositionName(position)
 				if strings.TrimSpace(positionName) == "" {
 					return nil, fmt.Errorf("岗位运行岗位名称为空，无法确认页面岗位")
 				}
 				if forcePositionSelection {
-					r.positionLog(position.ID, "info", "页面准备：平台要求每次选择岗位运行岗位，准备直接切换")
+					r.positionContextLog(ctx, position.ID, "info", "页面准备：平台要求每次选择岗位运行岗位，准备直接切换")
 					if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
 						return nil, fmt.Errorf("切换页面岗位失败：%w", err)
 					}
-					r.positionLog(position.ID, "info", "页面准备：岗位运行岗位已选择="+positionName)
+					r.positionContextLog(ctx, position.ID, "info", "页面准备：岗位运行岗位已选择="+positionName)
 				} else {
 					currentName, err := r.waitCurrentPositionName(ctx, position.ID, platformRuntime, exec, platformConfig)
 					if err != nil {
 						return nil, fmt.Errorf("获取页面当前岗位失败：%w", err)
 					}
-					r.positionLog(position.ID, "info", fmt.Sprintf("页面准备：当前岗位=%s，岗位运行岗位=%s", currentName, positionName))
+					r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("页面准备：当前岗位=%s，岗位运行岗位=%s", currentName, positionName))
 					if strings.Contains(normalizePositionName(currentName), normalizePositionName(positionName)) {
-						r.positionLog(position.ID, "info", "页面准备：岗位匹配成功")
+						r.positionContextLog(ctx, position.ID, "info", "页面准备：岗位匹配成功")
 					} else {
-						r.positionLog(position.ID, "warning", "页面准备：岗位不一致，准备切换岗位")
+						r.positionContextLog(ctx, position.ID, "warning", "页面准备：岗位不一致，准备切换岗位")
 						if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
 							return nil, fmt.Errorf("切换页面岗位失败：%w", err)
 						}
@@ -190,28 +190,28 @@ scanLoop:
 						if !strings.Contains(normalizePositionName(confirmedName), normalizePositionName(positionName)) {
 							return nil, fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，岗位运行岗位=%s", confirmedName, positionName)
 						}
-						r.positionLog(position.ID, "info", "页面准备：岗位切换完成，当前岗位="+confirmedName)
+						r.positionContextLog(ctx, position.ID, "info", "页面准备：岗位切换完成，当前岗位="+confirmedName)
 					}
 				}
 			}
 			if !basicFiltersApplied {
-				r.positionLog(position.ID, "info", "基础筛选：正在调用平台基础筛选接口")
+				r.positionContextLog(ctx, position.ID, "info", "基础筛选：正在调用平台基础筛选接口")
 				if applier, ok := platformRuntime.(platformcore.BasicFilterApplier); ok {
 					if err := applier.ApplyBasicFilters(ctx, exec, platformConfig, position.PositionSnapshot); err != nil {
 						return nil, fmt.Errorf("应用平台基础筛选失败：%w", err)
 					}
 				}
 				basicFiltersApplied = true
-				r.positionLog(position.ID, "info", "基础筛选：平台基础筛选处理完成")
+				r.positionContextLog(ctx, position.ID, "info", "基础筛选：平台基础筛选处理完成")
 			}
 			delay := pageReadyDelay(options)
-			r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取前等待页面稳定：%s", delay.String()))
+			r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人提取前等待页面稳定：%s", delay.String()))
 			if err := sleepWithContext(ctx, delay); err != nil {
 				return nil, err
 			}
 			// 3. 读取当前屏幕可见候选人，并追加到待处理队列。
 			r.updateProgress(position.ID, Progress{Stage: "extracting", Message: "正在提取候选人"})
-			r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：正在读取当前页面候选人，最多=%d", maxItems))
+			r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人提取：正在读取当前页面候选人，最多=%d", maxItems))
 			platformCandidates, err := platformRuntime.ListVisibleCandidates(ctx, exec, platformConfig, maxItems)
 			if err != nil {
 				return nil, err
@@ -219,9 +219,9 @@ scanLoop:
 			candidates, duplicateCount := freshCandidates(candidateMaps(platformCandidates), seen)
 			if len(candidates) == 0 {
 				emptyLoads++
-				r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：本轮没有新候选人，重复=%d，连续空轮次=%d/%d", duplicateCount, emptyLoads, emptyLimit))
+				r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人提取：本轮没有新候选人，重复=%d，连续空轮次=%d/%d", duplicateCount, emptyLoads, emptyLimit))
 				if emptyLoads >= emptyLimit {
-					r.positionLog(position.ID, "info", "候选人提取：达到连续空轮次上限，停止继续滚动")
+					r.positionContextLog(ctx, position.ID, "info", "候选人提取：达到连续空轮次上限，停止继续滚动")
 					break
 				}
 				if err := r.scrollForMoreCandidates(ctx, position.ID, platformRuntime, exec, platformConfig, options); err != nil {
@@ -241,10 +241,10 @@ scanLoop:
 			totalResult.Scanned += newlyRead
 			queue = append(queue, candidates...)
 			r.syncProcessedResumeCount(ctx, position, newlyRead, options)
-			r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：读取完成，本次新增=%d，重复=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
+			r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人提取：读取完成，本次新增=%d，重复=%d，待处理=%d，已处理=%d", len(candidates), duplicateCount, len(queue), processedCount))
 			// 开发测试：限制单次扫描的候选人总数，方便快速验证流程。
 			if r.devScanLimit > 0 && totalResult.Scanned >= r.devScanLimit {
-				r.positionLog(position.ID, "warning", fmt.Sprintf("开发测试：已达到开发环境扫描上限=%d（dev_scan_limit），停止继续扫描", r.devScanLimit))
+				r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("开发测试：已达到开发环境扫描上限=%d（dev_scan_limit），停止继续扫描", r.devScanLimit))
 				break scanLoop
 			}
 		}
@@ -282,13 +282,13 @@ scanLoop:
 				continue scanLoop
 			}
 		}
-		r.positionLog(position.ID, "info", fmt.Sprintf("列表过滤：完成，保留=%d，跳过=%d", len(filtered), skipped))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("列表过滤：完成，保留=%d，跳过=%d", len(filtered), skipped))
 		if skipped > 0 {
-			r.positionLog(position.ID, "info", fmt.Sprintf("列表过滤：有 %d 个候选人已跳过", skipped))
+			r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("列表过滤：有 %d 个候选人已跳过", skipped))
 		}
 		if len(filtered) > 0 {
 			r.updateProgress(position.ID, Progress{Stage: "pipeline", Message: fmt.Sprintf("正在处理候选人队列，待处理 %d 个", len(filtered))})
-			r.positionLog(position.ID, "info", fmt.Sprintf("候选人处理：队列开始，数量=%d", len(filtered)))
+			r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人处理：队列开始，数量=%d", len(filtered)))
 
 			// 4. 并发做“是否值得看详情”的预评分，但主流程仍按页面顺序消费候选人。
 			batchResult := batchProcessResult{}
@@ -303,7 +303,7 @@ scanLoop:
 			needsAI := positionMode(position) == "ai"
 			if needsAI {
 				workerCount := candidatePipelineConcurrency(len(filtered))
-				r.positionLog(position.ID, "info", fmt.Sprintf("AI 预判断：开始并发分析，数量=%d，并发数=%d", len(filtered), workerCount))
+				r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("AI 预判断：开始并发分析，数量=%d，并发数=%d", len(filtered), workerCount))
 				precheckExec := exec
 				precheckExec.noOverlay = options.PlanRunID != ""
 				r.startCandidateDetailWorkers(pipelineCtx, position, precheckExec, aiClient, aiJobs, precheckCh, workerCount)
@@ -317,7 +317,7 @@ scanLoop:
 					break
 				}
 				if reachedRunGreetLimit(position, totalResult.Greeted) {
-					r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：达到本次打招呼上限，停止继续处理，上限=%d", position.MatchLimit))
+					r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人提取：达到本次打招呼上限，停止继续处理，上限=%d", position.MatchLimit))
 					break
 				}
 				if err := ctx.Err(); err != nil {
@@ -338,7 +338,7 @@ scanLoop:
 				delete(pending, nextIndex)
 				nextIndex++
 				if item.Err != nil {
-					r.positionLog(position.ID, "error", fmt.Sprintf("候选人处理：失败，序号=%d，错误=%v", item.Index+1, item.Err))
+					r.positionContextLog(ctx, position.ID, "error", fmt.Sprintf("候选人处理：失败，序号=%d，错误=%v", item.Index+1, item.Err))
 					if errors.Is(item.Err, context.Canceled) || shouldStopPositionImmediately(item.Err) {
 						return nil, item.Err
 					}
@@ -361,7 +361,7 @@ scanLoop:
 				candidateName := candidateLogName(candidate)
 				candidateCtx, candidateCancel := context.WithTimeout(ctx, candidateTotalTimeout)
 				var detailSession *candidateDetailSession
-				r.positionLog(position.ID, "info", fmt.Sprintf("候选人处理：开始处理，本页序号=%d/%d，累计处理=%d，姓名=%s，状态=%s，超时=%s", item.Index+1, len(filtered), processedCount, candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
+				r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人处理：开始处理，本页序号=%d/%d，累计处理=%d，姓名=%s，状态=%s，超时=%s", item.Index+1, len(filtered), processedCount, candidateName, stringFromMap(candidate, "status"), candidateTotalTimeout.Round(time.Second)))
 				batchResult.Skipped += item.Skipped
 				totalResult.Skipped += item.Skipped
 				r.ensureCandidateVisibleBeforeDecision(candidateCtx, position.ID, platformRuntime, exec, platformConfig, platformcore.Candidate(candidate))
@@ -379,9 +379,9 @@ scanLoop:
 						candidate["skip_reason"] = fmt.Sprintf("详情评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
 						batchResult.Skipped++
 						totalResult.Skipped++
-						r.positionLog(position.ID, "info", fmt.Sprintf("AI 预判断：跳过候选人，候选人=%s，分数=%.1f，阈值=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
+						r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("AI 预判断：跳过候选人，候选人=%s，分数=%.1f，阈值=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Threshold, decision.Reason))
 					} else {
-						r.positionLog(position.ID, "info", fmt.Sprintf("AI 预判断：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否看详情=是", candidateLogName(candidate), decision.Score, decision.Threshold))
+						r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("AI 预判断：完成，候选人=%s，分数=%.1f，阈值=%.1f，是否看详情=是", candidateLogName(candidate), decision.Score, decision.Threshold))
 						itemSkipped, nextDetailSession, err := r.enrichCandidateWithDetail(candidateCtx, position, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
@@ -410,9 +410,9 @@ scanLoop:
 						r.updateKeywordAnalysis(position.ID, state, candidate, "已匹配列表信息，但未命中打开详情概率，本轮先跳过", true)
 						batchResult.Skipped++
 						totalResult.Skipped++
-						r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：候选人已跳过，候选人=%s，原因=未命中打开详情概率%d%%", candidateLogName(candidate), detailOpenProbability(options)))
+						r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("详情读取：候选人已跳过，候选人=%s，原因=未命中打开详情概率%d%%", candidateLogName(candidate), detailOpenProbability(options)))
 					} else {
-						r.positionLog(position.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateLogName(candidate), detailModeLabel(detailMode(position))))
+						r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("详情读取：准备打开详情，候选人=%s，模式=%s", candidateLogName(candidate), detailModeLabel(detailMode(position))))
 						itemSkipped, nextDetailSession, err := r.enrichCandidateWithDetail(candidateCtx, position, platformRuntime, exec, platformConfig, candidate, aiClient, options)
 						detailSession = nextDetailSession
 						batchResult.Skipped += itemSkipped
@@ -458,7 +458,7 @@ scanLoop:
 						candidate["error"] = err.Error()
 						batchResult.Failed++
 						totalResult.Failed++
-						r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼判断：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
+						r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("打招呼判断：失败，候选人=%s，错误=%s", candidateLogName(candidate), err.Error()))
 					}
 				}
 				stopDetailScrolling()
@@ -489,15 +489,15 @@ scanLoop:
 						operationErrors.Reset("执行打招呼")
 						r.incrementRunGreeted(position.ID, greeted)
 						// 调试日志：打招呼成功后显示当前计数和上限
-						r.positionLog(position.ID, "info", fmt.Sprintf("打招呼成功：当前已打招呼=%d，上限=%d", totalResult.Greeted, position.MatchLimit))
+						r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("打招呼成功：当前已打招呼=%d，上限=%d", totalResult.Greeted, position.MatchLimit))
 					}
 				}
 
 				status := stringFromMap(candidate, "status")
 				if shouldSaveCandidateResult(status) {
-					r.positionLog(position.ID, "info", fmt.Sprintf("结果保存：准备保存候选人，候选人=%s，状态=%s", candidateName, status))
+					r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("结果保存：准备保存候选人，候选人=%s，状态=%s", candidateName, status))
 					r.saveCandidateResult(ctx, position, candidate, options)
-					r.positionLog(position.ID, "info", fmt.Sprintf("候选人处理：候选人处理完成，姓名=%s，结果=%s", candidateLogName(candidate), status))
+					r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人处理：候选人处理完成，姓名=%s，结果=%s", candidateLogName(candidate), status))
 					batchResult.Saved++
 					totalResult.Saved++
 				}
@@ -508,7 +508,7 @@ scanLoop:
 					candidate["error"] = fmt.Sprintf("候选人处理总超时：超过%s", candidateTotalTimeout.Round(time.Second))
 					batchResult.Failed++
 					totalResult.Failed++
-					r.positionLog(position.ID, "error", fmt.Sprintf("候选人处理：超时，姓名=%s，超过=%s", candidateName, candidateTotalTimeout.Round(time.Second)))
+					r.positionContextLog(ctx, position.ID, "error", fmt.Sprintf("候选人处理：超时，姓名=%s，超过=%s", candidateName, candidateTotalTimeout.Round(time.Second)))
 				}
 				flushPositionCounts(ctx)
 				// 打招呼流程：评分 >= 50 的候选人异步上报扫描记录，供自动回复查表分流。
@@ -544,13 +544,13 @@ scanLoop:
 					}
 				}
 				if r.isUserStopped(position.ID) {
-					r.positionLog(position.ID, "info", "岗位运行停止：当前候选人处理完成，按停止请求结束岗位运行")
+					r.positionContextLog(ctx, position.ID, "info", "岗位运行停止：当前候选人处理完成，按停止请求结束岗位运行")
 					break
 				}
 			}
 			pipelineCancel()
 
-			r.positionLog(position.ID, "info", fmt.Sprintf("候选人处理：队列完成，保存=%d，跳过=%d，打招呼=%d，失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
+			r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人处理：队列完成，保存=%d，跳过=%d，打招呼=%d，失败=%d", batchResult.Saved, batchResult.Skipped, batchResult.Greeted, batchResult.Failed))
 			if r.isUserStopped(position.ID) {
 				break scanLoop
 			}
@@ -563,9 +563,9 @@ scanLoop:
 		}
 	}
 	if !totalResult.empty() {
-		r.positionLog(position.ID, "info", fmt.Sprintf("候选人提取：本次扫描结束，扫描=%d，保存=%d，跳过=%d，打招呼=%d，失败=%d", totalResult.Scanned, totalResult.Saved, totalResult.Skipped, totalResult.Greeted, totalResult.Failed))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("候选人提取：本次扫描结束，扫描=%d，保存=%d，跳过=%d，打招呼=%d，失败=%d", totalResult.Scanned, totalResult.Saved, totalResult.Skipped, totalResult.Greeted, totalResult.Failed))
 	} else {
-		r.positionLog(position.ID, "warning", "候选人提取：当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
+		r.positionContextLog(ctx, position.ID, "warning", "候选人提取：当前页面未提取到可见候选人，请确认账号已登录且页面在推荐列表")
 	}
 	return map[string]any{
 		"candidates_count": totalResult.Saved,
@@ -597,11 +597,11 @@ func (r *Runner) ensureCloudSessionActive(ctx context.Context, position localdb.
 	}
 	var authErr cloudapi.AuthExpiredError
 	if !errors.As(err, &authErr) {
-		r.positionLog(position.ID, "warning", "账号验证暂时失败，先继续岗位运行："+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "账号验证暂时失败，先继续岗位运行："+err.Error())
 		return nil
 	}
 	message := "账号已在其他地方登录，当前岗位运行已停止。请重新登录后再启动岗位运行。"
-	r.positionLog(position.ID, "warning", message)
+	r.positionContextLog(ctx, position.ID, "warning", message)
 	r.updateProgress(position.ID, Progress{Stage: "stopped", Message: message})
 	_, _ = r.db.UpdatePositionStatus(position.ID, "stopped")
 	r.sendPositionFailNotification(context.Background(), position.ID, message, options)
@@ -616,12 +616,12 @@ func (r *Runner) scrollForMoreCandidates(ctx context.Context, positionID string,
 	}
 	r.updateProgress(positionID, Progress{Stage: "scrolling", Message: "正在加载更多候选人"})
 	scrollDistance := randomScrollDistance(options)
-	r.positionLog(positionID, "info", fmt.Sprintf("候选人提取：准备滚动加载更多候选人，距离=%dpx", scrollDistance))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("候选人提取：准备滚动加载更多候选人，距离=%dpx", scrollDistance))
 	if err := platformRuntime.ScrollCandidateList(ctx, exec, platformConfig, scrollDistance); err != nil {
-		r.positionLog(positionID, "warning", "候选人提取：滚动失败，错误="+err.Error())
+		r.positionContextLog(ctx, positionID, "warning", "候选人提取：滚动失败，错误="+err.Error())
 		return nil
 	}
-	r.positionLog(positionID, "info", fmt.Sprintf("候选人提取：滚动完成，距离=%dpx", scrollDistance))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("候选人提取：滚动完成，距离=%dpx", scrollDistance))
 	return nil
 }
 
@@ -633,12 +633,12 @@ func (r *Runner) ensureCandidateVisibleBeforeDecision(ctx context.Context, posit
 		return
 	}
 	name := candidateLogName(map[string]any(candidate))
-	r.positionLog(positionID, "info", fmt.Sprintf("候选人处理：查看分数前确认候选人可见，姓名=%s", name))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("候选人处理：查看分数前确认候选人可见，姓名=%s", name))
 	if err := visibleRuntime.EnsureCandidateVisible(ctx, exec, platformConfig, candidate); err != nil {
-		r.positionLog(positionID, "warning", fmt.Sprintf("候选人处理：查看分数前滚动到位失败，姓名=%s，错误=%s", name, err.Error()))
+		r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("候选人处理：查看分数前滚动到位失败，姓名=%s，错误=%s", name, err.Error()))
 		return
 	}
-	r.positionLog(positionID, "info", fmt.Sprintf("候选人处理：候选人已在可见范围，姓名=%s", name))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("候选人处理：候选人已在可见范围，姓名=%s", name))
 }
 
 // ensurePositionPageReady 确认当前页面和岗位与岗位运行匹配。
@@ -656,15 +656,15 @@ func (r *Runner) ensurePositionPageReady(ctx context.Context, position localdb.P
 		return fmt.Errorf("岗位运行岗位名称为空，无法确认页面岗位")
 	}
 	if shouldSkipPositionSelection(platformRuntime) {
-		r.positionLog(position.ID, "info", "页面准备：平台无需读取或切换页面岗位，继续候选人流程")
+		r.positionContextLog(ctx, position.ID, "info", "页面准备：平台无需读取或切换页面岗位，继续候选人流程")
 		return nil
 	}
 	if shouldSelectPositionDirectly(platformRuntime) {
-		r.positionLog(position.ID, "info", "页面准备：平台无需读取当前岗位，准备直接切换岗位运行岗位")
+		r.positionContextLog(ctx, position.ID, "info", "页面准备：平台无需读取当前岗位，准备直接切换岗位运行岗位")
 		if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
 			return fmt.Errorf("切换页面岗位失败：%w", err)
 		}
-		r.positionLog(position.ID, "info", "页面准备：岗位运行岗位已选择="+positionName)
+		r.positionContextLog(ctx, position.ID, "info", "页面准备：岗位运行岗位已选择="+positionName)
 		return nil
 	}
 	currentName, err := r.waitCurrentPositionName(ctx, position.ID, platformRuntime, exec, platformConfig)
@@ -672,10 +672,10 @@ func (r *Runner) ensurePositionPageReady(ctx context.Context, position localdb.P
 		return fmt.Errorf("获取页面当前岗位失败：%w", err)
 	}
 	if strings.Contains(normalizePositionName(currentName), normalizePositionName(positionName)) {
-		r.positionLog(position.ID, "info", "页面岗位匹配："+currentName)
+		r.positionContextLog(ctx, position.ID, "info", "页面岗位匹配："+currentName)
 		return nil
 	}
-	r.positionLog(position.ID, "warning", fmt.Sprintf("页面岗位与岗位运行岗位不一致，准备切换：页面=%s，岗位运行=%s", currentName, positionName))
+	r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("页面岗位与岗位运行岗位不一致，准备切换：页面=%s，岗位运行=%s", currentName, positionName))
 	if err := platformRuntime.SelectPosition(ctx, exec, platformConfig, positionName); err != nil {
 		return fmt.Errorf("切换页面岗位失败：%w", err)
 	}
@@ -684,7 +684,7 @@ func (r *Runner) ensurePositionPageReady(ctx context.Context, position localdb.P
 		return fmt.Errorf("切换后确认页面岗位失败：%w", err)
 	}
 	if strings.Contains(normalizePositionName(confirmedName), normalizePositionName(positionName)) {
-		r.positionLog(position.ID, "info", "页面岗位已切换为："+confirmedName)
+		r.positionContextLog(ctx, position.ID, "info", "页面岗位已切换为："+confirmedName)
 		return nil
 	}
 	return fmt.Errorf("页面切换岗位失败，请手动操作后再点击开始。当前页面岗位=%s，岗位运行岗位=%s", confirmedName, positionName)
@@ -710,12 +710,12 @@ func (r *Runner) prepareEntryPage(ctx context.Context, positionID string, platfo
 	if err := ctx.Err(); err != nil {
 		return
 	}
-	r.positionLog(positionID, "info", "正在执行平台入口页准备动作")
+	r.positionContextLog(ctx, positionID, "info", "正在执行平台入口页准备动作")
 	if err := platformRuntime.PrepareEntryPage(ctx, exec, platformConfig); err != nil {
-		r.positionLog(positionID, "warning", "平台入口页准备动作失败，继续主流程："+err.Error())
+		r.positionContextLog(ctx, positionID, "warning", "平台入口页准备动作失败，继续主流程："+err.Error())
 		return
 	}
-	r.positionLog(positionID, "info", "平台入口页准备动作完成")
+	r.positionContextLog(ctx, positionID, "info", "平台入口页准备动作完成")
 }
 
 // waitPositionEntryPage 等待当前页面加载到岗位运行入口页。
@@ -727,18 +727,18 @@ func (r *Runner) waitPositionEntryPage(ctx context.Context, positionID string, p
 	}
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		r.positionLog(positionID, "info", fmt.Sprintf("正在等待页面加载，第 %d/%d 次", attempt, attempts))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("正在等待页面加载，第 %d/%d 次", attempt, attempts))
 		if err := sleepWithContext(ctx, pageEntryCheckDelay); err != nil {
 			return err
 		}
 		ok, err := platformRuntime.IsPositionEntryPage(ctx, exec, platformConfig)
 		if err != nil {
 			lastErr = err
-			r.positionLog(positionID, "warning", fmt.Sprintf("检查当前页面失败，第 %d/%d 次：%s", attempt, attempts, err.Error()))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("检查当前页面失败，第 %d/%d 次：%s", attempt, attempts, err.Error()))
 			continue
 		}
 		if ok {
-			r.positionLog(positionID, "info", fmt.Sprintf("当前页面已确认，第 %d/%d 次检查成功", attempt, attempts))
+			r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("当前页面已确认，第 %d/%d 次检查成功", attempt, attempts))
 			return nil
 		}
 		lastErr = fmt.Errorf("网页还没有加载到岗位运行入口页")
@@ -758,7 +758,7 @@ func (r *Runner) waitCurrentPositionName(ctx context.Context, positionID string,
 	}
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		r.positionLog(positionID, "info", fmt.Sprintf("正在读取页面当前岗位，第 %d/%d 次", attempt, attempts))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("正在读取页面当前岗位，第 %d/%d 次", attempt, attempts))
 		if err := sleepWithContext(ctx, currentPositionCheckDelay); err != nil {
 			return "", err
 		}
@@ -767,7 +767,7 @@ func (r *Runner) waitCurrentPositionName(ctx context.Context, positionID string,
 			return name, nil
 		}
 		lastErr = err
-		r.positionLog(positionID, "warning", fmt.Sprintf("读取页面当前岗位失败，第 %d/%d 次：%s", attempt, attempts, err.Error()))
+		r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("读取页面当前岗位失败，第 %d/%d 次：%s", attempt, attempts, err.Error()))
 	}
 	if lastErr != nil {
 		return "", lastErr
@@ -944,7 +944,7 @@ func (r *Runner) reportCandidateScreening(ctx context.Context, position localdb.
 			ContactObserved:     contactObserved,
 		}
 		if err := cloudapi.New(baseURL).ReportScreenings(syncCtx, options.Token, position.ID, []cloudapi.ScreeningRecord{record}); err != nil {
-			r.positionLog(position.ID, "warning", "扫描记录上报失败："+err.Error())
+			r.positionContextLog(ctx, position.ID, "warning", "扫描记录上报失败："+err.Error())
 		}
 	}()
 }

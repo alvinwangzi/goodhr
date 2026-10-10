@@ -83,7 +83,7 @@ func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Posit
 	positionID := position.ID
 	items, err := r.db.ListResumeRequests(positionID, localdb.ResumeRequestStatusPending)
 	if err != nil {
-		r.positionLog(positionID, "warning", "回复检查：读取待索要名单失败，错误="+err.Error())
+		r.positionContextLog(ctx, positionID, "warning", "回复检查：读取待索要名单失败，错误="+err.Error())
 		return
 	}
 	if len(items) == 0 {
@@ -91,11 +91,11 @@ func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Posit
 	}
 	checker, ok := platformRuntime.(platformcore.ResumeRequestChecker)
 	if !ok {
-		r.positionLog(positionID, "info", "回复检查：当前平台不支持消息页回复检查，跳过索要")
+		r.positionContextLog(ctx, positionID, "info", "回复检查：当前平台不支持消息页回复检查，跳过索要")
 		return
 	}
-	r.positionLog(positionID, "info", fmt.Sprintf("回复检查：开始检查 %d 位候选人是否已回复并索要简历", len(items)))
-	exec := platformExecutor{runner: r, positionID: positionID}
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("回复检查：开始检查 %d 位候选人是否已回复并索要简历", len(items)))
+	exec := platformExecutor{runner: r, positionID: positionID, logContext: ctx}
 	names := make([]string, 0, len(items))
 	for _, item := range items {
 		names = append(names, item.CandidateName)
@@ -103,7 +103,7 @@ func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Posit
 	outcomes, err := checker.CheckResumeRequests(ctx, exec, platformConfig, names)
 	if err != nil {
 		// 检查整体失败时名单保持待检查，等下一次岗位收尾再查。
-		r.positionLog(positionID, "warning", "回复检查：执行失败，名单保留待下次检查，错误="+err.Error())
+		r.positionContextLog(ctx, positionID, "warning", "回复检查：执行失败，名单保留待下次检查，错误="+err.Error())
 		return
 	}
 	requested, pendingCount, failedCount := 0, 0, 0
@@ -117,7 +117,7 @@ func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Posit
 		switch outcome.Status {
 		case "requested":
 			if err := r.db.MarkResumeRequested(item.ID); err != nil {
-				r.positionLog(positionID, "warning", "回复检查：标记索要完成失败，候选人="+item.CandidateName+"，错误="+err.Error())
+				r.positionContextLog(ctx, positionID, "warning", "回复检查：标记索要完成失败，候选人="+item.CandidateName+"，错误="+err.Error())
 				failedCount++
 				continue
 			}
@@ -125,7 +125,7 @@ func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Posit
 			requestedNames = append(requestedNames, item.CandidateName)
 		case "not_found":
 			if err := r.db.MarkResumeFailed(item.ID, "会话列表中未找到该候选人的会话"); err != nil {
-				r.positionLog(positionID, "warning", "回复检查：标记名单失败失败，候选人="+item.CandidateName+"，错误="+err.Error())
+				r.positionContextLog(ctx, positionID, "warning", "回复检查：标记名单失败失败，候选人="+item.CandidateName+"，错误="+err.Error())
 				continue
 			}
 			failedCount++
@@ -135,13 +135,13 @@ func (r *Runner) performResumeChecks(ctx context.Context, position localdb.Posit
 				reason = "回复检查未完成索要"
 			}
 			if err := r.db.MarkResumeFailed(item.ID, reason); err != nil {
-				r.positionLog(positionID, "warning", "回复检查：标记名单失败失败，候选人="+item.CandidateName+"，错误="+err.Error())
+				r.positionContextLog(ctx, positionID, "warning", "回复检查：标记名单失败失败，候选人="+item.CandidateName+"，错误="+err.Error())
 				continue
 			}
 			failedCount++
 		}
 	}
-	r.positionLog(positionID, "info", fmt.Sprintf(
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf(
 		"回复检查：本轮检查=%d，已回复并完成索要=%d，未回复继续等待=%d，未完成=%d",
 		len(items), requested, pendingCount, failedCount,
 	))
@@ -158,7 +158,7 @@ func (r *Runner) notifyCloudResumeRequested(ctx context.Context, position locald
 	}
 	token := strings.TrimSpace(options.Token)
 	if token == "" {
-		r.positionLog(position.ID, "warning", "回复检查：缺少云端登录凭证，跳过索要结果补报")
+		r.positionContextLog(ctx, position.ID, "warning", "回复检查：缺少云端登录凭证，跳过索要结果补报")
 		return
 	}
 	baseURL := strings.TrimSpace(options.CloudAPIBase)
@@ -172,8 +172,8 @@ func (r *Runner) notifyCloudResumeRequested(ctx context.Context, position locald
 	defer cancel()
 	err := cloudapi.New(baseURL).NotifyResumeRequested(cloudCtx, token, position.ID, options.CloudRunID, names)
 	if err != nil {
-		r.positionLog(position.ID, "warning", "回复检查：索要结果补报云端失败，候选人="+strings.Join(names, "、")+"，错误="+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "回复检查：索要结果补报云端失败，候选人="+strings.Join(names, "、")+"，错误="+err.Error())
 		return
 	}
-	r.positionLog(position.ID, "info", "回复检查：索要结果已补报云端，候选人="+strings.Join(names, "、"))
+	r.positionContextLog(ctx, position.ID, "info", "回复检查：索要结果已补报云端，候选人="+strings.Join(names, "、"))
 }

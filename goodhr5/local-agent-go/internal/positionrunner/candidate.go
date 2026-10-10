@@ -24,7 +24,7 @@ const (
 func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig, candidate map[string]any, greetedSoFar int, options StartOptions) (int, int, int, error) {
 	status := stringFromMap(candidate, "status")
 	if status != "passed" && status != "ai_passed" && status != "detail_fetched" {
-		r.positionLog(position.ID, "info", fmt.Sprintf("打招呼执行：跳过，候选人=%s，状态=%s", candidateLogName(candidate), status))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("打招呼执行：跳过，候选人=%s，状态=%s", candidateLogName(candidate), status))
 		return 0, 0, 0, nil
 	}
 	if position.MatchLimit > 0 && greetedSoFar >= position.MatchLimit {
@@ -35,9 +35,9 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 	// 页面和系统的既有沟通事实优先于本轮评分，避免再次首次打招呼。
 	if skip, err := r.skipFirstGreetFromPage(ctx, position, platformRuntime, exec, platformConfig, candidate, options); skip {
 		if err != nil {
-			r.positionLog(position.ID, "warning", "页面事实已确认，跳过首次招呼，但状态同步失败："+err.Error())
+			r.positionContextLog(ctx, position.ID, "warning", "页面事实已确认，跳过首次招呼，但状态同步失败："+err.Error())
 		}
-		r.positionLog(position.ID, "info", "跳过首次打招呼：页面或系统已有沟通/简历记录，候选人="+candidateLogName(candidate))
+		r.positionContextLog(ctx, position.ID, "info", "跳过首次打招呼：页面或系统已有沟通/简历记录，候选人="+candidateLogName(candidate))
 		request := candidateInfoRequestFromPosition(position)
 		allowed, _, _, hasScore := candidateInfoScoreDecision(position, candidate)
 		if stringFromMap(candidate, "resume_status") == "received" {
@@ -45,7 +45,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		}
 		if allowed && hasScore && (request.RequestPhone || request.RequestWechat || request.RequestResume) {
 			if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
-				r.positionLog(position.ID, "warning", "已有沟通候选人的索要意图未登记："+enqueueErr.Error())
+				r.positionContextLog(ctx, position.ID, "warning", "已有沟通候选人的索要意图未登记："+enqueueErr.Error())
 			}
 		}
 		return 0, 0, 1, nil
@@ -56,7 +56,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 	if err := waitBeforeGreet(ctx, r, position.ID, options); err != nil {
 		return 0, 0, 0, err
 	}
-	r.positionLog(position.ID, "info", fmt.Sprintf("打招呼执行：准备执行，候选人=%s，已打招呼=%d", candidateLogName(candidate), greetedSoFar))
+	r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("打招呼执行：准备执行，候选人=%s，已打招呼=%d", candidateLogName(candidate), greetedSoFar))
 	request := candidateInfoRequestFromPosition(position)
 	requestConfigured := candidateInfoRequestConfigured(request)
 	requestAllowed, requestScore, requestThreshold, hasRequestScore := candidateInfoScoreDecision(position, candidate)
@@ -76,7 +76,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 			}
 			candidate["ext"] = ext
 			if err := r.reconcileCandidatePageState(ctx, position, options, stringFromMap(candidate, "id"), candidateLogName(candidate), observed.State); err != nil {
-				r.positionLog(position.ID, "warning", "页面状态同步失败："+err.Error())
+				r.positionContextLog(ctx, position.ID, "warning", "页面状态同步失败："+err.Error())
 			}
 			return 0, 0, 1, nil
 		}
@@ -85,15 +85,15 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 			candidate["status"] = "unknown"
 		}
 		candidate["error"] = greetErr.Error()
-		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), greetErr.Error()))
+		r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("打招呼执行：失败，候选人=%s，错误=%s", candidateLogName(candidate), greetErr.Error()))
 		return 0, 1, 0, &candidateOperationError{Operation: "执行打招呼", Err: greetErr}
 	}
 	if requestConfigured && !hasRequestScore {
-		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，没有最终 AI 评分，索要分数=%.1f", candidateLogName(candidate), requestThreshold))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，没有最终 AI 评分，索要分数=%.1f", candidateLogName(candidate), requestThreshold))
 	} else if requestConfigured && !requestAllowed {
-		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，要求评分严格大于索要分数", candidateLogName(candidate), requestScore, requestThreshold))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("索要信息：跳过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，要求评分严格大于索要分数", candidateLogName(candidate), requestScore, requestThreshold))
 	} else if requestConfigured {
-		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：评分通过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，准备索要%s", candidateLogName(candidate), requestScore, requestThreshold, candidateInfoRequestLabel(request)))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("索要信息：评分通过，候选人=%s，最终 AI 评分=%.1f，索要分数=%.1f，准备索要%s", candidateLogName(candidate), requestScore, requestThreshold, candidateInfoRequestLabel(request)))
 	}
 	var requestErr error
 	requestAttempted := false
@@ -105,7 +105,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 			requestErr = r.sendVerifiedGreetFollowup(ctx, position, options, platformRuntime, exec, platformConfig, candidate, request.GreetMessage)
 			if request.RequestPhone || request.RequestWechat || request.RequestResume {
 				if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
-					r.positionLog(position.ID, "warning", "追加问候后的索要名单保存失败："+enqueueErr.Error())
+					r.positionContextLog(ctx, position.ID, "warning", "追加问候后的索要名单保存失败："+enqueueErr.Error())
 				}
 			}
 		} else {
@@ -113,14 +113,14 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 				// Boss 等平台的索要按钮需要候选人先回复才会解锁，打招呼后立即索要必然失败，
 				// 因此改为把候选人记入待索要名单，岗位收尾时统一检查回复后再执行索要。
 				if enqueueErr := r.enqueueCandidateInfoRequest(position, candidate, request); enqueueErr != nil {
-					r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：写入待索要名单失败，本轮跳过索要，候选人=%s，错误=%s", candidateLogName(candidate), enqueueErr.Error()))
+					r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("索要信息：写入待索要名单失败，本轮跳过索要，候选人=%s，错误=%s", candidateLogName(candidate), enqueueErr.Error()))
 				} else {
-					r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：已记入待索要名单，候选人=%s，岗位结束后自动检查回复并索要%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
+					r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("索要信息：已记入待索要名单，候选人=%s，岗位结束后自动检查回复并索要%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
 				}
 			} else {
 				requester, ok := platformRuntime.(platformcore.CandidateInfoRequester)
 				if !ok {
-					r.positionLog(position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
+					r.positionContextLog(ctx, position.ID, "warning", "索要信息：当前平台没有实现索要信息接口")
 				} else {
 					requestAttempted = true
 					requestErr = r.withOperationTimeout(ctx, position.ID, candidateLogName(candidate), "调用索要信息接口", candidateInfoActionTimeout, func(requestCtx context.Context) error {
@@ -131,7 +131,7 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		}
 	}
 	if requestErr != nil {
-		r.positionLog(position.ID, "warning", fmt.Sprintf("索要信息：执行失败但继续后续候选人，候选人=%s，索要项=%s，错误=%s", candidateLogName(candidate), candidateInfoRequestLabel(request), requestErr.Error()))
+		r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("索要信息：执行失败但继续后续候选人，候选人=%s，索要项=%s，错误=%s", candidateLogName(candidate), candidateInfoRequestLabel(request), requestErr.Error()))
 	} else if requestAttempted {
 		// 索要动作真实执行成功后才写结果字段，云端据此落索要事件和已发送问候语事件。
 		if request.RequestPhone && !messageOnlyAttempted {
@@ -146,11 +146,11 @@ func (r *Runner) consumeCandidateForGreet(ctx context.Context, position localdb.
 		if message := strings.TrimSpace(request.GreetMessage); message != "" {
 			candidate["greet_message_sent"] = message
 		}
-		r.positionLog(position.ID, "info", fmt.Sprintf("索要信息：执行完成，候选人=%s，索要项=%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("索要信息：执行完成，候选人=%s，索要项=%s", candidateLogName(candidate), candidateInfoRequestLabel(request)))
 	}
 	candidate["status"] = "greeted"
 	candidate["greeted_at"] = time.Now().UTC().Format(time.RFC3339Nano)
-	r.positionLog(position.ID, "info", "打招呼执行：成功，候选人="+candidateLogName(candidate))
+	r.positionContextLog(ctx, position.ID, "info", "打招呼执行：成功，候选人="+candidateLogName(candidate))
 	if position.EnableSound {
 		r.playSound("success.wav", position.ID)
 	}
@@ -231,7 +231,7 @@ func (r *Runner) tryGreet(ctx context.Context, positionID string, platformRuntim
 				return err
 			}
 		}
-		r.positionLog(positionID, "info", fmt.Sprintf("打招呼执行：准备调用平台接口，第%d次", attempt+1))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("打招呼执行：准备调用平台接口，第%d次", attempt+1))
 		err := r.withOperationTimeout(ctx, positionID, candidateLogName(candidate), fmt.Sprintf("调用打招呼接口第%d次", attempt+1), greetActionTimeout, func(greetCtx context.Context) error {
 			return platformRuntime.GreetCandidate(greetCtx, exec, platformConfig, platformcore.Candidate(candidate))
 		})
@@ -269,7 +269,7 @@ func waitBeforeGreet(ctx context.Context, r *Runner, positionID string, options 
 		delay += rand.Float64() * (maxDelay - minDelay)
 	}
 	if r != nil && positionID != "" {
-		r.positionLog(positionID, "info", fmt.Sprintf("模拟人工操作：打招呼前，等待 %.1f 秒", delay))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("模拟人工操作：打招呼前，等待 %.1f 秒", delay))
 	}
 	return sleepWithContext(ctx, time.Duration(delay*float64(time.Second)))
 }
@@ -326,12 +326,12 @@ func (r *Runner) maybeRestAfterCandidate(ctx context.Context, position localdb.P
 	}
 	duration := time.Duration(durationMinutes * float64(time.Minute))
 	endsAt := time.Now().Add(duration)
-	r.positionLog(positionID, "info", fmt.Sprintf("模拟休息：开始，已连续处理 %d 人，第 %d 次休息，预计休息 %s，结束时间=%s", processed, restIndex, formatRestDuration(duration), endsAt.Format("15:04:05")))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("模拟休息：开始，已连续处理 %d 人，第 %d 次休息，预计休息 %s，结束时间=%s", processed, restIndex, formatRestDuration(duration), endsAt.Format("15:04:05")))
 	if err := r.waitForSimulatedRest(ctx, position, platformRuntime, exec, platformConfig, options, restIndex, duration, endsAt); err != nil {
 		return err
 	}
 	r.updateProgress(positionID, Progress{Stage: "running", Message: "模拟休息结束，继续处理候选人"})
-	r.positionLog(positionID, "info", "模拟休息：结束，继续处理候选人")
+	r.positionContextLog(ctx, positionID, "info", "模拟休息：结束，继续处理候选人")
 	return nil
 }
 
@@ -393,7 +393,7 @@ func (r *Runner) checkResumeRequestsDuringRest(ctx context.Context, position loc
 	}
 	windowCtx, cancel := context.WithDeadline(ctx, endsAt)
 	defer cancel()
-	r.positionLog(position.ID, "info", fmt.Sprintf("模拟休息：窗口内检查候选人回复，名单=%d 人，需在 %s 前完成", len(items), endsAt.Format("15:04:05")))
+	r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("模拟休息：窗口内检查候选人回复，名单=%d 人，需在 %s 前完成", len(items), endsAt.Format("15:04:05")))
 	r.performResumeChecks(windowCtx, position, platformRuntime, platformConfig, options)
 	r.restoreEntryPageDuringRest(windowCtx, position, platformRuntime, exec, platformConfig)
 	return true
@@ -403,7 +403,7 @@ func (r *Runner) checkResumeRequestsDuringRest(ctx context.Context, position loc
 func (r *Runner) restoreEntryPageDuringRest(ctx context.Context, position localdb.Position, platformRuntime platformcore.Runtime, exec platformExecutor, platformConfig cloudapi.PlatformConfig) {
 	entryURL := platformEntryURL(platformConfig)
 	if strings.TrimSpace(entryURL) == "" {
-		r.positionLog(position.ID, "warning", "模拟休息：回复检查后云端平台配置缺少入口页面地址，无法回到列表页")
+		r.positionContextLog(ctx, position.ID, "warning", "模拟休息：回复检查后云端平台配置缺少入口页面地址，无法回到列表页")
 		return
 	}
 	for attempt := 1; attempt <= restEntryRestoreAttempts; attempt++ {
@@ -412,22 +412,22 @@ func (r *Runner) restoreEntryPageDuringRest(ctx context.Context, position locald
 		}
 		onEntry, err := platformRuntime.IsPositionEntryPage(ctx, exec, platformConfig)
 		if err == nil && onEntry {
-			r.positionLog(position.ID, "info", "模拟休息：已回到岗位列表页")
+			r.positionContextLog(ctx, position.ID, "info", "模拟休息：已回到岗位列表页")
 			return
 		}
 		if err := platformRuntime.OpenEntryPage(ctx, exec, platformConfig, entryURL); err != nil {
-			r.positionLog(position.ID, "warning", fmt.Sprintf("模拟休息：回到岗位列表页失败，第 %d/%d 次，错误=%s", attempt, restEntryRestoreAttempts, err.Error()))
+			r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("模拟休息：回到岗位列表页失败，第 %d/%d 次，错误=%s", attempt, restEntryRestoreAttempts, err.Error()))
 			continue
 		}
 		if err := r.waitPositionEntryPage(ctx, position.ID, platformRuntime, exec, platformConfig); err != nil {
-			r.positionLog(position.ID, "warning", fmt.Sprintf("模拟休息：确认岗位列表页加载失败，第 %d/%d 次，错误=%s", attempt, restEntryRestoreAttempts, err.Error()))
+			r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("模拟休息：确认岗位列表页加载失败，第 %d/%d 次，错误=%s", attempt, restEntryRestoreAttempts, err.Error()))
 			continue
 		}
 		r.prepareEntryPage(ctx, position.ID, platformRuntime, exec, platformConfig)
-		r.positionLog(position.ID, "info", "模拟休息：已回到岗位列表页")
+		r.positionContextLog(ctx, position.ID, "info", "模拟休息：已回到岗位列表页")
 		return
 	}
-	r.positionLog(position.ID, "warning", "模拟休息：多次尝试后仍未回到岗位列表页，继续休息流程")
+	r.positionContextLog(ctx, position.ID, "warning", "模拟休息：多次尝试后仍未回到岗位列表页，继续休息流程")
 }
 
 // updateRestDisplay 更新模拟休息进度，并以非阻塞方式显示浏览器页面浮层。

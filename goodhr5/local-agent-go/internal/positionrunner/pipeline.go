@@ -24,7 +24,7 @@ func (r *Runner) withOperationTimeout(ctx context.Context, positionID string, ca
 	opCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	startedAt := time.Now()
-	r.positionLog(positionID, "info", fmt.Sprintf("%s：开始，候选人=%s，超时=%s", operation, candidateName, timeout.Round(time.Second)))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("%s：开始，候选人=%s，超时=%s", operation, candidateName, timeout.Round(time.Second)))
 	defer func() {
 		elapsed := time.Since(startedAt).Round(time.Millisecond)
 		if recovered := recover(); recovered != nil {
@@ -35,13 +35,13 @@ func (r *Runner) withOperationTimeout(ctx context.Context, positionID string, ca
 		}
 		if err != nil {
 			if errors.Is(opCtx.Err(), context.DeadlineExceeded) {
-				r.positionLog(positionID, "error", fmt.Sprintf("%s：超时，候选人=%s，超过=%s，耗时=%s，错误=%s", operation, candidateName, timeout.Round(time.Second), elapsed, err.Error()))
+				r.positionContextLog(ctx, positionID, "error", fmt.Sprintf("%s：超时，候选人=%s，超过=%s，耗时=%s，错误=%s", operation, candidateName, timeout.Round(time.Second), elapsed, err.Error()))
 				return
 			}
-			r.positionLog(positionID, "warning", fmt.Sprintf("%s：失败，候选人=%s，耗时=%s，错误=%s", operation, candidateName, elapsed, err.Error()))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("%s：失败，候选人=%s，耗时=%s，错误=%s", operation, candidateName, elapsed, err.Error()))
 			return
 		}
-		r.positionLog(positionID, "info", fmt.Sprintf("%s：完成，候选人=%s，耗时=%s", operation, candidateName, elapsed))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("%s：完成，候选人=%s，耗时=%s", operation, candidateName, elapsed))
 	}()
 	return fn(opCtx)
 }

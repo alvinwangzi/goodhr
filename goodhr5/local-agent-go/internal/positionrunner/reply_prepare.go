@@ -41,7 +41,7 @@ func (r *Runner) prepareReplyFlow(ctx context.Context, position localdb.Position
 			return nil, fmt.Errorf("浏览器准备失败：%w", err)
 		}
 	}
-	exec := platformExecutor{runner: r, positionID: position.ID, once: true}
+	exec := platformExecutor{runner: r, positionID: position.ID, once: true, logContext: ctx}
 	if err := runtime.PrepareReplyPage(ctx, exec); err != nil {
 		return nil, fmt.Errorf("消息页准备失败：%w", err)
 	}

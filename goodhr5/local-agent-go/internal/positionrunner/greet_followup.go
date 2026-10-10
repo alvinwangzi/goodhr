@@ -61,10 +61,10 @@ func (r *Runner) sendVerifiedGreetFollowup(ctx context.Context, position localdb
 					resultErr = err
 				}
 			} else {
-				r.positionLog(position.ID, "info", "resume_rescan：追加问候返回后重建扫描队列，原因="+reason)
+				r.positionContextLog(ctx, position.ID, "info", "resume_rescan：追加问候返回后重建扫描队列，原因="+reason)
 			}
 		} else {
-			r.positionLog(position.ID, "info", "resume_anchor_match：追加问候返回后保留扫描队列与本次数量")
+			r.positionContextLog(ctx, position.ID, "info", "resume_anchor_match：追加问候返回后保留扫描队列与本次数量")
 		}
 	}()
 	if err := preparer.PrepareCandidateFollowup(ctx, exec); err != nil {

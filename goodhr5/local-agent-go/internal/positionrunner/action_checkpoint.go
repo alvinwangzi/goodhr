@@ -47,7 +47,7 @@ func (r *Runner) recheckUnknownScanCandidates(ctx context.Context, positionID st
 				return nil, legacyErr
 			}
 			if len(legacy) > 0 {
-				r.positionLog(positionID, "warning", "旧发送记录的账号归属尚未核对，保留历史且不重复发送："+candidateLogName(candidate))
+				r.positionContextLog(ctx, positionID, "warning", "旧发送记录的账号归属尚未核对，保留历史且不重复发送："+candidateLogName(candidate))
 				continue
 			}
 		}
@@ -57,7 +57,7 @@ func (r *Runner) recheckUnknownScanCandidates(ctx context.Context, positionID st
 		}
 		reader, ok := runtime.(platformcore.CandidateStateReader)
 		if !ok {
-			r.positionLog(positionID, "warning", "未知发送保留待核对，当前平台缺少页面事实读取能力")
+			r.positionContextLog(ctx, positionID, "warning", "未知发送保留待核对，当前平台缺少页面事实读取能力")
 			continue
 		}
 		observed, readErr := reader.ReadCandidateState(ctx, exec, cfg, platformcore.Candidate(candidate))
@@ -65,7 +65,7 @@ func (r *Runner) recheckUnknownScanCandidates(ctx context.Context, positionID st
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			r.positionLog(positionID, "warning", "未知发送页面读取失败，保留待核对："+candidateLogName(candidate))
+			r.positionContextLog(ctx, positionID, "warning", "未知发送页面读取失败，保留待核对："+candidateLogName(candidate))
 			continue
 		}
 		if observed.ContactObserved || observed.ResumeStatus == "received" {
@@ -78,7 +78,7 @@ func (r *Runner) recheckUnknownScanCandidates(ctx context.Context, positionID st
 			candidate["skip_reason"] = "未知发送核对后发现已有沟通，不重复打招呼"
 			// 不再进入关键词和评分流程，避免其把已核对跳过重新覆盖为 passed。
 		} else {
-			r.positionLog(positionID, "warning", "未知发送没有取得新证据，保留待核对："+candidateLogName(candidate))
+			r.positionContextLog(ctx, positionID, "warning", "未知发送没有取得新证据，保留待核对："+candidateLogName(candidate))
 		}
 	}
 	return eligible, nil

@@ -31,11 +31,11 @@ func (r *Runner) syncCandidateInfoFeedback(ctx context.Context, position localdb
 	defer cancel()
 	err := cloudapi.New(base).NotifyCandidateInfoResults(syncCtx, options.Token, position.ID, options.CloudRunID, []cloudapi.CandidateInfoFeedback{{RequestID: item.ID, CandidateID: item.CandidateID, CandidateName: item.CandidateName, Action: action, State: state}})
 	if err != nil {
-		r.positionLog(position.ID, "warning", "索要结果保留待补报："+item.CandidateName+"，"+action+"，"+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "索要结果保留待补报："+item.CandidateName+"，"+action+"，"+err.Error())
 		return
 	}
 	if err := r.db.MarkCandidateInfoSynced(item.ID, action, state); err != nil {
-		r.positionLog(position.ID, "warning", "索要同步确认保存失败："+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "索要同步确认保存失败："+err.Error())
 	}
 }
 
@@ -46,7 +46,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 	}
 	items, err := r.db.ListCandidateInfoRequests(position.ID)
 	if err != nil {
-		r.positionLog(position.ID, "warning", "读取索要意图失败："+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "读取索要意图失败："+err.Error())
 		return
 	}
 	if len(items) == 0 {
@@ -74,7 +74,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 	}
 	operator, ok := runtime.(platformcore.CandidateInfoRequestOperator)
 	if !ok {
-		r.positionLog(position.ID, "info", "当前平台未提供分项确认能力，三项名单保留，不改成求简历")
+		r.positionContextLog(ctx, position.ID, "info", "当前平台未提供分项确认能力，三项名单保留，不改成求简历")
 		return
 	}
 	pageRuntime, ok := runtime.(platformcore.AutoReplyRuntime)
@@ -90,12 +90,12 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 		base = strings.TrimSpace(r.cloudAPIBase)
 	}
 	if base == "" || options.Token == "" {
-		r.positionLog(position.ID, "warning", "索要缺少会员校验凭证，未执行")
+		r.positionContextLog(ctx, position.ID, "warning", "索要缺少会员校验凭证，未执行")
 		return
 	}
 	subscription, err := cloudapi.New(base).FetchSubscription(ctx, options.Token)
 	if err != nil || !boolFromMap(subscription, "allow_auto_reply") {
-		r.positionLog(position.ID, "warning", "当前没有 Pro 索要权限，名单保留，未执行")
+		r.positionContextLog(ctx, position.ID, "warning", "当前没有 Pro 索要权限，名单保留，未执行")
 		return
 	}
 	hasWork := false
@@ -111,10 +111,10 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 	if !hasWork {
 		return
 	}
-	exec := platformExecutor{runner: r, positionID: position.ID, once: true}
+	exec := platformExecutor{runner: r, positionID: position.ID, once: true, logContext: ctx}
 	target, err := ensureReplyTarget(ctx, pageRuntime, exec, positionPositionName(position), options.preparedReplyTarget)
 	if err != nil {
-		r.positionLog(position.ID, "warning", "索要岗位核对失败："+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "索要岗位核对失败："+err.Error())
 		return
 	}
 	now := time.Now
@@ -142,7 +142,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			*options.candidateInfoRemaining = remaining
 		}
 		if options.LocalRunID == "" && names[item.CandidateName] > 1 {
-			r.positionLog(position.ID, "warning", "索要名单有多个同名 ID，未自动交换："+item.CandidateName)
+			r.positionContextLog(ctx, position.ID, "warning", "索要名单有多个同名 ID，未自动交换："+item.CandidateName)
 			continue
 		}
 		active := false
@@ -167,11 +167,11 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			scope := platformcore.ReplyHash("profile:" + positionProfileName(position))
 			checkpoint, checkpointErr := r.db.LoadActionCheckpoint(ctx, options.LocalRunID)
 			if checkpointErr != nil && !errors.Is(checkpointErr, sql.ErrNoRows) {
-				r.positionLog(position.ID, "warning", "索要账号检查点读取失败")
+				r.positionContextLog(ctx, position.ID, "warning", "索要账号检查点读取失败")
 				continue
 			}
 			if _, requiresProof := runtime.(platformcore.AccountIdentityRuntime); requiresProof && (checkpointErr != nil || !checkpoint.AccountBound) {
-				r.positionLog(position.ID, "warning", "索要账号尚未核对，名单保留")
+				r.positionContextLog(ctx, position.ID, "warning", "索要账号尚未核对，名单保留")
 				continue
 			}
 			if checkpoint.AccountBound {
@@ -180,7 +180,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			identity, lookupErr := r.verifiedCandidateIdentity(ctx, exec, runtime, scope, position.PlatformID, item.CandidateID, item.CandidateName)
 			identityLocator, supported := runtime.(platformcore.IdentityConversationLocator)
 			if lookupErr != nil || identity.Status != "verified" || !supported {
-				r.positionLog(position.ID, "warning", "索要身份尚未核对，名单保留："+item.CandidateName)
+				r.positionContextLog(ctx, position.ID, "warning", "索要身份尚未核对，名单保留："+item.CandidateName)
 				continue
 			}
 			conversation, err = identityLocator.LocateReplyConversationByID(ctx, exec, item.CandidateName, identity.ConversationID)
@@ -188,16 +188,16 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			conversation, err = locator.LocateReplyConversation(ctx, exec, item.CandidateName)
 		}
 		if err != nil {
-			r.positionLog(position.ID, "warning", "索要候选人定位失败："+err.Error())
+			r.positionContextLog(ctx, position.ID, "warning", "索要候选人定位失败："+err.Error())
 			continue
 		}
 		current, err := locator.ReadOpenedReplyContext(ctx, exec, target, conversation)
 		if err != nil {
-			r.positionLog(position.ID, "warning", "索要会话核对失败："+err.Error())
+			r.positionContextLog(ctx, position.ID, "warning", "索要会话核对失败："+err.Error())
 			continue
 		}
 		if err := r.reconcileCandidatePageState(ctx, position, options, item.CandidateID, item.CandidateName, candidateStateFromReply(current)); err != nil {
-			r.positionLog(position.ID, "warning", "索要前页面状态暂未同步："+err.Error())
+			r.positionContextLog(ctx, position.ID, "warning", "索要前页面状态暂未同步："+err.Error())
 		}
 		replied := false
 		for _, message := range current.Messages {
@@ -213,7 +213,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				}
 			}
 			if len(waitingActions) > 0 {
-				r.positionLog(position.ID, "info", "索要继续等待候选人回复："+item.CandidateName+"，暂未执行："+strings.Join(waitingActions, "、"))
+				r.positionContextLog(ctx, position.ID, "info", "索要继续等待候选人回复："+item.CandidateName+"，暂未执行："+strings.Join(waitingActions, "、"))
 			}
 		}
 		for _, action := range []string{"phone", "wechat", "resume"} {
@@ -240,7 +240,7 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			}
 			prepared, err := operator.PrepareCandidateInfoRequest(ctx, exec, target, conversation, action)
 			if err != nil {
-				r.positionLog(position.ID, "warning", fmt.Sprintf("索要%s保留待处理：%s，%v", platformcore.CandidateInfoActionLabel(action), item.CandidateName, err))
+				r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("索要%s保留待处理：%s，%v", platformcore.CandidateInfoActionLabel(action), item.CandidateName, err))
 				continue
 			}
 			if prepared.AlreadyDone {
@@ -267,13 +267,13 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			_ = operator.CancelCandidateInfoRequest(cleanup, exec, target, conversation, prepared)
 			if err := r.db.SaveCandidateInfoResult(item.ID, action, state); err != nil {
-				r.positionLog(position.ID, "warning", "索要发送状态保存失败，停止后续索要："+err.Error())
+				r.positionContextLog(ctx, position.ID, "warning", "索要发送状态保存失败，停止后续索要："+err.Error())
 				cancel()
 				return
 			}
 			r.syncCandidateInfoFeedback(cleanup, position, options, item, action, state)
 			cancel()
-			r.positionLog(position.ID, "info", fmt.Sprintf("索要%s结果：候选人=%s，状态=%s，错误=%v", platformcore.CandidateInfoActionLabel(action), item.CandidateName, candidateInfoStateLabel(state), sendErr))
+			r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("索要%s结果：候选人=%s，状态=%s，错误=%v", platformcore.CandidateInfoActionLabel(action), item.CandidateName, candidateInfoStateLabel(state), sendErr))
 		}
 	}
 }

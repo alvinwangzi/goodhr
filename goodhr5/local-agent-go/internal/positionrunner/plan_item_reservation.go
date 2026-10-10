@@ -44,6 +44,7 @@ func (p *PlanBrowserReservation) BorrowItem(ownerScope, itemRunID string, option
 	}
 	options.PlanRunID, options.ItemRunID, options.LocalRunID = checkpoint.PlanRunID, checkpoint.ItemRunID, checkpoint.RunID
 	ctx, cancel := context.WithCancel(p.ctx)
+	ctx = bindPlanLogContext(ctx, checkpoint)
 	state := &runState{lease: p.lease, done: make(chan struct{}), cancel: cancel, options: options, runGreeted: checkpoint.Greeted, progress: Progress{Stage: "starting", Message: "计划执行项准备", TotalRounds: scanRounds(options), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	p.lease.refs++
 	r.running[checkpoint.PositionID] = state

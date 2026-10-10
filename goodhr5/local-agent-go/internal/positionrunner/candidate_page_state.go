@@ -40,7 +40,7 @@ func (r *Runner) reconcileCandidatePageState(ctx context.Context, position local
 	}
 	err := cloudapi.New(base).ReportScreenings(syncCtx, options.Token, position.ID, []cloudapi.ScreeningRecord{{Platform: position.PlatformID, PlatformCandidateID: candidateID, CandidateName: name, Source: "platform_observation", ContactObserved: contacted, ResumeStatus: resumeStatus}})
 	if err == nil {
-		r.positionLog(position.ID, "info", "平台页面状态已同步：候选人="+name+"，实际招呼时间保持原值")
+		r.positionContextLog(ctx, position.ID, "info", "平台页面状态已同步：候选人="+name+"，实际招呼时间保持原值")
 	}
 	return err
 }

@@ -255,7 +255,7 @@ func (r *Runner) scoreDetailScreenshotWithClient(ctx context.Context, position l
 	select {
 	case decision := <-earlyCh:
 		candidate[pendingAIVisionDecisionKey] = (<-chan pendingAIDecisionResult)(finalCh)
-		r.positionLog(position.ID, "info", fmt.Sprintf("AI图片详情：流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("AI图片详情：流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
 		return decision, nil
 	case final := <-finalCh:
 		return final.Decision, final.Err
@@ -276,7 +276,7 @@ func (r *Runner) scoreCandidateForDetail(ctx context.Context, position localdb.P
 	}
 	decision, err := client.ScoreForDetail(ctx, position.PositionSnapshot, candidate)
 	if err != nil {
-		r.positionLog(position.ID, "warning", "看详情评分失败："+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "看详情评分失败："+err.Error())
 		return localai.Decision{}, err
 	}
 	return decision, nil
@@ -290,7 +290,7 @@ func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, position lo
 	}
 	if positionMode(position) == "keyword" {
 		r.showKeywordMatchOverlay(ctx, exec, position, candidate)
-		return r.applyKeywordGreetDecision(position, candidate), nil
+		return r.applyKeywordGreetDecision(position, candidate, ctx), nil
 	}
 	visibleClient, cleanup := r.aiClientForCall(ctx, exec, client, "AI 正在评分", candidateLogName(candidate), "正在根据候选人详情判断是否适合打招呼")
 	itemSkipped, err := r.scoreCandidate(ctx, position, candidate, visibleClient)
@@ -303,9 +303,13 @@ func (r *Runner) finalizeCandidateGreetDecision(ctx context.Context, position lo
 
 // applyKeywordGreetDecision 使用云端岗位模板关键词做最终打招呼判断。
 // position 为岗位运行记录，candidate 为已补充详情的候选人，返回本次是否跳过。
-func (r *Runner) applyKeywordGreetDecision(position localdb.Position, candidate map[string]any) int {
+func (r *Runner) applyKeywordGreetDecision(position localdb.Position, candidate map[string]any, contexts ...context.Context) int {
+	var logContext context.Context
+	if len(contexts) > 0 {
+		logContext = contexts[0]
+	}
 	skipped := applyKeywordGreetDecisionWithLog(position, candidate, func(message string) {
-		r.positionLog(position.ID, "info", message)
+		r.positionContextLog(logContext, position.ID, "info", message)
 	})
 	state := buildKeywordMatchState(position, candidate)
 	r.updateKeywordAnalysis(position.ID, state, candidate, keywordAnalysisReason(candidate, state), true)
@@ -373,7 +377,7 @@ func (r *Runner) scoreCandidate(ctx context.Context, position localdb.Position, 
 		return 0, fmt.Errorf("AI 客户端未配置")
 	}
 	candidateName := candidateLogName(candidate)
-	r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI评分开始，候选人=%s，超时=%s", candidateName, aiScoreTimeout.Round(time.Second)))
+	r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("打招呼判断：AI评分开始，候选人=%s，超时=%s", candidateName, aiScoreTimeout.Round(time.Second)))
 	var decision localai.Decision
 	err := r.withOperationTimeout(ctx, position.ID, candidateName, "AI最终打招呼评分", aiScoreTimeout, func(scoreCtx context.Context) error {
 		nextDecision, scoreErr := r.scoreCandidateForGreetWithEarlyReturn(scoreCtx, position, candidate, client)
@@ -381,7 +385,7 @@ func (r *Runner) scoreCandidate(ctx context.Context, position localdb.Position, 
 		return scoreErr
 	})
 	if err != nil {
-		r.positionLog(position.ID, "warning", fmt.Sprintf("打招呼判断：AI评分失败，候选人=%s，错误=%s", candidateName, err.Error()))
+		r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("打招呼判断：AI评分失败，候选人=%s，错误=%s", candidateName, err.Error()))
 		return 0, err
 	}
 	candidate["ai_greet_score"] = decision.Score
@@ -392,11 +396,11 @@ func (r *Runner) scoreCandidate(ctx context.Context, position localdb.Position, 
 	if !decision.ShouldGreet {
 		candidate["status"] = "skipped"
 		candidate["skip_reason"] = fmt.Sprintf("AI评分低于阈值：%.1f/%.1f，%s", decision.Score, decision.Threshold, decision.Reason)
-		r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=否", candidateName, decision.Score, decision.Threshold))
 		return 1, nil
 	}
 	candidate["status"] = "ai_passed"
-	r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是", candidateName, decision.Score, decision.Threshold))
+	r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("打招呼判断：AI评分完成，候选人=%s，分数=%.1f，阈值=%.1f，是否打招呼=是", candidateName, decision.Score, decision.Threshold))
 	return 0, nil
 }
 
@@ -421,10 +425,10 @@ func (r *Runner) scoreCandidateForGreetWithEarlyReturn(ctx context.Context, posi
 	}()
 	select {
 	case decision := <-earlyCh:
-		r.positionLog(position.ID, "info", fmt.Sprintf("打招呼判断：AI流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
+		r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("打招呼判断：AI流式结果已提前解析，候选人=%s，分数=%.1f，原因=%s", candidateLogName(candidate), decision.Score, decision.Reason))
 		go func() {
 			if final := <-resultCh; final.err != nil {
-				r.positionLog(position.ID, "warning", "AI 完整评分输出结束失败："+final.err.Error())
+				r.positionContextLog(ctx, position.ID, "warning", "AI 完整评分输出结束失败："+final.err.Error())
 			}
 		}()
 		return decision, nil

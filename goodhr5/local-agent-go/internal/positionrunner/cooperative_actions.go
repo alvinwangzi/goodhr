@@ -200,7 +200,7 @@ func (s *actionSession) refreshWork(ctx context.Context) error {
 				waiting++
 			}
 		}
-		s.runner.positionLog(s.position.ID, "info", fmt.Sprintf("复打名单检查：返回%d人，新增到期%d人，当前待处理%d人，未到时间%d人，已处理或已排队%d人，联系时间缺失%d人", len(candidates), len(s.reGreets)-initialDue, len(s.reGreets), waiting, handled, invalidContact))
+		s.runner.positionContextLog(ctx, s.position.ID, "info", fmt.Sprintf("复打名单检查：返回%d人，新增到期%d人，当前待处理%d人，未到时间%d人，已处理或已排队%d人，联系时间缺失%d人", len(candidates), len(s.reGreets)-initialDue, len(s.reGreets), waiting, handled, invalidContact))
 		sort.SliceStable(s.reGreets, func(i, j int) bool { return s.reGreets[i].due.Before(s.reGreets[j].due) })
 	}
 	s.scheduler.Checked(s.now())
@@ -274,12 +274,12 @@ func restoreRecommendationCursor(ctx context.Context, runner *Runner, position l
 		reason = "anchor_read_failed"
 	}
 	if matched {
-		runner.positionLog(position.ID, "info", "resume_anchor_match：局部锚点匹配，保留队列和本次数量继续")
+		runner.positionContextLog(ctx, position.ID, "info", "resume_anchor_match：局部锚点匹配，保留队列和本次数量继续")
 	} else {
 		if err := resumer.RewindRecommendation(ctx, exec); err != nil {
 			return false, err
 		}
-		runner.positionLog(position.ID, "info", "resume_rescan：按本次记录恢复，原因="+reason)
+		runner.positionContextLog(ctx, position.ID, "info", "resume_rescan：按本次记录恢复，原因="+reason)
 	}
 	return matched, nil
 }

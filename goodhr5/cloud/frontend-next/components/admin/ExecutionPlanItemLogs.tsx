@@ -1,4 +1,4 @@
-/** 本文件只读展示 HRPlus 执行电脑的原执行项进度日志，明确本地保存及候选人明细尚未接入。 */
+/** 本文件只读展示 HRPlus 执行电脑的原执行项日志，明确本地保存及旧无来源记录的范围。 */
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Stack, Typography } from "@mui/material";
@@ -33,7 +33,7 @@ export default function ExecutionPlanItemLogs({ runID, itemID, taskID, timezone 
     <Button disabled={!supported} onClick={() => { setOpen(true); void load(); }}>查看本项进度日志</Button>
     {!supported && <Typography variant="caption" color="text.secondary">需连接实际执行电脑及支持进度日志的本地程序</Typography>}
     <AdminDialog open={open} title="原执行项进度日志" maxWidth="md" onClose={close}><Stack spacing={1.5}>
-      <Alert severity="info">这些记录只保存在执行电脑，尚未上传云端。当前为安全步骤进度摘要，候选人级详细日志还未接入。</Alert>
+      <Alert severity="info">这些记录只保存在执行电脑，尚未上传云端。包含有明确原执行项归属的步骤和候选人处理日志；旧版没有明确来源的记录仍在岗位日志中。</Alert>
       {error && <Alert severity="warning">{error}</Alert>}
       <Typography color="text.secondary">{message}</Typography>
       <Button disabled={loading} onClick={() => void load()}>刷新日志</Button>

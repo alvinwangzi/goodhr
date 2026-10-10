@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_plan_item_logs_original ON plan_item_logs(owner_s
 }
 
 // AddPlanItemLog 在同一事务中核对指定原检查点并固定归属，不接受调用方任意传入任务编号。
-func (db *DB) AddPlanItemLog(ctx context.Context, ownerScope, localRunID, level, message string) (PlanItemLog, error) {
+func (db *DB) AddPlanItemLog(ctx context.Context, ownerScope, localRunID, level, message string, original ...PlanItemLog) (PlanItemLog, error) {
 	if ownerScope == "" || localRunID == "" || strings.TrimSpace(message) == "" {
 		return PlanItemLog{}, errors.New("执行项日志缺少原归属或内容")
 	}
@@ -73,6 +73,15 @@ func (db *DB) AddPlanItemLog(ctx context.Context, ownerScope, localRunID, level,
 	}
 	if cp.OwnerScope != ownerScope || cp.RunID != localRunID || cp.PlanRunID == "" || cp.ItemRunID == "" || cp.CloudRunID == "" || cp.PositionID == "" {
 		return PlanItemLog{}, errors.New("日志不属于原执行项检查点")
+	}
+	if len(original) > 1 {
+		return PlanItemLog{}, ErrPlanRequestConflict
+	}
+	if len(original) == 1 {
+		bound := original[0]
+		if bound.OwnerScope != cp.OwnerScope || bound.LocalRunID != cp.RunID || bound.PlanRunID != cp.PlanRunID || bound.ItemRunID != cp.ItemRunID || bound.TaskRunID != cp.CloudRunID || bound.PositionID != cp.PositionID {
+			return PlanItemLog{}, ErrPlanRequestConflict
+		}
 	}
 	var originalPlan, originalItem, originalTask, originalPosition string
 	err = tx.QueryRowContext(ctx, `SELECT plan_run_id,item_run_id,task_run_id,position_id FROM plan_item_logs WHERE owner_scope=? AND local_run_id=? ORDER BY id LIMIT 1`, ownerScope, localRunID).Scan(&originalPlan, &originalItem, &originalTask, &originalPosition)

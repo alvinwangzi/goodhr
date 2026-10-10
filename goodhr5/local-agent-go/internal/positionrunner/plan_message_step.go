@@ -40,6 +40,9 @@ func (p *PlanItemReservation) messageStep(permit planmodel.Permit, snapshot Posi
 	if !p.Valid() {
 		return result, ErrPlanBrowserBusy
 	}
+	if failure := planLogFailure(p.ctx); failure != nil {
+		return result, failure
+	}
 	p.parent.runner.mu.Lock()
 	previousError := p.state.planActionError
 	p.parent.runner.mu.Unlock()
@@ -136,6 +139,12 @@ func (p *PlanItemReservation) messageStep(permit planmodel.Permit, snapshot Posi
 		p.messageStatsRestored = true
 	}
 	p.messages.options = options
+	if p.messages.flow != nil {
+		if original, ok := p.messages.flow.exec.(platformExecutor); ok {
+			original.logContext = p.ctx
+			p.messages.flow.exec = original
+		}
+	}
 	p.messages.scheduler.PrioritizeReply = options.PrioritizeReply
 	if !hasTaskType(allActive, "auto_reply") {
 		p.messages.replies = nil
@@ -150,5 +159,5 @@ func (p *PlanItemReservation) messageStep(permit planmodel.Permit, snapshot Posi
 	p.parent.runner.mu.Lock()
 	childError := p.state.planActionError
 	p.parent.runner.mu.Unlock()
-	return result, errors.Join(err, childError)
+	return result, errors.Join(err, childError, planLogFailure(p.ctx))
 }

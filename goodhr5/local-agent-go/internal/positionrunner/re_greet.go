@@ -73,7 +73,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	stopped := func(message string) {
 		r.updateProgress(positionID, Progress{Stage: "stopped", Message: message, TotalRounds: totalRounds})
 		_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
-		r.positionLog(positionID, "info", "复打招呼停止："+message)
+		r.positionContextLog(ctx, positionID, "info", "复打招呼停止："+message)
 		r.notifyCloudReGreetStatus(positionID, options, "stopped", stats)
 	}
 	fatal := func(err error) bool {
@@ -92,7 +92,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	}
 
 	if options.preparedReplyTarget == nil {
-		r.positionLog(positionID, "info", "复打招呼启动：正在启动浏览器")
+		r.positionContextLog(ctx, positionID, "info", "复打招呼启动：正在启动浏览器")
 		if _, err := r.worker.Start(ctx); err != nil {
 			r.failStart(positionID, "浏览器启动失败："+err.Error(), options)
 			return false
@@ -108,10 +108,10 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			return false
 		}
 	}
-	exec := platformExecutor{runner: r, positionID: positionID, once: true}
+	exec := platformExecutor{runner: r, positionID: positionID, once: true, logContext: ctx}
 	profileName := positionProfileName(position)
 
-	r.positionLog(positionID, "info", "复打招呼启动：正在打开消息页并核对岗位")
+	r.positionContextLog(ctx, positionID, "info", "复打招呼启动：正在打开消息页并核对岗位")
 	target, err := ensureReplyTarget(ctx, pageRuntime, exec, positionPositionName(position), options.preparedReplyTarget)
 	if err != nil {
 		r.failStart(positionID, "消息页准备失败："+err.Error(), options)
@@ -128,8 +128,8 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	if accountBound {
 		sendScope = accountScope
 	}
-	r.positionLog(positionID, "info", "复打招呼核对岗位：岗位名="+name)
-	r.positionLog(positionID, "info", "复打招呼岗位核对成功：positionID="+target.PositionID)
+	r.positionContextLog(ctx, positionID, "info", "复打招呼核对岗位：岗位名="+name)
+	r.positionContextLog(ctx, positionID, "info", "复打招呼岗位核对成功：positionID="+target.PositionID)
 
 	cloudBase := strings.TrimSpace(options.CloudAPIBase)
 	if cloudBase == "" {
@@ -147,18 +147,18 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	// 跳过和失败也记录本次运行归属，上报失败必须在本地日志中可见。
 	reportSkip := func(candidate cloudapi.ReGreetCandidate, reason string) {
 		if err := cloudClient.ReportReGreetResult(ctx, options.Token, position.ID, platform, candidate.PlatformCandidateID, candidate.CandidateName, false, reason, cloudapi.ReGreetReportDetails{RunID: options.CloudRunID}); err != nil {
-			r.positionLog(positionID, "warning", "复打结果上报失败：候选人="+candidate.CandidateName+"，原因="+reason+"，错误="+err.Error())
+			r.positionContextLog(ctx, positionID, "warning", "复打结果上报失败：候选人="+candidate.CandidateName+"，原因="+reason+"，错误="+err.Error())
 		}
 	}
 
 	r.updateProgress(positionID, Progress{Stage: "fetching", Message: "正在从云端拉取复打名单", TotalRounds: totalRounds})
 	candidates, err := cloudClient.FetchReGreetCandidates(ctx, options.Token, position.ID, platform, prefs.timeRangeDays, prefs.intervalMinMinutes, prefs.maxCount, true)
 	if err != nil {
-		r.positionLog(positionID, "error", "复打招呼拉取名单失败："+err.Error())
+		r.positionContextLog(ctx, positionID, "error", "复打招呼拉取名单失败："+err.Error())
 		r.failStart(positionID, "拉取复打名单失败："+err.Error(), options)
 		return false
 	}
-	r.positionLog(positionID, "info", fmt.Sprintf("复打招呼名单拉取完成：共 %d 人", len(candidates)))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("复打招呼名单拉取完成：共 %d 人", len(candidates)))
 	if options.reGreetBatch != nil {
 		latest := map[string]cloudapi.ReGreetCandidate{}
 		for _, candidate := range candidates {
@@ -180,7 +180,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 	}
 	r.updateReGreetStats(positionID, stats)
 	if len(candidates) == 0 {
-		r.positionLog(positionID, "info", "复打招呼：当前没有符合条件的候选人，任务结束")
+		r.positionContextLog(ctx, positionID, "info", "复打招呼：当前没有符合条件的候选人，任务结束")
 		return true
 	}
 
@@ -204,7 +204,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		if options.reGreetRemaining != nil {
 			*options.reGreetRemaining = candidates[i+1:]
 		}
-		r.positionLog(positionID, "info", fmt.Sprintf("复打招呼进度 [%d/%d]：候选人=%s（%s）", i+1, len(candidates), candidateName, candidate.PlatformCandidateID))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("复打招呼进度 [%d/%d]：候选人=%s（%s）", i+1, len(candidates), candidateName, candidate.PlatformCandidateID))
 
 		// 联系基准来自云端事实，到期时间独立保存，不等待上一位候选人的间隔。
 		basis, basisErr := time.Parse(time.RFC3339Nano, firstNonEmptyString(candidate.LastReGreetedAt, candidate.GreetedAt))
@@ -260,7 +260,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		if identityErr != nil || identity.Status != "verified" || !identitySupported {
 			stats.skipped++
 			reportSkip(candidate, "identity_unresolved")
-			r.positionLog(positionID, "warning", "复打跳过：推荐与会话身份尚未直接核对，候选人="+candidateName)
+			r.positionContextLog(ctx, positionID, "warning", "复打跳过：推荐与会话身份尚未直接核对，候选人="+candidateName)
 			continue
 		}
 		conversation, locateErr := locator.LocateReplyConversationByID(ctx, exec, candidateName, identity.ConversationID)
@@ -268,7 +268,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if fatal(locateErr) {
 				return false
 			}
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼定位候选人失败（%s）：%v", candidateName, locateErr))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("复打招呼定位候选人失败（%s）：%v", candidateName, locateErr))
 			stats.failed++
 			reportSkip(candidate, "locate_failed")
 			r.updateReGreetStats(positionID, stats)
@@ -281,7 +281,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if fatal(readErr) {
 				return false
 			}
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼读取会话上下文失败（%s）：%v", candidateName, readErr))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("复打招呼读取会话上下文失败（%s）：%v", candidateName, readErr))
 			stats.failed++
 			reportSkip(candidate, "read_context_failed")
 			r.updateReGreetStats(positionID, stats)
@@ -291,7 +291,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		// 页面事实优先于 AI：已回复、已收简历或上下文不明确时不生成消息。
 		// 即使要跳过也先回写人工操作事实，下一次名单查询才不会再次包含陈旧记录。
 		if err := r.reconcileCandidatePageState(ctx, position, options, candidate.PlatformCandidateID, candidateName, candidateStateFromReply(beforeCtx)); err != nil {
-			r.positionLog(positionID, "warning", "平台页面状态同步失败，候选人="+candidateName+"，错误="+err.Error())
+			r.positionContextLog(ctx, positionID, "warning", "平台页面状态同步失败，候选人="+candidateName+"，错误="+err.Error())
 			stats.failed++
 			reportSkip(candidate, "state_sync_failed")
 			r.updateReGreetStats(positionID, stats)
@@ -305,7 +305,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if reason == "skipped_resume_received" {
 				stats.skippedResume++
 			}
-			r.positionLog(positionID, "info", "复打招呼跳过："+candidateName+"，原因="+reason)
+			r.positionContextLog(ctx, positionID, "info", "复打招呼跳过："+candidateName+"，原因="+reason)
 			reportSkip(candidate, reason)
 			r.updateReGreetStats(positionID, stats)
 			continue
@@ -325,14 +325,14 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if legacyErr == nil && (legacy.Status == "sent" || legacy.Status == "sending" || legacy.Status == "unknown") {
 				stats.unknown++
 				reportSkip(candidate, "legacy_scope_needs_review")
-				r.positionLog(positionID, "warning", "旧复打发送记录的账号或上报状态待核对，不重新发送："+candidateName)
+				r.positionContextLog(ctx, positionID, "warning", "旧复打发送记录的账号或上报状态待核对，不重新发送："+candidateName)
 				r.updateReGreetStats(positionID, stats)
 				continue
 			}
 		}
 		if existing, err := r.db.FindAutoReply(ctx, key); err == nil && (existing.Status == "sent" || existing.Status == "sending" || existing.Status == "unknown") {
 			stats.skipped++
-			r.positionLog(positionID, "warning", "复打招呼跳过：已有发送记录，请先核对云端次数，候选人="+candidateName)
+			r.positionContextLog(ctx, positionID, "warning", "复打招呼跳过：已有发送记录，请先核对云端次数，候选人="+candidateName)
 			r.updateReGreetStats(positionID, stats)
 			continue
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -356,14 +356,14 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if fatal(genErr) {
 				return false
 			}
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼 AI 生成失败（%s）：%v", candidateName, genErr))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("复打招呼 AI 生成失败（%s）：%v", candidateName, genErr))
 			stats.failed++
 			reportSkip(candidate, "ai_generate_failed")
 			r.updateReGreetStats(positionID, stats)
 			continue
 		}
 		if decision.IsRefused && positionReGreetSkipRefused(position) {
-			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼候选人已拒绝（%s）：%s", candidateName, decision.RefuseReason))
+			r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("复打招呼候选人已拒绝（%s）：%s", candidateName, decision.RefuseReason))
 			stats.skipped++
 			stats.skippedRefused++
 			reportSkip(candidate, "skipped_refused")
@@ -377,7 +377,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			continue
 		}
 		if !decision.ShouldSend || text == "" {
-			r.positionLog(positionID, "info", fmt.Sprintf("复打招呼 AI 决定跳过（%s）", candidateName))
+			r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("复打招呼 AI 决定跳过（%s）", candidateName))
 			stats.skipped++
 			reportSkip(candidate, "ai_skip")
 			r.updateReGreetStats(positionID, stats)
@@ -392,7 +392,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 		if err != nil || !reGreetContextMatches(beforeCtx, current) || r.isUserStopped(positionID) {
 			if err == nil && !r.isUserStopped(positionID) {
 				if syncErr := r.reconcileCandidatePageState(ctx, position, options, candidate.PlatformCandidateID, candidateName, candidateStateFromReply(current)); syncErr != nil {
-					r.positionLog(positionID, "warning", "变化后的页面状态同步失败："+syncErr.Error())
+					r.positionContextLog(ctx, positionID, "warning", "变化后的页面状态同步失败："+syncErr.Error())
 				}
 			}
 			stats.skipped++
@@ -411,7 +411,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if fatal(stageErr) {
 				return false
 			}
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼输入消息失败（%s）：%v", candidateName, stageErr))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("复打招呼输入消息失败（%s）：%v", candidateName, stageErr))
 			stats.failed++
 			reportSkip(candidate, "stage_failed")
 			r.updateReGreetStats(positionID, stats)
@@ -431,7 +431,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if fatal(sendErr) {
 				return false
 			}
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼发送失败（%s）：%v", candidateName, sendErr))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("复打招呼发送失败（%s）：%v", candidateName, sendErr))
 			reportSkip(candidate, "send_failed")
 			r.updateReGreetStats(positionID, stats)
 			continue
@@ -443,7 +443,7 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			if fatal(confirmErr) {
 				return false
 			}
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼发送未确认（%s）：err=%v", candidateName, confirmErr))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("复打招呼发送未确认（%s）：err=%v", candidateName, confirmErr))
 			reportSkip(candidate, "send_unconfirmed")
 			r.updateReGreetStats(positionID, stats)
 			continue
@@ -462,22 +462,22 @@ func (r *Runner) runReGreet(ctx context.Context, position localdb.Position, opti
 			return false
 		}
 
-		r.positionLog(positionID, "info", fmt.Sprintf("复打招呼已发送：%s → %s", candidateName, text))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("复打招呼已发送：%s → %s", candidateName, text))
 		stats.sent++
 		reportCtx, reportCancel := context.WithTimeout(context.WithoutCancel(ctx), cloudStatsSyncTimeout)
 		acknowledged, reportErr := regreetupload.New(r.db).Flush(reportCtx, key.ProfileScope, options.Token)
 		reportCancel()
 		if reportErr != nil {
-			r.positionLog(positionID, "warning", fmt.Sprintf("复打招呼上报失败（%s）：%v", candidateName, reportErr))
+			r.positionContextLog(ctx, positionID, "warning", fmt.Sprintf("复打招呼上报失败（%s）：%v", candidateName, reportErr))
 		} else if acknowledged == 0 {
-			r.positionLog(positionID, "info", "复打已确认发送，结果已保存并等待云端收据：候选人="+candidateName)
+			r.positionContextLog(ctx, positionID, "info", "复打已确认发送，结果已保存并等待云端收据：候选人="+candidateName)
 		}
 		r.ensureReGreetUploader()
 		r.updateReGreetStats(positionID, stats)
 
 	}
 
-	r.positionLog(positionID, "info", fmt.Sprintf("复打招呼完成：共 %d 人，发送 %d，跳过 %d，失败 %d", stats.total, stats.sent, stats.skipped, stats.failed))
+	r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("复打招呼完成：共 %d 人，发送 %d，跳过 %d，失败 %d", stats.total, stats.sent, stats.skipped, stats.failed))
 	return true
 }
 

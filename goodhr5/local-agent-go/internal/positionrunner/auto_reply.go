@@ -711,7 +711,7 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 	stopped := func(message string) {
 		r.updateProgress(positionID, Progress{Stage: "stopped", Message: message, TotalRounds: totalRounds})
 		_, _ = r.db.UpdatePositionStatus(positionID, "stopped")
-		r.positionLog(positionID, "info", "自动回复停止："+message)
+		r.positionContextLog(ctx, positionID, "info", "自动回复停止："+message)
 		r.notifyCloudAutoReplyStatus(positionID, options, "stopped", stats)
 	}
 	// fatal 判断错误是否需要终止整任务，不记录页面或聊天原文。
@@ -752,7 +752,7 @@ func (r *Runner) runAutoReply(ctx context.Context, position localdb.Position, op
 		for _, c := range conversations {
 			convNames = append(convNames, c.Name)
 		}
-		r.positionLog(positionID, "info", fmt.Sprintf("自动回复扫描到 %d 个未读会话：%v", len(conversations), convNames))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("自动回复扫描到 %d 个未读会话：%v", len(conversations), convNames))
 		remaining := conversations
 		for len(remaining) > 0 {
 			batch, batchErr := processReplyBatch(ctx, flow, remaining, time.Now, func() bool { return r.isUserStopped(positionID) }, func(conversation platformcore.ReplyConversation, outcome string) {
@@ -859,7 +859,7 @@ func (r *Runner) reportAutoReplyScreening(ctx context.Context, position localdb.
 			Source:              "auto_reply",
 		}
 		if err := cloudapi.New(baseURL).ReportScreenings(syncCtx, options.Token, position.ID, []cloudapi.ScreeningRecord{record}); err != nil {
-			r.positionLog(position.ID, "warning", "自动回复扫描记录上报失败："+err.Error())
+			r.positionContextLog(ctx, position.ID, "warning", "自动回复扫描记录上报失败："+err.Error())
 		}
 	}()
 }

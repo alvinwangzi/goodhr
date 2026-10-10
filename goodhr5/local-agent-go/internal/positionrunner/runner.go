@@ -166,6 +166,7 @@ type candidateVisibleRuntime interface {
 
 // platformExecutor 适配平台 runtime 调用 Worker 和写岗位运行日志。
 type platformExecutor struct {
+	logContext context.Context // 固定原日志生产者上下文，不从当前岗位运行推断。
 	runner     *Runner
 	positionID string
 	once       bool // 自动回复等发送类动作只允许一次调用，不做网络重试
@@ -223,7 +224,7 @@ func (e platformExecutor) Post(ctx context.Context, path string, payload any) (m
 // Log 写入岗位运行日志。
 // level 为日志级别，message 为日志内容。
 func (e platformExecutor) Log(level string, message string) {
-	e.runner.positionLog(e.positionID, level, message)
+	e.runner.positionContextLog(e.logContext, e.positionID, level, message)
 }
 
 // Delay 按业务动作等待指定秒数。
@@ -232,7 +233,7 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 	if seconds <= 0 {
 		return nil
 	}
-	e.runner.positionLog(e.positionID, "info", fmt.Sprintf("%s等待 %.1f 秒", label, seconds))
+	e.runner.positionContextLog(ctx, e.positionID, "info", fmt.Sprintf("%s等待 %.1f 秒", label, seconds))
 	return sleepWithContext(ctx, time.Duration(seconds*float64(time.Second)))
 }
 
@@ -524,7 +525,7 @@ func (r *Runner) delayRandomRange(ctx context.Context, positionID string, label 
 		return nil
 	}
 	if r != nil && positionID != "" {
-		r.positionLog(positionID, "info", fmt.Sprintf("模拟人工操作：%s，等待 %.1f 秒", label, seconds))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("模拟人工操作：%s，等待 %.1f 秒", label, seconds))
 	}
 	return sleepWithContext(ctx, time.Duration(seconds*float64(time.Second)))
 }

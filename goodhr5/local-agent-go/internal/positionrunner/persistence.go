@@ -21,7 +21,7 @@ func (r *Runner) syncProcessedResumeCount(ctx context.Context, position localdb.
 		return cloudapi.New(options.CloudAPIBase).AddProcessedResumes(syncCtx, options.Token, position.ID, count)
 	})
 	if err != nil {
-		r.positionLog(position.ID, "warning", "同步已处理简历数失败："+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "同步已处理简历数失败："+err.Error())
 	}
 }
 
@@ -37,12 +37,12 @@ func (r *Runner) syncPositionCounts(ctx context.Context, position localdb.Positi
 		"skipped_count": position.SkippedCount,
 		"failed_count":  position.FailedCount,
 	}
-	r.positionLog(position.ID, "info", fmt.Sprintf("统计同步：准备同步岗位运行统计，扫描=%d，打招呼=%d，跳过=%d，失败=%d", position.ScannedCount, position.GreetedCount, position.SkippedCount, position.FailedCount))
+	r.positionContextLog(ctx, position.ID, "info", fmt.Sprintf("统计同步：准备同步岗位运行统计，扫描=%d，打招呼=%d，跳过=%d，失败=%d", position.ScannedCount, position.GreetedCount, position.SkippedCount, position.FailedCount))
 	err := r.withOperationTimeout(ctx, position.ID, position.Name, "同步岗位运行统计", cloudStatsSyncTimeout, func(syncCtx context.Context) error {
 		return cloudapi.New(options.CloudAPIBase).SyncPositionCounts(syncCtx, options.Token, position.ID, counts)
 	})
 	if err != nil {
-		r.positionLog(position.ID, "warning", "统计同步：同步失败，错误="+err.Error())
+		r.positionContextLog(ctx, position.ID, "warning", "统计同步：同步失败，错误="+err.Error())
 	}
 }
 
@@ -73,7 +73,7 @@ func (r *Runner) persistPositionCountProgress(ctx context.Context, position loca
 // ctx 为请求上下文，position 为岗位运行记录，candidate 为候选人结果，options 为启动参数。
 func (r *Runner) saveCandidateResult(ctx context.Context, position localdb.Position, candidate map[string]any, options StartOptions) {
 	if strings.TrimSpace(options.Token) == "" {
-		r.positionLog(position.ID, "warning", "结果保存：云端同步失败，错误=缺少登录 token")
+		r.positionContextLog(ctx, position.ID, "warning", "结果保存：云端同步失败，错误=缺少登录 token")
 		return
 	}
 	if r.savePendingAIVisionCandidateAsync(ctx, position, candidate, options) {
@@ -129,25 +129,25 @@ func (r *Runner) savePendingAIVisionCandidateAsync(ctx context.Context, position
 	delete(candidate, pendingAIVisionDecisionKey)
 	payload := cloneCandidateForCloud(position, candidate)
 	name := candidateLogName(candidate)
-	r.positionLog(position.ID, "info", "AI 完整详情输出将后台同步简历："+name)
+	r.positionContextLog(ctx, position.ID, "info", "AI 完整详情输出将后台同步简历："+name)
 	go func() {
 		timer := time.NewTimer(pendingAIVisionOutputTimeout)
 		defer timer.Stop()
 		select {
 		case result := <-resultCh:
 			if result.Err != nil {
-				r.positionLog(position.ID, "warning", "AI 完整详情输出失败："+result.Err.Error())
+				r.positionContextLog(ctx, position.ID, "warning", "AI 完整详情输出失败："+result.Err.Error())
 				return
 			}
 			mergeVisionDecisionIntoCandidate(payload, result.Decision)
-			r.positionLog(position.ID, "info", "AI 完整详情输出已合并："+name)
+			r.positionContextLog(ctx, position.ID, "info", "AI 完整详情输出已合并："+name)
 			saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
 			defer cancel()
 			r.saveCandidatePayload(saveCtx, position, payload, options)
 		case <-ctx.Done():
-			r.positionLog(position.ID, "warning", "等待 AI 完整详情输出被中断："+ctx.Err().Error())
+			r.positionContextLog(ctx, position.ID, "warning", "等待 AI 完整详情输出被中断："+ctx.Err().Error())
 		case <-timer.C:
-			r.positionLog(position.ID, "warning", fmt.Sprintf("AI图片详情：超时，候选人=%s，超过=%s", name, pendingAIVisionOutputTimeout.Round(time.Second)))
+			r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("AI图片详情：超时，候选人=%s，超过=%s", name, pendingAIVisionOutputTimeout.Round(time.Second)))
 		}
 	}()
 	return true
@@ -161,15 +161,15 @@ func (r *Runner) saveCandidatePayload(ctx context.Context, position localdb.Posi
 	if runID := strings.TrimSpace(options.CloudRunID); runID != "" {
 		payload["run_id"] = runID
 	}
-	r.positionLog(position.ID, "info", "结果保存：准备同步云端，候选人="+name)
+	r.positionContextLog(ctx, position.ID, "info", "结果保存：准备同步云端，候选人="+name)
 	err := r.withOperationTimeout(ctx, position.ID, name, "同步候选人到云端", cloudCandidateSyncTimeout, func(syncCtx context.Context) error {
 		return cloudapi.New(options.CloudAPIBase).SavePositionCandidate(syncCtx, options.Token, position.ID, payload)
 	})
 	if err != nil {
-		r.positionLog(position.ID, "warning", fmt.Sprintf("结果保存：云端同步失败，候选人=%s，错误=%s", name, err.Error()))
+		r.positionContextLog(ctx, position.ID, "warning", fmt.Sprintf("结果保存：云端同步失败，候选人=%s，错误=%s", name, err.Error()))
 		return
 	}
-	r.positionLog(position.ID, "info", "结果保存：云端同步完成，候选人="+name)
+	r.positionContextLog(ctx, position.ID, "info", "结果保存：云端同步完成，候选人="+name)
 }
 
 // mergeVisionDecisionIntoCandidate 合并图片详情 AI 的最终输出。
@@ -215,7 +215,7 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 		return PositionRuntimeSnapshot{}, fmt.Errorf("云端客户端未初始化")
 	}
 	requiresAI := positionRequiresAI(position) || hasTaskType(parseTaskTypes(options.TaskType), "auto_reply") || hasTaskType(parseTaskTypes(options.TaskType), "re_greet")
-	r.positionLog(positionID, "info", "岗位运行启动：正在校验会员状态")
+	r.positionContextLog(ctx, positionID, "info", "岗位运行启动：正在校验会员状态")
 	subscription, err := client.FetchSubscription(ctx, options.Token)
 	if err != nil {
 		return PositionRuntimeSnapshot{}, fmt.Errorf("会员校验失败：%w", err)
@@ -229,26 +229,26 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 		if requiresAI {
 			return PositionRuntimeSnapshot{}, fmt.Errorf("会员已到期，当前岗位运行使用了 AI 筛选或 AI 详情识别，请先订阅后再开始岗位运行")
 		}
-		r.positionLog(positionID, "info", "岗位运行启动：当前为免费版，岗位运行未使用会员功能，允许启动")
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：当前为免费版，岗位运行未使用会员功能，允许启动")
 	} else {
-		r.positionLog(positionID, "info", fmt.Sprintf("岗位运行启动：会员校验通过，类型=%s，到期=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("岗位运行启动：会员校验通过，类型=%s，到期=%s", stringFromMap(subscription, "member_type"), stringFromMap(subscription, "expires_at")))
 	}
 	if len(position.PositionSnapshot) == 0 {
 		return PositionRuntimeSnapshot{}, fmt.Errorf("云端岗位模板为空，岗位运行无法启动")
 	}
 
 	r.updateProgress(positionID, Progress{Stage: "preferences", Message: "正在读取云端个人配置", TotalRounds: totalRounds})
-	r.positionLog(positionID, "info", "岗位运行启动：正在读取个人偏好配置")
+	r.positionContextLog(ctx, positionID, "info", "岗位运行启动：正在读取个人偏好配置")
 	preferences, err := client.FetchUserPreferences(ctx, options.Token)
 	if err != nil {
 		return PositionRuntimeSnapshot{}, fmt.Errorf("读取云端个人配置失败：%w", err)
 	}
 	options = applyCloudPreferences(options, preferences)
-	r.positionLog(positionID, "info", "岗位运行启动：个人偏好配置读取完成")
+	r.positionContextLog(ctx, positionID, "info", "岗位运行启动：个人偏好配置读取完成")
 
 	if requiresAI {
 		r.updateProgress(positionID, Progress{Stage: "ai_config", Message: "正在读取云端 AI 配置", TotalRounds: totalRounds})
-		r.positionLog(positionID, "info", "岗位运行启动：正在读取 AI 配置")
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：正在读取 AI 配置")
 		aiConfig, err := client.FetchEffectiveAIConfig(ctx, options.Token)
 		if err != nil {
 			return PositionRuntimeSnapshot{}, fmt.Errorf("读取云端 AI 配置失败：%w", err)
@@ -257,21 +257,21 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 		if err := validateAIConfig(options.AIConfig); err != nil {
 			return PositionRuntimeSnapshot{}, err
 		}
-		r.positionLog(positionID, "info", fmt.Sprintf("岗位运行启动：AI 配置读取完成，模型=%s", options.AIConfig.Model))
+		r.positionContextLog(ctx, positionID, "info", fmt.Sprintf("岗位运行启动：AI 配置读取完成，模型=%s", options.AIConfig.Model))
 	}
 
 	var platformConfig cloudapi.PlatformConfig
 	taskTypes := parseTaskTypes(options.TaskType)
 	if !hasTaskType(taskTypes, "greeting") {
 		// 消息任务使用本地内嵌会话配置，不需要推荐列表扫描配置。
-		r.positionLog(positionID, "info", "岗位运行启动：仅执行消息任务，跳过平台扫描配置读取")
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：仅执行消息任务，跳过平台扫描配置读取")
 	} else {
 		r.updateProgress(positionID, Progress{Stage: "platform_config", Message: "正在读取平台配置", TotalRounds: totalRounds})
 		platformID := strings.ToLower(strings.TrimSpace(position.PlatformID))
 		if platformID == "" {
 			platformID = "boss"
 		}
-		r.positionLog(positionID, "info", "岗位运行启动：正在读取平台配置，平台="+platformID)
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：正在读取平台配置，平台="+platformID)
 		fetched, err := client.FetchPlatformConfig(ctx, platformID)
 		if err != nil {
 			return PositionRuntimeSnapshot{}, fmt.Errorf("读取云端平台配置失败：%w", err)
@@ -280,7 +280,7 @@ func (r *Runner) buildPositionRuntimeSnapshot(ctx context.Context, client *cloud
 			return PositionRuntimeSnapshot{}, fmt.Errorf("云端平台配置为空，岗位运行无法启动")
 		}
 		platformConfig = fetched
-		r.positionLog(positionID, "info", "岗位运行启动：平台配置读取完成，平台="+platformID)
+		r.positionContextLog(ctx, positionID, "info", "岗位运行启动：平台配置读取完成，平台="+platformID)
 	}
 
 	return PositionRuntimeSnapshot{
