@@ -37,6 +37,28 @@ func (c *Coordinator) PrepareItem(ctx context.Context, held *Acquired, run planm
 		return planmodel.Permit{}, ErrPlanAuthority
 	}
 	item := run.Items[run.CurrentItem]
+	// 冷恢复当前项的准备回执不明确时，重用原请求，不能为同一次准备换新编号。
+	operations, err := c.db.PlanRunOperations(ctx, held.scope, run.ID)
+	if err != nil {
+		return planmodel.Permit{}, err
+	}
+	for _, record := range operations {
+		if record.Kind != "prepare_item" || record.State != "pending" || record.OwnerID != claim.OwnerID {
+			continue
+		}
+		original, err := c.requests.OriginalPrepare(ctx, held.scope, record.RequestID)
+		if err != nil {
+			return planmodel.Permit{}, err
+		}
+		if original.ItemRunID != item.ID {
+			continue
+		}
+		if original.RunID != run.ID || original.OwnerID != claim.OwnerID || original.MachineID != claim.MachineID || original.Credential != claim.Credential {
+			return planmodel.Permit{}, localdb.ErrPlanRequestConflict
+		}
+		requestID = original.RequestID
+		break
+	}
 	input := cloudapi.PlanItemTaskRequest{RunID: run.ID, ItemRunID: item.ID, RequestID: requestID, OwnerID: claim.OwnerID, MachineID: claim.MachineID, Credential: claim.Credential}
 	operation, err := c.requests.StagePrepare(ctx, held.scope, run.PlanID, input)
 	if err != nil {

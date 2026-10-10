@@ -103,6 +103,9 @@ func (s *Scheduler) AcquireNext(ctx context.Context, plans []planmodel.Plan, mac
 	if _, err := s.coordinator.db.RepairReleasedPlanQueue(ctx, a.OwnerScope); err != nil {
 		return nil, err
 	}
+	if restored, err := s.restoreRunning(ctx, byID, machine, a); restored != nil || err != nil {
+		return restored, err
+	}
 	waiting, err := s.coordinator.db.WaitingPlanRequests(ctx, a.OwnerScope)
 	if err != nil {
 		return nil, err

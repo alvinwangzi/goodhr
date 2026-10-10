@@ -9,7 +9,17 @@ import (
 
 // WaitingPlanRequests 按原触发时间与稳定序号读取全部等待项，暂不在时段内的计划不会阻挡其他可执行项。
 func (db *DB) WaitingPlanRequests(ctx context.Context, scope string) ([]PlanWaitingRequest, error) {
-	rows, err := db.conn.QueryContext(ctx, `SELECT sequence,owner_scope,request_id,plan_id,activation_id,triggered_ns,state FROM plan_waiting_requests WHERE owner_scope=? AND state='waiting' ORDER BY triggered_ns,sequence`, scope)
+	return db.planRequestsByState(ctx, scope, "waiting")
+}
+
+// RunningPlanRequests 读取原已领取队列供冷启动核对，不以记录存在作为执行许可。
+func (db *DB) RunningPlanRequests(ctx context.Context, scope string) ([]PlanWaitingRequest, error) {
+	return db.planRequestsByState(ctx, scope, "running")
+}
+
+// planRequestsByState 共用稳定顺序读取方法，状态值由内部固定调用提供。
+func (db *DB) planRequestsByState(ctx context.Context, scope, state string) ([]PlanWaitingRequest, error) {
+	rows, err := db.conn.QueryContext(ctx, `SELECT sequence,owner_scope,request_id,plan_id,activation_id,triggered_ns,state FROM plan_waiting_requests WHERE owner_scope=? AND state=? ORDER BY triggered_ns,sequence`, scope, state)
 	if err != nil {
 		return nil, err
 	}
@@ -25,6 +35,13 @@ func (db *DB) WaitingPlanRequests(ctx context.Context, scope string) ([]PlanWait
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+// PlanRecoveryPending 阻止未确认状态、释放或清理意图期间重新执行原页面。
+func (db *DB) PlanRecoveryPending(ctx context.Context, scope, runID string) (bool, error) {
+	var count int
+	err := db.conn.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM plan_operations WHERE owner_scope=? AND run_id=? AND kind IN ('status','release') AND state='pending')+(SELECT COUNT(*) FROM plan_cleanup_operations WHERE owner_scope=? AND run_id=? AND state='pending')`, scope, runID, scope, runID).Scan(&count)
+	return count != 0, err
 }
 
 // TransitionPlanRequest 只允许原等待项取得许可后运行，或明确取消、完成；迟到修改不能覆盖后续状态。

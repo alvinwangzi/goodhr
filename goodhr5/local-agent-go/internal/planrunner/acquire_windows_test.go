@@ -243,6 +243,11 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 			permit.Run = current
 			permit.Run.Sequence++
 			permit.Run.State = "starting"
+		} else if e == nil && current.OwnerID == request.OwnerID && (current.State == "starting" || current.State == "running") {
+			permit.Run = current
+			if current.State == "running" {
+				permit.Owner.State = "running"
+			}
 		}
 		permit.Run.OwnerID, permit.Owner.OwnerID = request.OwnerID, request.OwnerID
 		result := permit
