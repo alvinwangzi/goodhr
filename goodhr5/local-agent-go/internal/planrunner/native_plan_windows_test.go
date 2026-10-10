@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/planmodel"
@@ -83,6 +84,24 @@ func TestNativePlanAcrossWindows(t *testing.T) { runNativePlanPositions(t, false
 
 // TestNativePlanDayIncomplete 验证最后窗口结束只保存实际已完成动作，未开始第二项列入原报告。
 func TestNativePlanDayIncomplete(t *testing.T) { runNativePlanPositions(t, false, true, true) }
+
+// TestNativePlanUserStop 验证第一项实际确认后的用户停止，经生产异常收尾保存数量，不开始第二岗位。
+func TestNativePlanUserStop(t *testing.T) { runNativePlanPositions(t, false, false, false, true) }
+
+// nativePlanStopBoundary 仅在实际原进度已确认后的安全边界发出用户取消，其他步骤沿用生产实现。
+type nativePlanStopBoundary struct {
+	*M1ExecutionRuntime
+	cancel context.CancelFunc
+}
+
+// Boundary 模拟用户在第一项确认后点停止，不伪造浏览器动作、进度或释放结果。
+func (r nativePlanStopBoundary) Boundary(ctx context.Context, p planmodel.Permit) (string, error) {
+	if p.Run.Items[0].Actions["greeting"].Count == 1 {
+		r.cancel()
+		return "", ctx.Err()
+	}
+	return r.M1ExecutionRuntime.Boundary(ctx, p)
+}
 
 // runNativePlanPositions 复用同一隔离原生环境，编排数量只来自原配置，不伪造成功返回。
 func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
@@ -205,7 +224,47 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 		}
 		_ = held.Reservation.Release(true)
 	}()
-	result, err := NewExecutionLoop(runtime, authority.OwnerScope, c.now).Run(t.Context(), held.Permit)
+	stopAfterFirst := len(crossWindows) > 2 && crossWindows[2]
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var executable ExecutionRuntime = runtime
+	if stopAfterFirst {
+		executable = nativePlanStopBoundary{M1ExecutionRuntime: runtime, cancel: cancel}
+	}
+	result, err := NewExecutionLoop(executable, authority.OwnerScope, c.now).Run(ctx, held.Permit)
+	if stopAfterFirst {
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal("用户停止没有终止主循环", err)
+		}
+		op, cleanupError := runtime.StageFailureRelease(ctx, "stopped", "user_stopped")
+		if cleanupError != nil {
+			t.Fatal(cleanupError)
+		}
+		for attempts := 0; attempts < 5; attempts++ {
+			record, e := c.db.PlanOperation(t.Context(), authority.OwnerScope, op.RequestID)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if record.State == "confirmed" {
+				break
+			}
+			if _, e = c.requests.UploadNext(t.Context(), c.client, authority); e != nil {
+				t.Fatal(e)
+			}
+		}
+		stopped, e := c.db.PlanRunSnapshot(t.Context(), authority.OwnerScope, held.Permit.Run.ID)
+		if e != nil || stopped.State != "stopped" || stopped.Items[0].Actions["greeting"].Count != 1 || stopped.Items[1].TaskRunID != "" || held.Reservation.Valid() {
+			t.Fatal("停止未保留原动作或提前执行第二岗位", e, stopped)
+		}
+		raw, e := os.ReadFile(ledger)
+		var actual struct {
+			Greets []string `json:"greetOrder"`
+		}
+		if e != nil || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != 1 || actual.Greets[0] != "java-person" {
+			t.Fatal("停止后仍有其他实际动作", e, string(raw))
+		}
+		return
+	}
 	if lastOnly && err == nil {
 		if result.Run.State != "incomplete" || result.Run.Items[0].Actions["greeting"].Count != 1 || result.Run.Items[1].TaskRunID != "" || held.Reservation.Valid() {
 			t.Fatal("日末结算补造第二任务或丢失真实数量", result.Run)
