@@ -96,6 +96,9 @@ func (s *Server) processPlanUploads(parent context.Context, store *planoperation
 		if err == nil && !sent {
 			sent, err = store.UploadNextReport(ctx, client, identity.MachineID, authority)
 		}
+		if err == nil && !sent {
+			sent, err = store.UploadNextItemLogs(ctx, client, identity.MachineID, authority)
+		}
 		if err != nil {
 			var expired cloudapi.AuthExpiredError
 			if errors.As(err, &expired) {

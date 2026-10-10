@@ -87,3 +87,10 @@ export async function readPlanProgressLogs(base: string, run: string, item: stri
   if (result.run_id !== run || result.item_run_id !== item || result.task_run_id !== task || !Array.isArray(result.logs) || result.logs.some((log: PlanProgressLog) => log.plan_run_id !== run || log.item_run_id !== item || log.task_run_id !== task)) throw new Error("日志与原执行项不一致，请重新核对");
   return result;
 }
+
+/** readCloudPlanLogs 只读已同步的原 TaskRun 日志，其他电脑可以查看，不发送运行命令。 */
+export async function readCloudPlanLogs(run: string,item: string,task: string,before=0): Promise<{logs:PlanProgressLog[];next_before:number;message:string}> {
+  const result=await cloudRequest(`/api/execution-plan-runs/${encodeURIComponent(run)}/items/${encodeURIComponent(item)}/logs?limit=100&before=${before}`);
+  if (result.run_id!==run || result.item_run_id!==item || result.task_run_id!==task || !Array.isArray(result.logs) || result.logs.some((entry:PlanProgressLog)=>entry.plan_run_id!==run || entry.item_run_id!==item || entry.task_run_id!==task)) throw new Error("云端日志与原执行项不一致，请刷新核对");
+  return result;
+}

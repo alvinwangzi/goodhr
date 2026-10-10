@@ -42,6 +42,36 @@ func TestExecutionPlanSDKBridgeHelper(t *testing.T) {
 		}
 	}
 	plan, summary := endedReportFixtureOwned(t, store, email, machineA, tenant.ID)
+	position, err := NewPostgresPositionStore(store.(*PostgresExecutionPlanStore).db).SavePosition(Position{UserEmail: email, Name: "SDK 原日志岗位", PlatformID: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logConfig := postgresPlanConfig()
+	for index := range logConfig.Items {
+		logConfig.Items[index].PositionID = position.ID
+	}
+	logConfig.Name = "SDK 原日志计划"
+	logPlan, err := store.Save(t.Context(), ExecutionPlan{TenantID: tenant.ID, UserEmail: email, MachineID: machineA, Config: logConfig}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPlan, err = store.Intent(t.Context(), tenant.ID, email, logPlan.ID, planIntentFixture(t, "arm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logClaim := planRunClaimFixture(t, logPlan)
+	logPermit, err := store.ClaimRun(t.Context(), tenant.ID, email, logClaim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPermit, err = store.PrepareItemTask(t.Context(), tenant.ID, email, itemTaskRequestFixture(t, logClaim, logPermit.Run.Items[0].ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPermit, err = store.UpdateRun(t.Context(), tenant.ID, email, planRunUpdateFixture(t, logClaim, logPermit.Run.Sequence+1, "release", "incomplete"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var mutationMu sync.Mutex
 	mux := http.NewServeMux()
 	mux.HandleFunc("/__fixture/switch-device", func(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +113,7 @@ func TestExecutionPlanSDKBridgeHelper(t *testing.T) {
 	mux.Handle("/", server.Routes())
 	httpServer := httptest.NewServer(mux)
 	defer httpServer.Close()
-	data, err := json.Marshal(map[string]any{"base_url": httpServer.URL, "token": token, "email": email, "machine_a": machineA, "machine_b": machineB, "summary": summary})
+	data, err := json.Marshal(map[string]any{"base_url": httpServer.URL, "token": token, "email": email, "machine_a": machineA, "machine_b": machineB, "summary": summary, "log_run": logPermit.Run.ID, "log_item": logPermit.Run.Items[0].ID, "log_task": logPermit.Run.Items[0].TaskRunID, "log_position": position.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

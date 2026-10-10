@@ -71,12 +71,16 @@ func TestCloudReportSDKBridge(t *testing.T) {
 		}
 	})
 	var fixture struct {
-		BaseURL  string           `json:"base_url"`
-		Token    string           `json:"token"`
-		Email    string           `json:"email"`
-		MachineA string           `json:"machine_a"`
-		MachineB string           `json:"machine_b"`
-		Summary  planmodel.Report `json:"summary"`
+		BaseURL     string           `json:"base_url"`
+		Token       string           `json:"token"`
+		Email       string           `json:"email"`
+		MachineA    string           `json:"machine_a"`
+		MachineB    string           `json:"machine_b"`
+		Summary     planmodel.Report `json:"summary"`
+		LogRun      string           `json:"log_run"`
+		LogItem     string           `json:"log_item"`
+		LogTask     string           `json:"log_task"`
+		LogPosition string           `json:"log_position"`
 	}
 	deadline := time.NewTimer(15 * time.Second)
 	defer deadline.Stop()
@@ -153,5 +157,38 @@ func TestCloudReportSDKBridge(t *testing.T) {
 	receipt, err := client.UploadExecutionPlanReport(t.Context(), fixture.Token, fixture.MachineA, fixture.Summary, "confirmed")
 	if err != nil || receipt.Summary.GeneratedAt != fixture.Summary.GeneratedAt || receipt.NotificationState != "not_configured" {
 		t.Fatal("软删除后实际 SDK 原内容确认失败", err, receipt.NotificationState)
+	}
+	cp, err := db.EnsurePlanActionRun(t.Context(), localdb.ActionCheckpoint{PlanRunID: fixture.LogRun, ItemRunID: fixture.LogItem, CloudRunID: fixture.LogTask, OwnerScope: scope, PositionID: fixture.LogPosition, Platform: "boss", ProfileScope: "sdk-log-fixture", TaskType: "greeting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddPlanItemLog(t.Context(), scope, cp.RunID, "info", "实际 SDK 原候选人日志"); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := store.UploadNextItemLogs(t.Context(), client, fixture.MachineB, authority); err == nil || sent {
+		t.Fatal("B 冒领 A 的原日志", err)
+	}
+	if sent, err := store.UploadNextItemLogs(t.Context(), client, fixture.MachineA, authority); err != nil || !sent {
+		t.Fatal("实际 SDK 原日志不能确认", err)
+	}
+	if sent, err := store.UploadNextItemLogs(t.Context(), client, fixture.MachineA, authority); err != nil || sent {
+		t.Fatal("已确认日志重复发送", err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, fixture.BaseURL+"/api/execution-plan-runs/"+fixture.LogRun+"/items/"+fixture.LogItem+"/logs", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+fixture.Token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var logs struct {
+		Logs   []localdb.PlanItemLog `json:"logs"`
+		TaskID string                `json:"task_run_id"`
+	}
+	if res.StatusCode != 200 || json.NewDecoder(res.Body).Decode(&logs) != nil || len(logs.Logs) != 1 || logs.TaskID != fixture.LogTask || logs.Logs[0].Message != "实际 SDK 原候选人日志" {
+		t.Fatal("云端读取原任务日志失败", res.StatusCode)
 	}
 }

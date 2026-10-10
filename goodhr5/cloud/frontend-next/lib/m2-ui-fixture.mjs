@@ -77,6 +77,8 @@ function fixtureResult(path, body, method) {
   }
   if (/^\/api\/v1\/local\/execution-plans\/[^/]+\/start$/.test(path)) { starts++; return { status: "waiting_time", message: "等待下个执行时间" }; }
   const logsMatch=path.match(/^\/api\/v1\/local\/execution-plan-runs\/([^/]+)\/items\/([^/]+)\/logs$/);
+  const cloudLogsMatch=path.match(/^\/api\/execution-plan-runs\/([^/]+)\/items\/([^/]+)\/logs$/);
+  if (cloudLogsMatch && method==="GET") { const report=reports.get(cloudLogsMatch[1]); const item=report?.summary.items.find(item=>item.id===cloudLogsMatch[2]); return {run_id:cloudLogsMatch[1],item_run_id:cloudLogsMatch[2],task_run_id:item?.task_run_id,logs:item?[{id:1,plan_run_id:cloudLogsMatch[1],item_run_id:item.id,task_run_id:item.task_run_id,level:"info",message:"夹具云端已同步的原候选人处理日志",created_at:"2026-10-10T12:03:00Z"}]:[],next_before:0,message:"夹具云端原日志，仍可能有本地待补传记录"}; }
   if (logsMatch) { const report=reports.get(logsMatch[1]); const item=report?.summary.items.find(item=>item.id===logsMatch[2]); return {run_id:logsMatch[1],item_run_id:logsMatch[2],task_run_id:item?.task_run_id,logs:item?[{id:1,plan_run_id:logsMatch[1],item_run_id:item.id,task_run_id:item.task_run_id,level:"info",message:"夹具原执行项安全步骤返回，未知结果保留核对",created_at:"2026-10-10T12:03:00Z"}]:[],next_before:0,message:"夹具原执行项进度日志",local_only:true}; }
   return { ok: true, config: {}, invitations: [], data: {} };
 }

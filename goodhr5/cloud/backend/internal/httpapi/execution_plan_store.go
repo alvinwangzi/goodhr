@@ -28,6 +28,8 @@ type ExecutionPlanStore interface {
 	ClaimRun(context.Context, string, string, ExecutionPlanRunClaim) (ExecutionPlanRunPermit, error)
 	GetRun(context.Context, string, string, string) (ExecutionPlanRun, error)
 	VerifyReportMachine(context.Context, string, string, string, string) error
+	AppendItemLogs(context.Context, string, string, string, string, string, []ExecutionPlanItemLog) error
+	ListItemLogs(context.Context, string, string, string, string, int64, int) ([]ExecutionPlanItemLog, error)
 	ListRuns(context.Context, string, string, string) ([]ExecutionPlanRun, error)
 	RuntimeSnapshot(context.Context, string, string, string) (ExecutionPlanRuntimeSnapshot, error)
 	RecordWait(context.Context, string, string, ExecutionPlanWait) (ExecutionPlanWait, error)
@@ -71,6 +73,8 @@ func activeExecutionPlanState(state string) bool {
 
 // MemoryExecutionPlanStore 保存独立编排项和运行状态，删除仅隐藏当前配置，保留运行历史。
 type MemoryExecutionPlanStore struct {
+	itemLogs            map[string]storedPlanItemLog
+	itemLogSequence     int64
 	waits               map[string]ExecutionPlanWait
 	reportNotifyChanged func(string, string)
 	mu                  sync.Mutex
