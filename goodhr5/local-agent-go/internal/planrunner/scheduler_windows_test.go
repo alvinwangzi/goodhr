@@ -4,6 +4,7 @@ package planrunner
 import (
 	"context"
 	"errors"
+	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"goodhr5/local-agent-go/internal/positionrunner"
 	"sync/atomic"
@@ -178,5 +179,78 @@ func TestSchedulerNominalWindowAndAuthority(t *testing.T) {
 	}
 	if waiting, _ := c.db.WaitingPlanRequests(t.Context(), a.OwnerScope); len(waiting) != 1 {
 		t.Fatal("旧登录取消原等待项")
+	}
+}
+
+// TestSchedulerNextDayStartsFromFirst 验证实际日末结算后，次日领取从第一项零计数开始，保留昨日原任务。
+func TestSchedulerNextDayStartsFromFirst(t *testing.T) {
+	worker := &runtimeWorker{}
+	var fixture *planmodel.Permit
+	c, plan, _, authority, _, clock := acquireFixtureWithWorker(t, &atomic.Int32{}, worker, func(p *planmodel.Permit) {
+		schedulerPermit(p)
+		fixture = p
+	})
+	initial, err := cloneLoopRun(fixture.Run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.Store(time.Date(2026, 10, 10, 5, 30, 0, 0, time.UTC).UnixNano())
+	scheduler := NewScheduler(c)
+	plans := []planmodel.Plan{plan}
+	if err := scheduler.EnqueueDue(t.Context(), plans, plan.MachineID, authority); err != nil {
+		t.Fatal(err)
+	}
+	first, err := scheduler.AcquireNext(t.Context(), plans, plan.MachineID, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker.afterGreet = func() { clock.Store(first.Held.finishAt.UnixNano()) }
+	runtime := NewM1ExecutionRuntime(c, first.Held, authority, positionrunner.StartOptions{PageReadyDelay: 1})
+	defer first.Held.Reservation.Release(true)
+	result, err := NewExecutionLoop(runtime, authority.OwnerScope, c.now).Run(t.Context(), first.Held.Permit)
+	if err != nil || result.Run.State != "incomplete" || result.Run.Items[0].Actions["greeting"].Count != 1 {
+		t.Fatal("昨日未真实结算", err, result.Run)
+	}
+	if err := scheduler.ConfirmFinished(t.Context(), first); err != nil {
+		t.Fatal(err)
+	}
+	previousTask := result.Run.Items[0].TaskRunID
+	// 仅云端夹具生成新日许可；本地队列、领取和 M1 步骤仍走真实实现。
+	fixture.Run = initial
+	fixture.Run.ExecutionDate = "2026-10-11"
+	fixture.Run.ID = scheduledRunID(plan, fixture.Run.ExecutionDate)
+	for index := range fixture.Run.Items {
+		fixture.Run.Items[index].ID = uuid.NewSHA1(uuid.NameSpaceOID, []byte("fixture/item/"+fixture.Run.ID+"/"+fixture.Run.Items[index].ItemID)).String()
+	}
+	fixture.Owner.State = "starting"
+	clock.Store(time.Date(2026, 10, 11, 1, 0, 0, 0, time.UTC).UnixNano())
+	worker.afterGreet = nil
+	if err := scheduler.EnqueueDue(t.Context(), plans, plan.MachineID, authority); err != nil {
+		t.Fatal(err)
+	}
+	next, err := scheduler.AcquireNext(t.Context(), plans, plan.MachineID, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Held.Reservation.Release(true)
+	if next.Held.Permit.Run.ID == result.Run.ID || next.Held.Permit.Run.CurrentItem != 0 || next.Held.Permit.Run.Items[0].Actions["greeting"].Count != 0 || next.Held.Permit.Run.Items[0].TaskRunID != "" {
+		t.Fatal("次日沿用昨日任务或进度", next.Held.Permit.Run)
+	}
+	resumed := NewM1ExecutionRuntime(c, next.Held, authority, positionrunner.StartOptions{PageReadyDelay: 1})
+	defer func() {
+		for id := range resumed.items {
+			_ = resumed.CloseItem(context.Background(), id)
+		}
+	}()
+	prepared, err := resumed.Prepare(t.Context(), next.Held.Permit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Run.CurrentItem != 0 || prepared.Run.Items[0].TaskRunID == "" || prepared.Run.Items[0].TaskRunID == previousTask {
+		t.Fatal("次日第一项没有独立任务", prepared.Run)
+	}
+	historical, err := c.db.PlanRunSnapshot(t.Context(), authority.OwnerScope, result.Run.ID)
+	if err != nil || historical.State != "incomplete" || historical.Items[0].TaskRunID != previousTask || historical.Items[0].Actions["greeting"].Count != 1 {
+		t.Fatal("次日覆盖昨日历史", err, historical)
 	}
 }

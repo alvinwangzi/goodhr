@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
@@ -216,7 +216,7 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 			}
 			if result.Run.Items[prepareIndex].TaskRunID == "" {
 				result.Run.Sequence++
-				result.Run.Items[prepareIndex].TaskRunID = fmt.Sprintf("70000000-0000-0000-0000-%012d", prepareIndex+1)
+				result.Run.Items[prepareIndex].TaskRunID = uuid.NewSHA1(uuid.NameSpaceOID, []byte("fixture/task/"+current.ID+"/"+current.Items[prepareIndex].ID)).String()
 			}
 			if mode.Load() == 7 {
 				// 云端创建成功但客户端没有收到任务许可，随后 GET 可以核对真实关联。
