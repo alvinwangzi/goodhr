@@ -51,6 +51,7 @@ type Server struct {
 	planExecutionMu         sync.Mutex
 	activePlanExecution     *planExecution
 	planNow                 func() time.Time
+	planExecutionContext    context.Context
 	cfg                     *config.Config
 	runtime                 *runtime.Manager
 	worker                  *browser.WorkerManager
@@ -166,6 +167,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/stop", s.handleWorkerStop)
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
 	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
+	mux.HandleFunc("/api/v1/local/execution-plans/", s.handleLocalPlanStart)
 	mux.HandleFunc("/api/v1/local/ocr/status", s.handleLocalOCRStatus)
 	mux.HandleFunc("/api/v1/local/ocr/recognize", s.handleLocalOCRRecognize)
 	mux.HandleFunc("/api/v1/local/rules/status", s.handleLocalRulesStatus)

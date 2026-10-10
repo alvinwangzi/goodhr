@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/cloudapi"
+	"goodhr5/local-agent-go/internal/planmodel"
 	"goodhr5/local-agent-go/internal/planoperations"
 	"goodhr5/local-agent-go/internal/planrunner"
 	"goodhr5/local-agent-go/internal/protectedsession"
@@ -66,6 +67,10 @@ func (s *Server) currentPlanSession() (*protectedsession.Session, uint64) {
 
 // runPlanExecutions 每五秒检查计划，网页关闭仍运行；结束只等待原步骤退出，不能强制释放不明确页面。
 func (s *Server) runPlanExecutions(ctx context.Context) {
+	s.planExecutionMu.Lock()
+	s.planExecutionContext = ctx
+	s.planExecutionMu.Unlock()
+	defer func() { s.planExecutionMu.Lock(); s.planExecutionContext = nil; s.planExecutionMu.Unlock() }()
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	defer s.shutdownPlanExecution(ctx)
@@ -94,6 +99,11 @@ func (s *Server) runPlanExecutions(ctx context.Context) {
 
 // processPlanExecutions 串行协调触发和收尾，实际长任务单独运行，当前任务期间仍能检查远程停止。
 func (s *Server) processPlanExecutions(parent context.Context) error {
+	return s.processPlanExecutionsRequest(parent, nil)
+}
+
+// processPlanExecutionsRequest 为立即开始复用完整后台路径，原计划变化时不将旧点击当作新批次许可。
+func (s *Server) processPlanExecutionsRequest(parent context.Context, requested *planmodel.Plan) error {
 	s.planExecutionMu.Lock()
 	defer s.planExecutionMu.Unlock()
 	identity, version := s.currentPlanSession()
@@ -131,6 +141,17 @@ func (s *Server) processPlanExecutions(parent context.Context) error {
 	}
 	if !a.StillCurrent() {
 		return planrunner.ErrPlanAuthority
+	}
+	if requested != nil {
+		matches := false
+		for _, plan := range plans {
+			if plan.ID == requested.ID && plan.Version == requested.Version && plan.ActivationID == requested.ActivationID && plan.State == "enabled" && !plan.StopRequested && plan.MachineID == requested.MachineID {
+				matches = true
+			}
+		}
+		if !matches {
+			return errors.New("计划已变化，请刷新后重试")
+		}
 	}
 	stopStore := planoperations.New(s.db)
 	for _, plan := range plans {

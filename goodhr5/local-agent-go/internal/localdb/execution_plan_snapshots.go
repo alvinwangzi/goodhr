@@ -137,6 +137,26 @@ func (db *DB) CachedPlans(ctx context.Context, scope string) ([]planmodel.Plan, 
 	return result, rows.Err()
 }
 
+// PlanRunForDate 读取原计划批次在指定日期的规范运行，用于反馈开始状态，不创建新执行权。
+func (db *DB) PlanRunForDate(ctx context.Context, scope, planID, activation, date string) (planmodel.Run, error) {
+	var raw string
+	err := db.conn.QueryRowContext(ctx, `SELECT snapshot_json FROM plan_run_snapshots WHERE owner_scope=? AND plan_id=? AND activation_id=? AND execution_date=?`, scope, planID, activation, date).Scan(&raw)
+	if err != nil {
+		return planmodel.Run{}, err
+	}
+	var run planmodel.Run
+	if err = json.Unmarshal([]byte(raw), &run); err != nil {
+		return run, err
+	}
+	if err = run.Validate(); err != nil {
+		return run, err
+	}
+	if run.PlanID != planID || run.ActivationID != activation || run.ExecutionDate != date {
+		return planmodel.Run{}, ErrPlanRequestConflict
+	}
+	return run, nil
+}
+
 // validatePlanSnapshotAdvance 防止重启或迟到回执替换原日期、编排身份或减少已确认数量。
 func validatePlanSnapshotAdvance(old, next planmodel.Run) error {
 	if old.PlanID != next.PlanID || old.ActivationID != next.ActivationID || old.ExecutionDate != next.ExecutionDate || old.ConfigVersion != next.ConfigVersion || !reflect.DeepEqual(old.Snapshot, next.Snapshot) {
