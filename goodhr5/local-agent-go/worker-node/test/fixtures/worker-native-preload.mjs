@@ -3,7 +3,10 @@ import { registerHooks } from "node:module";
 import { writeFileSync } from "node:fs";
 import { combinedChatFixture } from "./combined-chat-fixture.mjs";
 
-const ledger = { launches: [], requests: [], clicks: 0, jobSelections: 0, sendOrder: [], greetOrder: [], timeline: [] };
+// 原生程序的组件诊断使用独立临时副本，实际隔离浏览器只读使用已缓存完整组件，不下载或改写缓存。
+if (process.env.HRPLUS_M2_NATIVE_BROWSER_SOURCE) process.env.CLOAKBROWSER_BINARY_PATH = process.env.HRPLUS_M2_NATIVE_BROWSER_SOURCE;
+
+const ledger = { pid: process.pid, launches: [], requests: [], clicks: 0, jobSelections: 0, sendOrder: [], greetOrder: [], timeline: [] };
 let account = 901;
 let missingCandidateID = false;
 let m2Job="Java";

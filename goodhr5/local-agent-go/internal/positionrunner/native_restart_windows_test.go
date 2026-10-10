@@ -1,4 +1,4 @@
-// 本文件用两个实际 Windows 本地程序进程和同一 SQLite 验证已确认收据在进程退出、重新登录后恢复，不打开招聘页面。
+// 本文件使用实际 Windows 本地程序进程和同一 SQLite 验证登录、收据及定时安排恢复；招聘执行只使用隔离页面。
 package positionrunner
 
 import (
@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -51,6 +52,10 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	var planBodies []cloudapi.PlanRunUpdateRequest
 	var planPermit planmodel.Permit
 	scheduledRestore := len(scheduled) > 0 && scheduled[0]
+	executeScheduled := len(scheduled) > 1 && scheduled[1]
+	var executed planmodel.Permit
+	executionReplies := map[string][]byte{}
+	reportGate := nativeRestartReportGate{}
 	var scheduledPlan planmodel.Plan
 	var scheduledClaims []cloudapi.PlanClaimRequest
 	var scheduledCalls atomic.Int32
@@ -70,6 +75,12 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			}
 			config.Schedule.Windows = config.Schedule.Windows[:1]
 			config.Schedule.Windows[0].StartMinute, config.Schedule.Windows[0].EndMinute = 0, 1440
+			if executeScheduled {
+				config.Items = config.Items[:1]
+				config.Items[0].PositionID = "native-java"
+				config.Items[0].Actions = []string{"greeting"}
+				config.Items[0].PrioritizeReply = false
+			}
 			scheduledPlan = planmodel.Plan{ID: planPermit.Run.PlanID, UserEmail: "restart@example.com", MachineID: "fixture-machine", Version: 1, StateSequence: 1, ActivationID: "30000000-0000-0000-0000-000000000002", State: "enabled", Config: config, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 			if e = scheduledPlan.Validate(); e != nil {
 				t.Fatal(e)
@@ -77,6 +88,14 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 	}
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if executeScheduled {
+			mu.Lock()
+			handled := nativeRestartExecutionCloud(t, w, r, &executed, executionReplies, &reportGate)
+			mu.Unlock()
+			if handled {
+				return
+			}
+		}
 		if scheduledRestore && r.URL.Path == "/api/execution-plans/"+scheduledPlan.ID+"/wait" {
 			var fact cloudapi.PlanWaitFact
 			if e := json.NewDecoder(r.Body).Decode(&fact); e != nil {
@@ -104,6 +123,13 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			scheduledClaims = append(scheduledClaims, claim)
 			mu.Unlock()
 			scheduledCalls.Add(1)
+			if executeScheduled {
+				mu.Lock()
+				executed = planmodel.Permit{Run: planmodel.Run{ID: claim.RunID, PlanID: claim.PlanID, ActivationID: claim.ActivationID, ExecutionDate: claim.ExecutionDate, ConfigVersion: claim.ExpectedVersion, Sequence: 1, State: "starting", Snapshot: scheduledPlan.Config, OwnerID: claim.OwnerID, Items: []planmodel.ItemRun{{ID: "50000000-0000-0000-0000-000000000099", ItemID: scheduledPlan.Config.Items[0].ID, Order: 0, Snapshot: scheduledPlan.Config.Items[0], State: "pending", Actions: map[string]planmodel.ActionProgress{"greeting": {State: "pending"}}}}}, Owner: planmodel.Owner{OwnerID: claim.OwnerID, OwnerType: "plan", MachineID: claim.MachineID, State: "starting"}}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": executed})
+				mu.Unlock()
+				return
+			}
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": "受控账号忙", "error_code": "EXECUTION_BUSY"})
 		case "/api/execution-plan-runs/" + planPermit.Run.ID + "/release":
@@ -208,6 +234,22 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	executable := filepath.Join(directory, "hrplus-m1-restart.exe")
+	executionLedger := filepath.Join(directory, "execution-ledger.json")
+	var cachedBrowser string
+	if executeScheduled {
+		cachedBrowser = filepath.Join(os.Getenv("APPDATA"), "HRPlus", "runtime", "cloakbrowser", "chrome.exe")
+		binary, e := os.ReadFile(cachedBrowser)
+		if e != nil {
+			t.Fatal("缺少已缓存浏览器", e)
+		}
+		destination := filepath.Join(cfg.DataDir, "runtime", "cloakbrowser")
+		if e = os.MkdirAll(destination, 0755); e != nil {
+			t.Fatal(e)
+		}
+		if e = os.WriteFile(filepath.Join(destination, "chrome.exe"), binary, 0755); e != nil {
+			t.Fatal(e)
+		}
+	}
 	build := exec.Command("go", "build", "-o", executable, "./cmd/goodhr-local-agent")
 	build.Dir = root
 	if output, err := build.CombinedOutput(); err != nil {
@@ -237,6 +279,11 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		command := exec.Command(executable, "--host", "127.0.0.1", "--port", fmt.Sprint(port), "--data-dir", cfg.DataDir, "--open-console=false")
 		command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		command.Env = append(os.Environ(), "GOODHR_APP_ENV=dev", "GOODHR_CLOUD_API_BASE="+cloud.URL, "GOODHR_CONSOLE_URL=http://127.0.0.1:1", "GOODHR_CONSOLE_MANIFEST_URL=")
+		if executeScheduled {
+			command.Dir = root
+			preload := filepath.ToSlash(filepath.Join(root, "worker-node", "test", "fixtures", "worker-native-preload.mjs"))
+			command.Env = append(command.Env, "NODE_OPTIONS=--import=file:///"+preload, "HRPLUS_M2_NATIVE_BROWSER_SOURCE="+cachedBrowser, "HRPLUS_M1_FIXTURE_MODE=m2-plans", "HRPLUS_M1_FIXTURE_LEDGER="+executionLedger, "GOODHR_WORKER_PORT_END="+fmt.Sprint(port+1))
+		}
 		if err := command.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -273,7 +320,16 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	}
 	accept.Store(true)
 	second := start(!protectedRestore)
-	defer func() { _ = second.Process.Kill(); _ = second.Wait() }()
+	defer func() {
+		if executeScheduled {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, _ = worker.CallOnce(ctx, "/api/v1/browser/stop", map[string]any{})
+			_, _ = worker.CallOnce(ctx, "/api/v1/worker/stop", map[string]any{})
+		}
+		_ = second.Process.Kill()
+		_ = second.Wait()
+	}()
 	deadline = time.Now().Add(12 * time.Second)
 	for (calls.Load() < 2 || (protectedRestore && planCalls.Load() < 2)) && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
@@ -281,7 +337,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	if calls.Load() < 2 || (protectedRestore && planCalls.Load() < 2) {
 		t.Fatal("进程重启未恢复补传")
 	}
-	if scheduledRestore {
+	if scheduledRestore && !executeScheduled {
 		deadline = time.Now().Add(12 * time.Second)
 		for scheduledCalls.Load() == 0 && time.Now().Before(deadline) {
 			time.Sleep(100 * time.Millisecond)
@@ -333,6 +389,106 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if executeScheduled {
+		deadline = time.Now().Add(60 * time.Second)
+		var final planmodel.Run
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			runID := executed.Run.ID
+			mu.Unlock()
+			if runID != "" {
+				final, err = db.PlanRunSnapshot(t.Context(), planScope, runID)
+				if err == nil && final.State == "completed" {
+					break
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if final.State != "completed" || final.CurrentItem != 1 || final.Items[0].Actions["greeting"].Count != 1 || scheduledCalls.Load() != 1 {
+			entries, _ := db.ListPositionLogs("native-java", 40)
+			for _, entry := range entries {
+				t.Log(entry.Message)
+			}
+			if raw, e := os.ReadFile(executionLedger); e == nil {
+				t.Log("实际受控页面台账", string(raw))
+			}
+			raw, _ := os.ReadFile(filepath.Join(cfg.DataDir, "runtime", "logs", "local-agent.log"))
+			for _, line := range strings.Split(string(raw), "\n") {
+				if strings.Contains(line, "执行计划") {
+					t.Log(line)
+				}
+			}
+			t.Fatal("实际重启定时计划未完成", err, final.State)
+		}
+		checkpoint, e := db.LoadActionCheckpoint(t.Context(), final.Items[0].ID)
+		if e != nil || checkpoint.Greeted != 1 || checkpoint.CloudRunID != final.Items[0].TaskRunID {
+			t.Fatal("重启动作没有原 TaskRun 检查点", e)
+		}
+		raw, e := os.ReadFile(executionLedger)
+		var actual struct {
+			Greets []string `json:"greetOrder"`
+			Sends  []int    `json:"sendOrder"`
+		}
+		if e != nil || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != 1 || actual.Greets[0] != "java-person" || len(actual.Sends) != 0 {
+			t.Fatal("实际程序没有按计划执行一次或额外发消息", e)
+		}
+		firstLedger := string(raw)
+		var report localdb.PlanReportRecord
+		deadline = time.Now().Add(12 * time.Second)
+		for time.Now().Before(deadline) {
+			report, err = db.PlanReportSnapshot(t.Context(), planScope, final.ID)
+			mu.Lock()
+			attempted := len(reportGate.Summaries) > 0
+			mu.Unlock()
+			if err == nil && attempted {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		mu.Lock()
+		offlineAttempted := len(reportGate.Summaries) > 0
+		mu.Unlock()
+		if err != nil || !offlineAttempted || report.UploadState != "pending" || report.Report.Items[0].Actions["greeting"].Confirmed != 1 {
+			t.Fatal("离线报告没有保存原实际结果", err)
+		}
+		_, _ = worker.CallOnce(t.Context(), "/api/v1/browser/stop", map[string]any{})
+		_, _ = worker.CallOnce(t.Context(), "/api/v1/worker/stop", map[string]any{})
+		_ = second.Process.Kill()
+		_ = second.Wait()
+		_ = db.Close()
+		mu.Lock()
+		reportGate.Ready = true
+		mu.Unlock()
+		second = start(false)
+		db, err = localdb.Open(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		deadline = time.Now().Add(12 * time.Second)
+		var confirmed localdb.PlanReportRecord
+		for time.Now().Before(deadline) {
+			confirmed, err = db.PlanReportSnapshot(t.Context(), planScope, final.ID)
+			if err == nil && confirmed.UploadState == "confirmed" {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err != nil || confirmed.UploadState != "confirmed" || confirmed.BodyHash != report.BodyHash || !confirmed.Report.GeneratedAt.Equal(report.Report.GeneratedAt) || scheduledCalls.Load() != 1 {
+			t.Fatal("再次实际重启没有补传原报告或重复领取已结束任务", err)
+		}
+		mu.Lock()
+		for _, summary := range reportGate.Summaries {
+			if string(summary) != string(reportGate.Summaries[0]) {
+				t.Error("断网重启重新生成报告内容")
+			}
+		}
+		mu.Unlock()
+		raw, err = os.ReadFile(executionLedger)
+		if err != nil || string(raw) != firstLedger || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != 1 {
+			t.Fatal("报告补传再次执行了招聘动作", err)
+		}
+	}
 	deadline = time.Now().Add(3 * time.Second)
 	var pending bool
 	for {

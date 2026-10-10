@@ -24,6 +24,21 @@ test("完整 Worker 以零脚本模式启动真实 CloakBrowser，核对账号�
   const base = `http://127.0.0.1:${port}`;
   /** request 使用真实 HTTP 契约，不替换 Worker 页面动作。 */
   async function request(route, body) { const response = await fetch(base + route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ no_script: true, ...body }) }); const result = await response.json(); return { response, result }; }
+
+  /** observedAccount 等待本次正常页面响应的账号证明，仅读取 HTTP，不刷新页面；错误账号仍立即失败。 */
+  async function observedAccount(expected) {
+    const deadline = Date.now() + 5000;
+    do {
+      const observed = await request("/api/v1/boss/account/identity", {});
+      assert.equal(observed.result.ok, true, JSON.stringify(observed.result));
+      if (observed.result.data.verified) {
+        assert.equal(observed.result.data.account_id, expected);
+        return observed;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } while (Date.now() < deadline);
+    assert.fail("正常页面响应没有提供可核对的账号证明");
+  }
   try {
     const deadline = Date.now() + 10000;
     while (true) { try { await fetch(base + "/health"); break; } catch { if (Date.now() > deadline || worker.exitCode !== null) throw new Error("Worker 未启动：" + output.slice(-1200)); await new Promise(resolve => setTimeout(resolve, 100)); } }
@@ -31,7 +46,7 @@ test("完整 Worker 以零脚本模式启动真实 CloakBrowser，核对账号�
     assert.equal(launch.result.ok, true, JSON.stringify(launch.result));
     const opened = await request("/api/v1/page/open", { url: "https://www.zhipin.com/web/chat/recommend" });
     assert.equal(opened.result.ok, true, JSON.stringify(opened.result));
-    const account = await request("/api/v1/boss/account/identity", {});
+    const account = await observedAccount("901");
     assert.equal(account.result.data.account_id, "901");
     const extracted = await request("/api/v1/boss/candidates/extract", { platform_config: { id: "boss", card: { item: ".candidate-card-wrap", fields: { name: ".card-inner" } } } });
     assert.equal(extracted.result.ok, true, JSON.stringify(extracted.result));
@@ -72,7 +87,7 @@ test("完整 Worker 以零脚本模式启动真实 CloakBrowser，核对账号�
     assert.equal(captureDebug.rounds.at(-1).maxed,true);
     assert.equal(captureDebug.rounds.at(-1).beforeShot.maxed,true);
     await request("/api/v1/page/open", {url:"https://www.zhipin.com/web/chat/spa-fixture"});
-    const currentAccount=await request("/api/v1/boss/account/identity", {});
+    const currentAccount=await observedAccount("902");
     assert.equal(currentAccount.result.data.account_id,"902");
     const sameDocument=await request("/api/v1/page/click", {selector_spec:{selectors:['a[href="#recommend"]']},expected_account_platform:"boss",expected_platform_account_id:"902"});
     assert.equal(sameDocument.result.ok,true);
