@@ -21,7 +21,7 @@ import (
 )
 
 // acquireFixture 提供真实数据库、共享执行权和只返回虚构许可的隔离云端。
-func acquireFixture(t *testing.T, mode *atomic.Int32) (*Coordinator, planmodel.Plan, cloudapi.PlanClaimRequest, planoperations.Authority, *atomic.Int32, *atomic.Int64) {
+func acquireFixture(t *testing.T, mode *atomic.Int32, configure ...func(*planmodel.Permit)) (*Coordinator, planmodel.Plan, cloudapi.PlanClaimRequest, planoperations.Authority, *atomic.Int32, *atomic.Int64) {
 	t.Helper()
 	cfg := &config.Config{DataDir: t.TempDir()}
 	db, err := localdb.Open(cfg)
@@ -37,6 +37,9 @@ func acquireFixture(t *testing.T, mode *atomic.Int32) (*Coordinator, planmodel.P
 	if err = json.Unmarshal(raw, &permit); err != nil {
 		t.Fatal(err)
 	}
+	for _, apply := range configure {
+		apply(&permit)
+	}
 	runner := positionrunner.New(db, nil, nil, cfg.DataDir, cfg.DataDir, cfg.DataDir, cfg.DataDir, "", 0)
 	now := &atomic.Int64{}
 	now.Store(time.Date(2026, 10, 10, 1, 0, 0, 0, time.UTC).UnixNano())
@@ -45,6 +48,21 @@ func acquireFixture(t *testing.T, mode *atomic.Int32) (*Coordinator, planmodel.P
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/auth/me" {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "fixture@example.com"}})
+			return
+		}
+		var configuration any
+		switch r.URL.Path {
+		case "/api/positions/same-job":
+			configuration = map[string]any{"position": map[string]any{"id": "same-job", "name": "fixture", "platform_id": "boss", "common_config": map[string]any{"mode_default": "keyword", "detail_mode": "keyword"}}}
+		case "/api/subscription/status":
+			configuration = map[string]any{"subscription": map[string]any{"active": true}}
+		case "/api/config/user-preferences":
+			configuration = map[string]any{"config": map[string]any{}}
+		case "/api/platforms/config/":
+			configuration = map[string]any{"configs": []map[string]any{{"config_key": "platform.boss", "config_value": `{"id":"boss","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]}}`}}}
+		}
+		if configuration != nil {
+			_ = json.NewEncoder(w).Encode(configuration)
 			return
 		}
 		if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/items/"+permit.Run.Items[0].ID+"/prepare" {

@@ -17,6 +17,9 @@ import (
 // Start 启动本地岗位运行运行器。
 // ctx 为请求上下文，positionID 为岗位运行 ID，options 为启动参数。
 func (r *Runner) Start(ctx context.Context, positionID string, options StartOptions) (map[string]any, error) {
+	if options.PlanRunID != "" || options.ItemRunID != "" {
+		return nil, fmt.Errorf("计划执行项需要通过父计划启动")
+	}
 	positionID = strings.TrimSpace(positionID)
 	if positionID == "" {
 		return nil, fmt.Errorf("岗位运行 ID 不能为空")

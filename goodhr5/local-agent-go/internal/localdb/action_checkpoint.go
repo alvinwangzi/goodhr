@@ -18,6 +18,9 @@ var ErrIdentityConflict = errors.New("候选人身份映射冲突，需要核对
 
 // ActionCheckpoint 保存当前单岗位进度，不包含登录凭证或页面对象。
 type ActionCheckpoint struct {
+	PlanRunID        string           `json:"plan_run_id,omitempty"`    // 所属父计划当天运行，普通单岗位为空。
+	ItemRunID        string           `json:"item_run_id,omitempty"`    // 原独立执行项，不通过岗位合并。
+	OwnerScope       string           `json:"owner_scope,omitempty"`    // 已核对云端所有者摘要，不含令牌。
 	Scanned          int              `json:"scanned"`                  // 本次实际读取的去重数量。
 	Skipped          int              `json:"skipped"`                  // 本次明确跳过的数量。
 	Failed           int              `json:"failed"`                   // 本次扫描环节失败数量。
@@ -170,25 +173,33 @@ CREATE TABLE IF NOT EXISTS action_account_scopes (
 
 // CreateActionRun 保存新的单岗位运行，调用方仅提供不含 Token 的岗位快照。
 func (db *DB) CreateActionRun(ctx context.Context, checkpoint ActionCheckpoint) (ActionCheckpoint, error) {
+	if checkpoint.PlanRunID != "" || checkpoint.ItemRunID != "" || checkpoint.OwnerScope != "" {
+		return ActionCheckpoint{}, fmt.Errorf("计划执行项需要通过原执行项恢复检查点")
+	}
 	if checkpoint.PositionID == "" || checkpoint.ProfileScope == "" || checkpoint.Platform == "" {
 		return ActionCheckpoint{}, fmt.Errorf("单岗位运行缺少岗位或账号作用域")
 	}
 	checkpoint.RunID = uuid.NewString()
-	raw, err := json.Marshal(checkpoint)
-	if err != nil {
-		return ActionCheckpoint{}, err
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
 	tx, err := db.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return ActionCheckpoint{}, err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO action_runs(run_id,position_id,profile_scope,platform,checkpoint,start_seq,created_at,updated_at) SELECT ?,?,?,?,?,COALESCE(MAX(start_seq),0)+1,?,? FROM action_runs`, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, string(raw), now, now)
-	if err != nil {
+	if err = insertActionRun(ctx, tx, checkpoint); err != nil {
 		return ActionCheckpoint{}, err
 	}
 	return checkpoint, tx.Commit()
+}
+
+// insertActionRun 复用单岗位检查点插入与稳定开始顺序，由调用方的创建或恢复事务控制提交。
+func insertActionRun(ctx context.Context, tx *sql.Tx, checkpoint ActionCheckpoint) error {
+	raw, err := json.Marshal(checkpoint)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err = tx.ExecContext(ctx, `INSERT INTO action_runs(run_id,position_id,profile_scope,platform,checkpoint,start_seq,created_at,updated_at) SELECT ?,?,?,?,?,COALESCE(MAX(start_seq),0)+1,?,? FROM action_runs`, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, string(raw), now, now)
+	return err
 }
 
 // LoadActionCheckpoint 读取持久化检查点，重新打开数据库后仍可核对进度。
@@ -221,7 +232,7 @@ func (db *DB) SaveActionCheckpoint(ctx context.Context, checkpoint ActionCheckpo
 	if err != nil {
 		return err
 	}
-	result, err := db.conn.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=? AND (?=1 OR NOT EXISTS(SELECT 1 FROM action_account_scopes WHERE profile_scope=action_runs.profile_scope))`, string(raw), time.Now().UTC().Format(time.RFC3339Nano), checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, checkpoint.AccountBound)
+	result, err := db.conn.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=? AND (?=1 OR NOT EXISTS(SELECT 1 FROM action_account_scopes WHERE profile_scope=action_runs.profile_scope)) AND COALESCE(json_extract(checkpoint,'$.plan_run_id'),'')=? AND COALESCE(json_extract(checkpoint,'$.item_run_id'),'')=? AND COALESCE(json_extract(checkpoint,'$.owner_scope'),'')=?`, string(raw), time.Now().UTC().Format(time.RFC3339Nano), checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, checkpoint.AccountBound, checkpoint.PlanRunID, checkpoint.ItemRunID, checkpoint.OwnerScope)
 	if err != nil {
 		return err
 	}
@@ -286,7 +297,7 @@ func (db *DB) SaveActionCandidate(ctx context.Context, checkpoint ActionCheckpoi
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := tx.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=? AND (?=1 OR NOT EXISTS(SELECT 1 FROM action_account_scopes WHERE profile_scope=action_runs.profile_scope))`, string(raw), now, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, checkpoint.AccountBound)
+	result, err := tx.ExecContext(ctx, `UPDATE action_runs SET checkpoint=?,updated_at=? WHERE run_id=? AND position_id=? AND profile_scope=? AND platform=? AND (?=1 OR NOT EXISTS(SELECT 1 FROM action_account_scopes WHERE profile_scope=action_runs.profile_scope)) AND COALESCE(json_extract(checkpoint,'$.plan_run_id'),'')=? AND COALESCE(json_extract(checkpoint,'$.item_run_id'),'')=? AND COALESCE(json_extract(checkpoint,'$.owner_scope'),'')=?`, string(raw), now, checkpoint.RunID, checkpoint.PositionID, checkpoint.ProfileScope, checkpoint.Platform, checkpoint.AccountBound, checkpoint.PlanRunID, checkpoint.ItemRunID, checkpoint.OwnerScope)
 	if err != nil {
 		return err
 	}

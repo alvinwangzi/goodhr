@@ -236,7 +236,9 @@ func (e platformExecutor) Delay(ctx context.Context, label string, seconds float
 
 // StartOptions 表示本地岗位运行启动参数（含模拟人工操作的各类延时）。
 type StartOptions struct {
-	PrioritizeReply     bool                         `json:"prioritize_reply"` // 已勾选回复时优先处理已发现消息，默认关闭。
+	PlanRunID           string                       `json:"plan_run_id,omitempty"` // 子流程所属父计划，不在独立启动入口创建。
+	ItemRunID           string                       `json:"item_run_id,omitempty"` // 原编排执行项，用于检查点和日志归属。
+	PrioritizeReply     bool                         `json:"prioritize_reply"`      // 已勾选回复时优先处理已发现消息，默认关闭。
 	reGreetBatch        []cloudapi.ReGreetCandidate  // 当前调度领取的复打名单，不持久化在岗位配置。
 	reGreetRemaining    *[]cloudapi.ReGreetCandidate // 批次结束后仍未领取的人。
 	reGreetTotals       *reGreetStats                // 同一运行跨批次保留复打统计。
