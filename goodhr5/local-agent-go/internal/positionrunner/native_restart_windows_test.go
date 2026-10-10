@@ -33,8 +33,11 @@ func TestNativeAgentProtectedLoginRestart(t *testing.T) {
 	runNativeReceiptRestart(t, true)
 }
 
+// TestNativeAgentScheduledQueueRestart 验证网页不参与的实际程序重启继续定时领取，账号忙队列再次重启仍保留原请求。
+func TestNativeAgentScheduledQueueRestart(t *testing.T) { runNativeReceiptRestart(t, true, true) }
+
 // runNativeReceiptRestart 保留原补传验收，并可选择重启后完全依赖本地受保护会话。
-func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
+func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...bool) {
 	if os.Getenv("HRPLUS_M1_NATIVE_WORKER_TEST") != "1" && os.Getenv("HRPLUS_M2_NATIVE_AGENT_TEST") != "1" {
 		t.Skip("需要显式启用 Windows 进程重启验收")
 	}
@@ -47,6 +50,10 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 	var receipts []cloudapi.ReGreetReceiptRequest
 	var planBodies []cloudapi.PlanRunUpdateRequest
 	var planPermit planmodel.Permit
+	scheduledRestore := len(scheduled) > 0 && scheduled[0]
+	var scheduledPlan planmodel.Plan
+	var scheduledClaims []cloudapi.PlanClaimRequest
+	var scheduledCalls atomic.Int32
 	if protectedRestore {
 		raw, e := os.ReadFile(filepath.Join("..", "planmodel", "testdata", "permit.json"))
 		if e != nil {
@@ -55,9 +62,50 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 		if e = json.Unmarshal(raw, &planPermit); e != nil {
 			t.Fatal(e)
 		}
+		if scheduledRestore {
+			rawConfig, _ := json.Marshal(planPermit.Run.Snapshot)
+			var config planmodel.Config
+			if e = json.Unmarshal(rawConfig, &config); e != nil {
+				t.Fatal(e)
+			}
+			config.Schedule.Windows = config.Schedule.Windows[:1]
+			config.Schedule.Windows[0].StartMinute, config.Schedule.Windows[0].EndMinute = 0, 1440
+			scheduledPlan = planmodel.Plan{ID: planPermit.Run.PlanID, UserEmail: "restart@example.com", MachineID: "fixture-machine", Version: 1, StateSequence: 1, ActivationID: "30000000-0000-0000-0000-000000000002", State: "enabled", Config: config, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+			if e = scheduledPlan.Validate(); e != nil {
+				t.Fatal(e)
+			}
+		}
 	}
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if scheduledRestore && r.URL.Path == "/api/execution-plans/"+scheduledPlan.ID+"/wait" {
+			var fact cloudapi.PlanWaitFact
+			if e := json.NewDecoder(r.Body).Decode(&fact); e != nil {
+				t.Error(e)
+			}
+			if r.Header.Get("Authorization") != "Bearer fixture-token" || fact.ActivationID != scheduledPlan.ActivationID || fact.MachineID != scheduledPlan.MachineID {
+				t.Error("定时排队没有原登录或指定电脑")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "wait": fact})
+			return
+		}
 		switch r.URL.Path {
+		case "/api/execution-plan-runs/claim":
+			if !scheduledRestore {
+				t.Error("补传测试不应新领取计划")
+			}
+			var claim cloudapi.PlanClaimRequest
+			if e := json.NewDecoder(r.Body).Decode(&claim); e != nil {
+				t.Error(e)
+			}
+			if r.Header.Get("Authorization") != "Bearer fixture-token" || claim.PlanID != scheduledPlan.ID || claim.ActivationID != scheduledPlan.ActivationID || !claim.LocalReserved {
+				t.Error("后台定时领取来源不正确")
+			}
+			mu.Lock()
+			scheduledClaims = append(scheduledClaims, claim)
+			mu.Unlock()
+			scheduledCalls.Add(1)
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "受控账号忙", "error_code": "EXECUTION_BUSY"})
 		case "/api/execution-plan-runs/" + planPermit.Run.ID + "/release":
 			if !protectedRestore {
 				t.Error("M1 原生验收不应发送计划请求")
@@ -90,7 +138,11 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 			if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer fixture-token" {
 				t.Error("计划同步未使用只读请求和原登录证明")
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "plans": []any{}})
+			plans := []any{}
+			if scheduledRestore && accept.Load() {
+				plans = append(plans, scheduledPlan)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "plans": plans})
 		case "/api/agents/bind":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		case "/api/positions/position/re-greet-report":
@@ -228,6 +280,35 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 	}
 	if calls.Load() < 2 || (protectedRestore && planCalls.Load() < 2) {
 		t.Fatal("进程重启未恢复补传")
+	}
+	if scheduledRestore {
+		deadline = time.Now().Add(12 * time.Second)
+		for scheduledCalls.Load() == 0 && time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if scheduledCalls.Load() == 0 {
+			t.Fatal("登录自动恢复后没有后台定时领取")
+		}
+		previousCalls := scheduledCalls.Load()
+		_ = second.Process.Kill()
+		_ = second.Wait()
+		second = start(false)
+		deadline = time.Now().Add(12 * time.Second)
+		for scheduledCalls.Load() <= previousCalls && time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if scheduledCalls.Load() <= previousCalls {
+			t.Fatal("账号忙队列在再次进程重启后没有继续")
+		}
+		mu.Lock()
+		originalClaim, _ := json.Marshal(scheduledClaims[0])
+		for _, claim := range scheduledClaims {
+			actual, _ := json.Marshal(claim)
+			if string(actual) != string(originalClaim) {
+				t.Error("忙等待再次重启改变原领取编号、日期或凭证")
+			}
+		}
+		mu.Unlock()
 	}
 	mu.Lock()
 	for _, receipt := range receipts {

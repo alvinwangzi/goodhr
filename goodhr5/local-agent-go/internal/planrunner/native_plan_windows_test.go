@@ -10,6 +10,7 @@ import (
 	"goodhr5/local-agent-go/internal/browser"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"goodhr5/local-agent-go/internal/positionrunner"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,14 @@ func TestNativePlanDayIncomplete(t *testing.T) { runNativePlanPositions(t, false
 // TestNativePlanUserStop 验证第一项实际确认后的用户停止，经生产异常收尾保存数量，不开始第二岗位。
 func TestNativePlanUserStop(t *testing.T) { runNativePlanPositions(t, false, false, false, true) }
 
+// TestNativePlanCompound 验证一个计划项的三类动作通过实际 M1 安全穿插且各自确认数量不合并。
+func TestNativePlanCompound(t *testing.T) { runNativePlanPositions(t, true, false, false, false, true) }
+
+// TestNativePlanTimedCompound 验证第一位扫描后出现新回复和到期复打，定时检查在扫描结束前执行。
+func TestNativePlanTimedCompound(t *testing.T) {
+	runNativePlanPositions(t, true, false, false, false, true, true)
+}
+
 // nativePlanStopBoundary 仅在实际原进度已确认后的安全边界发出用户取消，其他步骤沿用生产实现。
 type nativePlanStopBoundary struct {
 	*M1ExecutionRuntime
@@ -108,6 +117,13 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 	if os.Getenv("HRPLUS_M2_NATIVE_PLAN_TEST") != "1" {
 		t.Skip("需要显式启用原生多岗位受控验收")
 	}
+	compound := len(crossWindows) > 3 && crossWindows[3]
+	timedCompound := len(crossWindows) > 4 && crossWindows[4]
+	fixtureMode := "m2-plans"
+	if compound {
+		fixtureMode = "triple-job"
+		t.Setenv("HRPLUS_M2_NATIVE_COMPOUND", "1")
+	}
 	root, err := filepath.Abs(filepath.Join("..", "..", "worker-node"))
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +140,10 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 	_ = listener.Close()
 	directory := t.TempDir()
 	ledger := filepath.Join(directory, "ledger.json")
+	if timedCompound {
+		fixtureMode = "triple-timed-job"
+		t.Setenv("HRPLUS_M2_NATIVE_TIMED_LEDGER", ledger)
+	}
 	logFile, err := os.Create(filepath.Join(directory, "worker.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +155,7 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.Env = append(os.Environ(), fmt.Sprintf("GOODHR_WORKER_ADDR=127.0.0.1:%d", port), fmt.Sprintf("GOODHR_WORKER_PORT_END=%d", port), "CLOAKBROWSER_BINARY_PATH="+binary, "HRPLUS_M1_FIXTURE_MODE=m2-plans", "HRPLUS_M1_FIXTURE_LEDGER="+ledger)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("GOODHR_WORKER_ADDR=127.0.0.1:%d", port), fmt.Sprintf("GOODHR_WORKER_PORT_END=%d", port), "CLOAKBROWSER_BINARY_PATH="+binary, "HRPLUS_M1_FIXTURE_MODE="+fixtureMode, "HRPLUS_M1_FIXTURE_LEDGER="+ledger)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -160,13 +180,18 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 	}
 	if messages {
 		ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			request, _ := io.ReadAll(r.Body)
+			if compound && strings.Contains(string(request), "should_send") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"should_send":true,"message":"方便时可以继续了解岗位。","is_refused":false,"refuse_reason":""}`}}}})
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"action":"reply","text":"岗位仍在招聘，欢迎沟通。","reason":"夹具岗位问答","request_resume":false}`}}}})
 		}))
 		defer ai.Close()
 		t.Setenv("HRPLUS_M2_NATIVE_AI_BASE", ai.URL)
 	}
 	c, plan, claim, authority, _, clock := acquireFixtureWithWorker(t, &atomic.Int32{}, worker, func(p *planmodel.Permit) {
-		if messages {
+		if messages && !compound {
 			for index := 2; index < 4; index++ {
 				config := p.Run.Snapshot.Items[index-2]
 				config.ID = fmt.Sprintf("native-message-%d", index)
@@ -192,6 +217,17 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 			p.Run.Items[index].Snapshot = p.Run.Snapshot.Items[index]
 			p.Run.Items[index].Actions = map[string]planmodel.ActionProgress{action: {State: "pending"}}
 		}
+		if compound {
+			p.Run.Snapshot.Items = p.Run.Snapshot.Items[:1]
+			p.Run.Items = p.Run.Items[:1]
+			p.Run.Snapshot.Items[0].Actions = []string{"greeting", "auto_reply", "re_greet"}
+			p.Run.Snapshot.Items[0].PrioritizeReply = !timedCompound
+			p.Run.Items[0].Snapshot = p.Run.Snapshot.Items[0]
+			p.Run.Items[0].Actions = map[string]planmodel.ActionProgress{}
+			for _, action := range p.Run.Snapshot.Items[0].Actions {
+				p.Run.Items[0].Actions[action] = planmodel.ActionProgress{State: "pending"}
+			}
+		}
 	})
 	lastOnly := len(crossWindows) > 1 && crossWindows[1]
 	if lastOnly {
@@ -213,6 +249,19 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 			}
 			if json.Unmarshal(raw, &observed) == nil && len(observed.Greets) == 1 {
 				clock.Store(held.finishAt.UnixNano())
+			}
+			return time.Unix(0, clock.Load()).UTC()
+		}
+	}
+	if timedCompound {
+		base := clock.Load()
+		c.now = func() time.Time {
+			raw, _ := os.ReadFile(ledger)
+			var actual struct {
+				Greets []string `json:"greetOrder"`
+			}
+			if json.Unmarshal(raw, &actual) == nil && len(actual.Greets) > 0 {
+				clock.Store(base + int64(2*time.Minute))
 			}
 			return time.Unix(0, clock.Load()).UTC()
 		}
@@ -313,6 +362,35 @@ func runNativePlanPositions(t *testing.T, messages bool, crossWindows ...bool) {
 			}
 		}
 		t.Fatal("原生多岗位执行失败", err)
+	}
+	if compound {
+		if result.Run.State != "completed" || result.Run.CurrentItem != 1 || result.Run.Items[0].Actions["greeting"].Count != 3 || result.Run.Items[0].Actions["auto_reply"].Count != 1 || result.Run.Items[0].Actions["re_greet"].Count != 1 || held.Reservation.Valid() {
+			entries, _ := c.db.ListPlanItemLogs(t.Context(), authority.OwnerScope, result.Run.ID, result.Run.Items[0].ID, 0, 200)
+			for _, entry := range entries {
+				if strings.Contains(entry.Message, "复打") || strings.Contains(entry.Message, "会话") {
+					t.Log(entry.Message)
+				}
+			}
+			if raw, e := os.ReadFile(ledger); e == nil {
+				t.Log("受控页面台账", string(raw))
+			}
+			t.Fatal("复合计划未独立确认三类数量或释放占用", result.Run)
+		}
+		raw, e := os.ReadFile(ledger)
+		var actual struct {
+			Timeline []string `json:"timeline"`
+		}
+		if e != nil || json.Unmarshal(raw, &actual) != nil {
+			t.Fatal("复合实际动作台账不可读", e)
+		}
+		wanted := []string{"message:123", "message:124", "greet:opaque-C", "greet:opaque-D", "greet:opaque-E"}
+		if timedCompound {
+			wanted = []string{"greet:opaque-C", "message:123", "message:124", "greet:opaque-D", "greet:opaque-E"}
+		}
+		if fmt.Sprint(actual.Timeline) != fmt.Sprint(wanted) {
+			t.Fatal("优先回复与独立复打没有在找简历前得到执行机会", actual.Timeline)
+		}
+		return
 	}
 	expectedItems := 2
 	if messages {

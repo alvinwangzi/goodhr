@@ -51,6 +51,8 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 	now := &atomic.Int64{}
 	now.Store(time.Date(2026, 10, 10, 1, 0, 0, 0, time.UTC).UnixNano())
 	claims := &atomic.Int32{}
+	var reGreetReceipts atomic.Int32
+	contactAt := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339Nano)
 	var scope string
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/auth/me" {
@@ -63,11 +65,49 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 		}
 		if r.URL.Path == "/api/positions/native-java" || r.URL.Path == "/api/positions/native-sales" {
 			id, name := "native-java", "Java"
+			limit := 1
+			if os.Getenv("HRPLUS_M2_NATIVE_COMPOUND") == "1" {
+				name, limit = "Go", 3
+			}
 			if strings.HasSuffix(r.URL.Path, "native-sales") {
 				id, name = "native-sales", "销售"
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"position": map[string]any{"id": id, "name": name, "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": name, "mode_default": "keyword", "detail_mode": "keyword"}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"position": map[string]any{"id": id, "name": name, "platform_id": "boss", "match_limit": limit, "keywords": []string{}, "common_config": map[string]any{"position_name": name, "mode_default": "keyword", "detail_mode": "keyword"}}})
 			return
+		}
+		if os.Getenv("HRPLUS_M2_NATIVE_COMPOUND") == "1" {
+			switch r.URL.Path {
+			case "/api/positions/native-java/screenings/find":
+				_ = json.NewEncoder(w).Encode(map[string]any{"item": map[string]any{"id": "fixture-screen-A", "position_id": "native-java", "platform": "boss", "platform_candidate_id": "opaque-A", "candidate_name": "同名候选人 A", "score": 90}})
+				return
+			case "/api/positions/native-java/re-greet-candidates":
+				items := []any{}
+				workReady := true
+				if path := os.Getenv("HRPLUS_M2_NATIVE_TIMED_LEDGER"); path != "" {
+					raw, _ := os.ReadFile(path)
+					var actual struct {
+						Greets []string `json:"greetOrder"`
+					}
+					workReady = json.Unmarshal(raw, &actual) == nil && len(actual.Greets) > 0
+				}
+				if reGreetReceipts.Load() == 0 && workReady {
+					items = append(items, map[string]any{"id": "fixture-screen-B", "position_id": "native-java", "platform": "boss", "platform_candidate_id": "opaque-B", "candidate_name": "同名候选人 B", "greeted_at": contactAt, "re_greet_count": 0})
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "re_greet_receipts": true, "items": items})
+				return
+			case "/api/positions/native-java/re-greet-report":
+				var input cloudapi.ReGreetReceiptRequest
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Error(err)
+				}
+				current, e := db.PlanRunSnapshot(t.Context(), scope, permit.Run.ID)
+				if e != nil || !input.Success || input.RunID != current.Items[0].TaskRunID || input.PlatformCandidateID != "opaque-B" {
+					t.Error("复打未携带原执行项任务与真实映射", e)
+				}
+				reGreetReceipts.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]any{"receipt": cloudapi.ReGreetReceiptResponse{OperationID: input.OperationID, ResultCount: input.BaseCount + 1, SentAt: input.SentAt, ReceivedAt: time.Now()}})
+				return
+			}
 		}
 		var configuration any
 		switch r.URL.Path {
@@ -97,6 +137,9 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 					_ = json.Unmarshal(body, &nativeConfig)
 					nativeConfig["card"] = map[string]any{"item": map[string]any{"selector": ".candidate-card-wrap"}, "fields": map[string]any{"name": map[string]any{"selector": ".candidate-name"}}}
 					nativeConfig["actions"] = map[string]any{"greetBtn": map[string]any{"selector": ".greet-btn"}, "continueBtn": map[string]any{"selector": ".continue-btn"}}
+					if os.Getenv("HRPLUS_M2_NATIVE_COMPOUND") == "1" {
+						nativeConfig["position"] = map[string]any{"current": map[string]any{"selector": ".current-position"}, "switchBtn": map[string]any{"selector": ".switch-position"}, "list": map[string]any{"selector": ".position-list"}, "item": map[string]any{"selector": ".position-item"}, "itemText": map[string]any{"selector": ".position-name"}}
+					}
 					body, _ = json.Marshal(nativeConfig)
 					configuration = map[string]any{"configs": []map[string]any{{"config_key": "platform.boss", "config_value": string(body)}}}
 				}
