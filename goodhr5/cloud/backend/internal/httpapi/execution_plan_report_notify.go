@@ -53,10 +53,19 @@ func reportNoticeHTML(r ExecutionPlanReport) string {
 	return body.String()
 }
 
-// notifyExecutionReport 仅使用当前认证的原所有者邮箱，领取后发送一次；不明确错误不自动再次发送。
+// notifyExecutionReport 只使用原报告所有者邮箱，领取后发送一次；不明确错误不自动再次发送。
 func (s *ExecutionPlanService) notifyExecutionReport(ctx context.Context, tenant, email, runID string) error {
 	if s.execution == nil {
 		return errors.New("报告通知邮件器尚未就绪")
+	}
+	if !reportMailerReady(s.execution.mailer) {
+		report, err := s.store.GetReport(ctx, tenant, email, runID)
+		if err != nil {
+			return err
+		}
+		if report.NotificationState == "not_configured" {
+			return nil
+		}
 	}
 	token, err := newExecutionPlanID()
 	if err != nil {
@@ -69,11 +78,23 @@ func (s *ExecutionPlanService) notifyExecutionReport(ctx context.Context, tenant
 	if !reportMailerReady(s.execution.mailer) {
 		return s.store.FinishReportNotification(ctx, tenant, email, runID, token, "not_configured", "邮件服务未配置，报告已保存")
 	}
-	if err := s.execution.mailer.SendCustomHTML(report.NotificationRecipient, "HRPlus 执行计划报告", reportNoticeHTML(report), ""); err != nil {
-		// Mailer 不区分 SMTP 已接受后断线，不能声称确定未发，也不能自动重复。
-		return s.store.FinishReportNotification(context.WithoutCancel(ctx), tenant, email, runID, token, "unknown", "发送结果待核对，报告已保存")
+	sendCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	var sendErr error
+	if sender, ok := s.execution.mailer.(interface {
+		SendCustomHTMLContext(context.Context, string, string, string, string) error
+	}); ok {
+		sendErr = sender.SendCustomHTMLContext(sendCtx, report.NotificationRecipient, "HRPlus 执行计划报告", reportNoticeHTML(report), "")
+	} else {
+		sendErr = s.execution.mailer.SendCustomHTML(report.NotificationRecipient, "HRPlus 执行计划报告", reportNoticeHTML(report), "")
 	}
-	return s.store.FinishReportNotification(context.WithoutCancel(ctx), tenant, email, runID, token, "sent", "")
+	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer finishCancel()
+	if sendErr != nil {
+		// Mailer 不区分 SMTP 已接受后断线，不能声称确定未发，也不能自动重复。
+		return s.store.FinishReportNotification(finishCtx, tenant, email, runID, token, "unknown", "发送结果待核对，报告已保存")
+	}
+	return s.store.FinishReportNotification(finishCtx, tenant, email, runID, token, "sent", "")
 }
 
 // ClaimReportNotification 在内存锁内固定接收人及发送编号，重复报告不重复领取。
@@ -89,7 +110,7 @@ func (s *MemoryExecutionPlanStore) ClaimReportNotification(ctx context.Context, 
 	if !exists || !owned || !has || p.UserEmail != email || p.TenantID != tenant {
 		return r, false, ErrNotFound
 	}
-	if r.NotificationState != "pending" {
+	if r.NotificationState != "pending" && r.NotificationState != "not_configured" {
 		return cloneExecutionReport(r), false, nil
 	}
 	if !executionPlanUUID.MatchString(token) {
@@ -98,8 +119,13 @@ func (s *MemoryExecutionPlanStore) ClaimReportNotification(ctx context.Context, 
 	r.NotificationState = "sending"
 	r.NotificationRecipient = p.UserEmail
 	r.NotificationToken = token
+	started := time.Now().UTC()
+	r.NotificationStartedAt = &started
 	r.UpdatedAt = time.Now().UTC()
 	s.reports[id] = r
+	if s.reportNotifyChanged != nil {
+		s.reportNotifyChanged(tenant, email)
+	}
 	return cloneExecutionReport(r), true, nil
 }
 
@@ -119,12 +145,15 @@ func (s *MemoryExecutionPlanStore) FinishReportNotification(ctx context.Context,
 	if state != "sent" && state != "unknown" && state != "not_configured" {
 		return ErrExecutionPlanRequest
 	}
-	if r.NotificationState != "sending" || r.NotificationToken != token {
+	if (r.NotificationState != "sending" && !(r.NotificationState == "unknown" && state == "sent")) || r.NotificationToken != token {
 		return ErrExecutionPlanRequest
 	}
 	r.NotificationState = state
 	r.NotificationError = reason
 	r.UpdatedAt = time.Now().UTC()
 	s.reports[id] = r
+	if s.reportNotifyChanged != nil {
+		s.reportNotifyChanged(tenant, email)
+	}
 	return nil
 }

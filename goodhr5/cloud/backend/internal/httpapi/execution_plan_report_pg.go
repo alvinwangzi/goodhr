@@ -8,13 +8,13 @@ import (
 	"errors"
 )
 
-const executionReportColumns = `run_id::text,body_hash,summary,sync_state,notification_state,created_at,updated_at,notification_recipient,notification_error,notification_token`
+const executionReportColumns = `run_id::text,body_hash,summary,sync_state,notification_state,created_at,updated_at,notification_recipient,notification_error,notification_token,notification_started_at`
 
 // scanExecutionReport 统一读取原摘要，不把数据库正文作为执行指令。
 func scanExecutionReport(row interface{ Scan(...any) error }) (ExecutionPlanReport, error) {
 	var r ExecutionPlanReport
 	var raw []byte
-	err := row.Scan(&r.RunID, &r.BodyHash, &raw, &r.SyncState, &r.NotificationState, &r.CreatedAt, &r.UpdatedAt, &r.NotificationRecipient, &r.NotificationError, &r.NotificationToken)
+	err := row.Scan(&r.RunID, &r.BodyHash, &raw, &r.SyncState, &r.NotificationState, &r.CreatedAt, &r.UpdatedAt, &r.NotificationRecipient, &r.NotificationError, &r.NotificationToken, &r.NotificationStartedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -91,7 +91,7 @@ func (s *PostgresExecutionPlanStore) SaveReport(ctx context.Context, tenant, ema
 
 // GetReport 从计划所有者与团队过滤历史报告，不依赖设备在线状态授权读取。
 func (s *PostgresExecutionPlanStore) GetReport(ctx context.Context, tenant, email, id string) (ExecutionPlanReport, error) {
-	return scanExecutionReport(s.db.QueryRowContext(ctx, `SELECT q.run_id::text,q.body_hash,q.summary,q.sync_state,q.notification_state,q.created_at,q.updated_at,q.notification_recipient,q.notification_error,q.notification_token FROM execution_plan_reports q JOIN execution_plan_runs r ON r.id=q.run_id JOIN execution_plans p ON p.id=r.plan_id WHERE q.run_id=$1 AND p.user_email=$2 AND COALESCE(p.tenant_id::text,'')=$3`, id, email, tenant))
+	return scanExecutionReport(s.db.QueryRowContext(ctx, `SELECT q.run_id::text,q.body_hash,q.summary,q.sync_state,q.notification_state,q.created_at,q.updated_at,q.notification_recipient,q.notification_error,q.notification_token,q.notification_started_at FROM execution_plan_reports q JOIN execution_plan_runs r ON r.id=q.run_id JOIN execution_plans p ON p.id=r.plan_id WHERE q.run_id=$1 AND p.user_email=$2 AND COALESCE(p.tenant_id::text,'')=$3`, id, email, tenant))
 }
 
 // ClaimReportNotification 原子固定原所有者邮箱及本次发送编号，同一报告并发只领取一次。
@@ -99,7 +99,7 @@ func (s *PostgresExecutionPlanStore) ClaimReportNotification(ctx context.Context
 	if !executionPlanUUID.MatchString(token) {
 		return ExecutionPlanReport{}, false, ErrExecutionPlanRequest
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE execution_plan_reports q SET notification_state='sending',notification_recipient=p.user_email,notification_token=$4,attempts=attempts+1,updated_at=NOW() FROM execution_plan_runs r JOIN execution_plans p ON p.id=r.plan_id WHERE q.run_id=r.id AND q.run_id=$1 AND p.user_email=$2 AND COALESCE(p.tenant_id::text,'')=$3 AND q.notification_state='pending'`, id, email, tenant, token)
+	result, err := s.db.ExecContext(ctx, `UPDATE execution_plan_reports q SET notification_state='sending',notification_recipient=p.user_email,notification_token=$4,notification_started_at=NOW(),attempts=attempts+1,updated_at=NOW() FROM execution_plan_runs r JOIN execution_plans p ON p.id=r.plan_id WHERE q.run_id=r.id AND q.run_id=$1 AND p.user_email=$2 AND COALESCE(p.tenant_id::text,'')=$3 AND q.notification_state IN ('pending','not_configured')`, id, email, tenant, token)
 	if err != nil {
 		return ExecutionPlanReport{}, false, err
 	}
@@ -116,7 +116,7 @@ func (s *PostgresExecutionPlanStore) FinishReportNotification(ctx context.Contex
 	if state != "sent" && state != "unknown" && state != "not_configured" {
 		return ErrExecutionPlanRequest
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE execution_plan_reports q SET notification_state=$5,notification_error=$6,updated_at=NOW() FROM execution_plan_runs r JOIN execution_plans p ON p.id=r.plan_id WHERE q.run_id=r.id AND q.run_id=$1 AND p.user_email=$2 AND COALESCE(p.tenant_id::text,'')=$3 AND q.notification_token=$4 AND q.notification_state='sending'`, id, email, tenant, token, state, reason)
+	result, err := s.db.ExecContext(ctx, `UPDATE execution_plan_reports q SET notification_state=$5,notification_error=$6,updated_at=NOW() FROM execution_plan_runs r JOIN execution_plans p ON p.id=r.plan_id WHERE q.run_id=r.id AND q.run_id=$1 AND p.user_email=$2 AND COALESCE(p.tenant_id::text,'')=$3 AND q.notification_token=$4 AND (q.notification_state='sending' OR (q.notification_state='unknown' AND $5='sent'))`, id, email, tenant, token, state, reason)
 	if err != nil {
 		return err
 	}

@@ -66,6 +66,7 @@ type ExecutionPlanReport struct {
 	NotificationRecipient string                     `json:"notification_recipient,omitempty"`
 	NotificationError     string                     `json:"notification_error,omitempty"`
 	NotificationToken     string                     `json:"-"`
+	NotificationStartedAt *time.Time                 `json:"-"`
 }
 
 // validateAgainst 对照原运行核对独立执行项及任务身份，不接受跨岗位混算或负数量。
@@ -144,6 +145,10 @@ func cloneExecutionReport(r ExecutionPlanReport) ExecutionPlanReport {
 	raw, _ := json.Marshal(r)
 	var result ExecutionPlanReport
 	_ = json.Unmarshal(raw, &result)
+	if r.NotificationStartedAt != nil {
+		copy := *r.NotificationStartedAt
+		result.NotificationStartedAt = &copy
+	}
 	return result
 }
 

@@ -1,7 +1,9 @@
+// 本文件复用 HRPlus 邮件模板与 SMTP 发送，报告自定义邮件支持有界连接和取消。
 package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
@@ -277,6 +279,13 @@ func sendTeamInvitationNotice(mailer Mailer, email string, notice TeamInvitation
 
 // SendCustomHTML 发送超管自定义 HTML 邮件。
 func (m SMTPMailer) SendCustomHTML(email string, subject string, htmlBody string, plainText string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return m.SendCustomHTMLContext(ctx, email, subject, htmlBody, plainText)
+}
+
+// SendCustomHTMLContext 复用原 MIME 构建，调用方取消或期限到达时关闭实际 SMTP 连接。
+func (m SMTPMailer) SendCustomHTMLContext(ctx context.Context, email string, subject string, htmlBody string, plainText string) error {
 	addr := fmt.Sprintf("%s:%d", m.Host, m.Port)
 	auth := smtp.PlainAuth("", m.Username, m.Password, m.Host)
 	from := strings.TrimSpace(m.From)
@@ -288,10 +297,7 @@ func (m SMTPMailer) SendCustomHTML(email string, subject string, htmlBody string
 		plainText = htmlToPlainText(htmlBody)
 	}
 	message := buildMailMessage(from, email, subject, plainText, wrapCustomMailHTML(subject, htmlBody))
-	if m.Port == 465 {
-		return m.sendTLS(addr, auth, from, email, message)
-	}
-	return smtp.SendMail(addr, auth, from, []string{email}, []byte(message))
+	return m.sendCustomSMTP(ctx, addr, auth, from, email, message)
 }
 
 // sendMessage 发送一封同时包含纯文本和 HTML 的邮件。

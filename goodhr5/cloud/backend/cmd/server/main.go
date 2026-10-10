@@ -2,11 +2,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"goodhr5/cloud/backend/internal/httpapi"
 )
@@ -21,11 +26,26 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go server.RunExecutionReportNotifications(ctx)
 
 	log.Printf("HRPlus cloud backend log file: %s", logPath)
 	log.Printf("HRPlus cloud backend listening on %s", addr)
-	if err := http.ListenAndServe(addr, server.Routes()); err != nil {
+	httpServer := &http.Server{Addr: addr, Handler: server.Routes()}
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-ctx.Done()
+		shutdown, done := context.WithTimeout(context.Background(), 5*time.Second)
+		defer done()
+		_ = httpServer.Shutdown(shutdown)
+	}()
+	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
+	}
+	if ctx.Err() != nil {
+		<-shutdownDone
 	}
 }
 

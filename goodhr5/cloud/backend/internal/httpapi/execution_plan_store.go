@@ -36,6 +36,7 @@ type ExecutionPlanStore interface {
 	GetReport(context.Context, string, string, string) (ExecutionPlanReport, error)
 	ClaimReportNotification(context.Context, string, string, string, string) (ExecutionPlanReport, bool, error)
 	FinishReportNotification(context.Context, string, string, string, string, string, string) error
+	ReportNotificationWork(context.Context, time.Time, bool, int) ([]ExecutionPlanNotificationWork, error)
 }
 
 // newExecutionPlanID 生成真实 UUID，内存与 PostgreSQL 使用相同编号格式。
@@ -69,21 +70,22 @@ func activeExecutionPlanState(state string) bool {
 
 // MemoryExecutionPlanStore 保存独立编排项和运行状态，删除仅隐藏当前配置，保留运行历史。
 type MemoryExecutionPlanStore struct {
-	waits            map[string]ExecutionPlanWait
-	mu               sync.Mutex
-	plans            map[string]ExecutionPlan
-	deleted          map[string]bool
-	runs             map[string]ExecutionPlanRun
-	intents          map[string]executionPlanIntentReceipt
-	owners           map[string]AccountExecutionOwner
-	accounts         map[string]string
-	ownerHashes      map[string]string
-	runClaims        map[string]executionPlanRunClaimReceipt
-	positions        *MemoryPositionStore
-	runRequestHashes map[string]string
-	runUpdates       map[string]executionPlanRunClaimReceipt
-	taskRuns         *MemoryTaskRunStore
-	reports          map[string]ExecutionPlanReport
+	waits               map[string]ExecutionPlanWait
+	reportNotifyChanged func(string, string)
+	mu                  sync.Mutex
+	plans               map[string]ExecutionPlan
+	deleted             map[string]bool
+	runs                map[string]ExecutionPlanRun
+	intents             map[string]executionPlanIntentReceipt
+	owners              map[string]AccountExecutionOwner
+	accounts            map[string]string
+	ownerHashes         map[string]string
+	runClaims           map[string]executionPlanRunClaimReceipt
+	positions           *MemoryPositionStore
+	runRequestHashes    map[string]string
+	runUpdates          map[string]executionPlanRunClaimReceipt
+	taskRuns            *MemoryTaskRunStore
+	reports             map[string]ExecutionPlanReport
 }
 
 // NewMemoryExecutionPlanStore 创建开发和契约测试用计划存储。
