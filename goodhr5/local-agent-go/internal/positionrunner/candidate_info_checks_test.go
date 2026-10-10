@@ -141,7 +141,11 @@ func TestM1CandidateInfoSameNamesAndBudget(t *testing.T) {
 	now := time.Now()
 	f.beforeSubmit = func(string) { now = now.Add(61 * time.Second) }
 	remaining := []string{}
-	options := StartOptions{LocalRunID: "local-run", CloudAPIBase: cloud.URL, Token: "fixture", candidateInfoBatchIDs: ids, candidateInfoRemaining: &remaining, actionNow: func() time.Time { return now }}
+	checkpoint, err := db.CreateActionRun(t.Context(), localdb.ActionCheckpoint{PositionID: position.ID, Platform: "boss", ProfileScope: platformcore.ReplyHash("profile:default"), CloudRunID: "fixture-original-task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := StartOptions{LocalRunID: checkpoint.RunID, CloudRunID: checkpoint.CloudRunID, CloudAPIBase: cloud.URL, Token: "fixture", candidateInfoBatchIDs: ids, candidateInfoRemaining: &remaining, actionNow: func() time.Time { return now }}
 	r.performCandidateInfoChecks(t.Context(), position, f, options)
 	if len(f.submitted) != 1 || len(remaining) != 1 || len(f.identityIDs) != 1 {
 		t.Fatalf("预算耗尽未保留队列：submitted=%v remaining=%v ids=%v", f.submitted, remaining, f.identityIDs)

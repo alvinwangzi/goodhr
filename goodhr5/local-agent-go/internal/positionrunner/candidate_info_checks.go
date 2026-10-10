@@ -249,7 +249,13 @@ func (r *Runner) performCandidateInfoChecks(ctx context.Context, position locald
 				}
 				continue
 			}
-			if err := r.db.ClaimCandidateInfoAction(item.ID, action); err != nil {
+			var claimErr error
+			if options.LocalRunID != "" {
+				claimErr = r.db.ClaimCandidateInfoForRun(ctx, item.ID, action, options.LocalRunID)
+			} else {
+				claimErr = r.db.ClaimCandidateInfoAction(item.ID, action)
+			}
+			if claimErr != nil {
 				_ = operator.CancelCandidateInfoRequest(ctx, exec, target, conversation, prepared)
 				continue
 			}

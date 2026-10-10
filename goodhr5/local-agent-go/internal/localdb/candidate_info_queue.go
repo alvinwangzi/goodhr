@@ -2,6 +2,7 @@
 package localdb
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -142,10 +143,13 @@ func (db *DB) SaveCandidateInfoResult(id, action, state string) error {
 	if state != "requested" && state != "unknown" && state != "satisfied" {
 		return fmt.Errorf("不支持的索要结果")
 	}
-	path := "$." + action
-	result, err := db.conn.Exec(`UPDATE resume_request_queue SET info_results=json_set(info_results,?,?),updated_at=? WHERE id=? AND COALESCE(json_extract(info_results,?),'') NOT IN ('requested','satisfied')`, path, state, nowISO(), id, path)
+	tx, err := db.conn.BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
-	return requireResumeRequestRow(result, id)
+	defer tx.Rollback()
+	if err := saveInfoResultTx(context.Background(), tx, id, action, state); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
