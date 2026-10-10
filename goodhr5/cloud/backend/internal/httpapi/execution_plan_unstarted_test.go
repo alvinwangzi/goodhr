@@ -15,6 +15,7 @@ func testUnstartedWaitReport(t *testing.T, store ExecutionPlanStore) {
 	loc, _ := time.LoadLocation(plan.Config.Schedule.Timezone)
 	window := plan.Config.Schedule.Windows[0]
 	start := time.Date(2026, 10, 10, window.StartMinute/60, window.StartMinute%60, 0, 0, loc)
+	plan = freezePlanIntentTimeFixture(t, store, plan, start)
 	request, _ := newExecutionPlanID()
 	wait := ExecutionPlanWait{PlanID: plan.ID, RequestID: request, ActivationID: plan.ActivationID, ConfigVersion: plan.Version, MachineID: plan.MachineID, TriggeredAt: start}
 	if _, err := store.RecordWait(t.Context(), "", email, wait); err != nil {
@@ -27,7 +28,7 @@ func testUnstartedWaitReport(t *testing.T, store ExecutionPlanStore) {
 	if err != nil || len(runs) != 0 {
 		t.Fatal("到点排队被误认为实际开始", err)
 	}
-	closed := start.Add(48 * time.Hour)
+	closed := start.Add(24 * time.Hour)
 	if err := store.SettleUnstartedWaits(t.Context(), closed, 20); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,12 @@ func TestUnstartedDoesNotReplaceClaim(t *testing.T) {
 	if err != nil || run.State != original.Run.State || run.Sequence != original.Run.Sequence || run.OwnerID != original.Run.OwnerID {
 		t.Fatal("日末假未开始覆盖真实领取", err)
 	}
-	if len(store.reports) != 0 {
+	if _, exists := store.reports[original.Run.ID]; exists {
 		t.Fatal("已领取运行生成了假未开始报告")
+	}
+	for _, report := range store.reports {
+		if report.Summary.ExecutionDate == original.Run.ExecutionDate {
+			t.Fatal("原日期被另一个假未开始报告覆盖")
+		}
 	}
 }

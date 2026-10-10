@@ -68,7 +68,10 @@ func (s *MemoryExecutionPlanStore) SettleUnstartedWaits(ctx context.Context, now
 	if limit < 1 || limit > 100 {
 		return ErrExecutionPlanRequest
 	}
-	count := 0
+	count, err := s.settleOfflineArmsLocked(ctx, now, limit)
+	if err != nil || count >= limit {
+		return err
+	}
 	for key, wait := range s.waits {
 		config, exists := s.waitSnapshots[key]
 		if !exists {
@@ -100,18 +103,8 @@ func (s *MemoryExecutionPlanStore) SettleUnstartedWaits(ctx context.Context, now
 			}
 			summary.NextNominalAt = view.NominalAt
 		}
-		hash, _, err := reportHash(summary)
-		if err != nil {
+		if err := s.saveUnstartedReportLocked(run, summary, now); err != nil {
 			return err
-		}
-		s.runs[run.ID] = run
-		if s.reports == nil {
-			s.reports = map[string]ExecutionPlanReport{}
-		}
-		s.reports[run.ID] = ExecutionPlanReport{RunID: run.ID, BodyHash: hash, Summary: summary, SyncState: "confirmed", NotificationState: "pending", CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
-		if s.reportNotifyChanged != nil {
-			plan := s.plans[run.PlanID]
-			s.reportNotifyChanged(plan.TenantID, plan.UserEmail)
 		}
 		count++
 		if count >= limit {
@@ -126,6 +119,11 @@ func (s *PostgresExecutionPlanStore) SettleUnstartedWaits(ctx context.Context, n
 	if limit < 1 || limit > 100 {
 		return ErrExecutionPlanRequest
 	}
+	count, err := s.settleOfflineArms(ctx, now, limit)
+	if err != nil || count >= limit {
+		return err
+	}
+	limit -= count
 	rows, err := s.db.QueryContext(ctx, `SELECT w.plan_id::text,w.request_id::text FROM execution_plan_waits w JOIN execution_plan_wait_snapshots f ON f.plan_id=w.plan_id AND f.request_id=w.request_id WHERE w.triggered_at<$1 AND NOT EXISTS(SELECT 1 FROM execution_plan_runs r WHERE r.plan_id=w.plan_id AND r.activation_id=w.activation_id AND r.execution_date=f.execution_date) ORDER BY w.triggered_at,w.request_id LIMIT $2`, now, limit)
 	if err != nil {
 		return err
@@ -193,20 +191,7 @@ func (s *PostgresExecutionPlanStore) settleUnstartedWait(ctx context.Context, pl
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	configRaw, _ := json.Marshal(config)
-	_, err = tx.ExecContext(ctx, `INSERT INTO execution_plan_runs(id,plan_id,activation_id,execution_date,config_version,snapshot,state,owner_id,finished_at,end_reason) VALUES($1,$2,$3,$4,$5,$6,'incomplete',NULL,$7,'plan_never_started')`, run.ID, run.PlanID, run.ActivationID, run.ExecutionDate, run.ConfigVersion, string(configRaw), run.FinishedAt)
-	if err != nil {
-		return err
-	}
-	if err = insertPlanItemRuns(ctx, tx, run.ID, run.Items); err != nil {
-		return err
-	}
-	hash, body, err := reportHash(summary)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO execution_plan_reports(run_id,summary,body_hash,sync_state,notification_state) VALUES($1,$2,$3,'confirmed','pending')`, run.ID, string(body), hash)
-	if err != nil {
+	if err = insertUnstartedReportTx(ctx, tx, run, summary); err != nil {
 		return err
 	}
 	return tx.Commit()
