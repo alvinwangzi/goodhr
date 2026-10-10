@@ -10,6 +10,7 @@ import (
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/planoperations"
+	"goodhr5/local-agent-go/internal/positionrunner"
 	"time"
 )
 
@@ -40,6 +41,7 @@ func (r *M1ExecutionRuntime) StageFailureRelease(ctx context.Context, state, rea
 		return localdb.PlanOperation{}, err
 	}
 	unknownPrepare := false
+	var lookupErr error
 	for _, operation := range operations {
 		if operation.OwnerID != r.held.Permit.Run.OwnerID {
 			continue
@@ -61,20 +63,22 @@ func (r *M1ExecutionRuntime) StageFailureRelease(ctx context.Context, state, rea
 	}
 	if unknownPrepare {
 		if r.authority.StillCurrent == nil || !r.authority.StillCurrent() {
-			return localdb.PlanOperation{}, ErrPlanAuthority
+			lookupErr = ErrPlanAuthority
+		} else {
+			actual, err := r.coordinator.client.ExecutionPlanRun(cleanup, r.authority.Token, run.ID)
+			if err != nil {
+				lookupErr = err
+			} else {
+				if actual.ID != run.ID || actual.PlanID != run.PlanID || actual.OwnerID != run.OwnerID || actual.ActivationID != run.ActivationID || actual.ConfigVersion != run.ConfigVersion || actual.ExecutionDate != run.ExecutionDate || !r.authority.StillCurrent() {
+					return localdb.PlanOperation{}, ErrPlanAuthority
+				}
+				// 保存方法校验原编排、任务与数量，不能用只读核对改绑另一运行。
+				if err := r.coordinator.db.SavePlanRunSnapshot(cleanup, r.held.scope, actual); err != nil {
+					return localdb.PlanOperation{}, err
+				}
+				run = actual
+			}
 		}
-		actual, err := r.coordinator.client.ExecutionPlanRun(cleanup, r.authority.Token, run.ID)
-		if err != nil {
-			return localdb.PlanOperation{}, err
-		}
-		if actual.ID != run.ID || actual.PlanID != run.PlanID || actual.OwnerID != run.OwnerID || actual.ActivationID != run.ActivationID || actual.ConfigVersion != run.ConfigVersion || actual.ExecutionDate != run.ExecutionDate || !r.authority.StillCurrent() {
-			return localdb.PlanOperation{}, ErrPlanAuthority
-		}
-		// 保存方法校验原编排、任务与数量，不能用只读核对改绑另一运行。
-		if err := r.coordinator.db.SavePlanRunSnapshot(cleanup, r.held.scope, actual); err != nil {
-			return localdb.PlanOperation{}, err
-		}
-		run = actual
 	}
 	for _, operation := range operations {
 		if operation.OwnerID != run.OwnerID || operation.Kind != "status" || operation.State != "pending" {
@@ -122,6 +126,20 @@ func (r *M1ExecutionRuntime) StageFailureRelease(ctx context.Context, state, rea
 			}
 			run.Items[index].Actions[action] = progress
 		}
+	}
+	if lookupErr != nil {
+		if !r.held.Reservation.CleanupReady() {
+			return localdb.PlanOperation{}, positionrunner.ErrPlanBrowserCleanup
+		}
+		_, err := r.coordinator.requests.StageCleanup(cleanup, r.held.scope, planoperations.CleanupIntent{Run: run, ClaimRequestID: r.held.claimRequestID, State: state, Reason: reason, CleanupConfirmed: true})
+		if err != nil {
+			return localdb.PlanOperation{}, err
+		}
+		if err := r.held.Reservation.Release(true); err != nil {
+			return localdb.PlanOperation{}, err
+		}
+		r.settling = true
+		return localdb.PlanOperation{}, planoperations.ErrCleanupQueued
 	}
 	return r.coordinator.ReleaseAfterCleanup(cleanup, r.held, run, uuid.NewString(), state, reason, true)
 }

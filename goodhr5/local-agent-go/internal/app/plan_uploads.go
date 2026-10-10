@@ -88,6 +88,9 @@ func (s *Server) processPlanUploads(parent context.Context, store *planoperation
 	for i := 0; i < 8; i++ {
 		sent, err := store.UploadNext(ctx, client, authority)
 		if err == nil && !sent {
+			sent, err = store.ResolveNextCleanup(ctx, client, authority)
+		}
+		if err == nil && !sent {
 			sent, err = store.UploadNextStop(ctx, client, authority)
 		}
 		if err != nil {

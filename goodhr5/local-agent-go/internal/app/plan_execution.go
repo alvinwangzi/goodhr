@@ -277,7 +277,12 @@ func (s *Server) settlePlanExecution(parent context.Context, active *planExecuti
 			_, err = active.coordinator.ReleaseAfterCleanup(ctx, active.execution.Held, active.execution.Held.Permit.Run, uuid.NewString(), state, reason, true)
 		}
 		if err != nil {
-			return err
+			if errors.Is(err, planoperations.ErrCleanupQueued) {
+				active.staged = true
+				s.signalPlanUploads()
+			} else {
+				return err
+			}
 		}
 		active.staged = true
 		s.signalPlanUploads()

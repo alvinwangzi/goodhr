@@ -61,6 +61,13 @@ func (p *PlanBrowserReservation) CleanupReleased() bool {
 	return p.released
 }
 
+// CleanupReady 证明所有子引用已经交还，保存清理事实前不能仅靠取消上下文推断。
+func (p *PlanBrowserReservation) CleanupReady() bool {
+	p.runner.mu.Lock()
+	defer p.runner.mu.Unlock()
+	return p.released || p.runner.browserLease == p.lease && p.lease.refs == 1
+}
+
 // Release 只有明确完成页面清理才能释放；迟到旧句柄或重复释放不会清除新的预留。
 func (p *PlanBrowserReservation) Release(cleanupConfirmed bool) error {
 	p.stepMu.Lock()

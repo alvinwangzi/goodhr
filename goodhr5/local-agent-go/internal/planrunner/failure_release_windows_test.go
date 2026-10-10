@@ -4,6 +4,7 @@ package planrunner
 import (
 	"context"
 	"errors"
+	"goodhr5/local-agent-go/internal/planoperations"
 	"goodhr5/local-agent-go/internal/positionrunner"
 	"sync/atomic"
 	"testing"
@@ -116,8 +117,8 @@ func TestFailureReleaseReadsUnknownPreparation(t *testing.T) {
 	}
 	runtime := NewM1ExecutionRuntime(c, held, a, positionrunner.StartOptions{})
 	current.Store(false)
-	if _, err := runtime.StageFailureRelease(t.Context(), "blocked", "plan_prepare_failed"); !errors.Is(err, ErrPlanAuthority) || !held.Reservation.Valid() {
-		t.Fatal("未核对关联就释放", err)
+	if _, err := runtime.StageFailureRelease(t.Context(), "blocked", "plan_prepare_failed"); !errors.Is(err, planoperations.ErrCleanupQueued) || !held.Reservation.CleanupReleased() {
+		t.Fatal("未持久保存清理或未交还已清理引用", err)
 	}
 	current.Store(true)
 	if err := runtime.UseSettlementAuthority(t.Context(), a); err != nil {
@@ -126,7 +127,10 @@ func TestFailureReleaseReadsUnknownPreparation(t *testing.T) {
 	if _, err := runtime.Boundary(t.Context(), held.Permit); !errors.Is(err, ErrPlanNeedsSettlement) {
 		t.Fatal("收尾授权重新开放页面步骤", err)
 	}
-	op, err := runtime.StageFailureRelease(t.Context(), "blocked", "plan_prepare_failed")
+	if progressed, err := c.requests.ResolveNextCleanup(t.Context(), c.client, a); err != nil || !progressed {
+		t.Fatal("恢复后不能核对原清理", err)
+	}
+	op, err := c.db.NextPlanUpdate(t.Context(), a.OwnerScope)
 	if err != nil {
 		t.Fatal(err)
 	}
