@@ -14,6 +14,7 @@ export function reportNotificationText(state: string) { return ({ pending: "等�
 
 /** reportReasonText 显示明确中文结论，未知工程代码不冒充已完成。 */
 export function reportReasonText(reason: string) {
+	if (reason==="plan_never_started") return "当天任务一直排队，未实际开始";
   return ({ plan_work_finished: "所选动作当前工作已完成", plan_window_ended: "执行时间段已结束", plan_execution_failed: "执行遇到异常，请查看原任务详情", plan_authority_or_stop: "计划已停止或登录状态发生变化", plan_window_closed_during_start: "准备过程中执行时段已结束" } as Record<string, string>)[reason] || (/[\u3400-\u9fff]/.test(reason) ? reason : "结束原因待核对");
 }
 

@@ -32,7 +32,10 @@ func reportNoticeHTML(r ExecutionPlanReport) string {
 	var body strings.Builder
 	body.WriteString("<h2>HRPlus 执行计划报告</h2><p>计划：" + html.EscapeString(r.Summary.PlanName) + "</p><p>执行日期：" + html.EscapeString(r.Summary.ExecutionDate) + "</p>")
 	if r.Summary.Kind == "day_incomplete" {
-		body.WriteString("<p>这个计划当天没有跑完，请调整岗位顺序或执行时间。计划仍保持启用，下一执行日从第一个岗位开始。</p>")
+		body.WriteString("<p>这个计划当天没有跑完，请调整岗位顺序或执行时间。报告不会停用周期计划；周期计划保持启用时，下一执行日从第一个岗位开始。一次性计划没有次日安排。</p>")
+		if r.Summary.EndReason == "plan_never_started" {
+			body.WriteString("<p>当天任务已登记排队，但未实际开始，所有岗位动作均未执行。</p>")
+		}
 	}
 	body.WriteString("<p>结束原因：" + html.EscapeString(r.Summary.EndReason) + "</p><ul>")
 	for _, item := range r.Summary.Items {

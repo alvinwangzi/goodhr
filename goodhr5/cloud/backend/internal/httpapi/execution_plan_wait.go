@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -84,6 +85,10 @@ func (s *MemoryExecutionPlanStore) RecordWait(ctx context.Context, tenant, email
 	}
 	input.TriggeredAt = input.TriggeredAt.UTC()
 	s.waits[key] = clonePlanWait(input)
+	if s.waitSnapshots == nil {
+		s.waitSnapshots = map[string]ExecutionPlanConfig{}
+	}
+	s.waitSnapshots[key] = cloneExecutionPlan(plan).Config
 	return clonePlanWait(input), nil
 }
 
@@ -114,6 +119,12 @@ func (s *PostgresExecutionPlanStore) RecordWait(ctx context.Context, tenant, ema
 	}
 	input.TriggeredAt = input.TriggeredAt.UTC()
 	_, err = tx.ExecContext(ctx, `INSERT INTO execution_plan_waits(plan_id,request_id,activation_id,config_version,machine_id,triggered_at,queued_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, input.PlanID, input.RequestID, input.ActivationID, input.ConfigVersion, input.MachineID, input.TriggeredAt, input.QueuedAt)
+	if err != nil {
+		return input, err
+	}
+	loc, _ := time.LoadLocation(plan.Config.Schedule.Timezone)
+	raw, _ := json.Marshal(plan.Config)
+	_, err = tx.ExecContext(ctx, `INSERT INTO execution_plan_wait_snapshots(plan_id,request_id,execution_date,snapshot) VALUES($1,$2,$3,$4)`, input.PlanID, input.RequestID, input.TriggeredAt.In(loc).Format("2006-01-02"), string(raw))
 	if err != nil {
 		return input, err
 	}

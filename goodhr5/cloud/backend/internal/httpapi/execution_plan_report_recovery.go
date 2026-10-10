@@ -99,6 +99,9 @@ func (s *PostgresExecutionPlanStore) ReportNotificationWork(ctx context.Context,
 
 // processReportNotifications 每轮只处理有限原记录，成功、未知和未配置仍是不同结论。
 func (s *ExecutionPlanService) processReportNotifications(ctx context.Context, now time.Time) error {
+	if err := s.store.SettleUnstartedWaits(ctx, now, 20); err != nil {
+		return err
+	}
 	ready := s.execution != nil && reportMailerReady(s.execution.mailer)
 	work, err := s.store.ReportNotificationWork(ctx, now.Add(-5*time.Minute), ready, 20)
 	if err != nil {

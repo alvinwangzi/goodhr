@@ -40,6 +40,7 @@ type ExecutionPlanStore interface {
 	ClaimReportNotification(context.Context, string, string, string, string) (ExecutionPlanReport, bool, error)
 	FinishReportNotification(context.Context, string, string, string, string, string, string) error
 	ReportNotificationWork(context.Context, time.Time, bool, int) ([]ExecutionPlanNotificationWork, error)
+	SettleUnstartedWaits(context.Context, time.Time, int) error
 }
 
 // newExecutionPlanID 生成真实 UUID，内存与 PostgreSQL 使用相同编号格式。
@@ -76,6 +77,7 @@ type MemoryExecutionPlanStore struct {
 	itemLogs            map[string]storedPlanItemLog
 	itemLogSequence     int64
 	waits               map[string]ExecutionPlanWait
+	waitSnapshots       map[string]ExecutionPlanConfig
 	reportNotifyChanged func(string, string)
 	mu                  sync.Mutex
 	plans               map[string]ExecutionPlan
