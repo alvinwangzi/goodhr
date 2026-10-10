@@ -36,6 +36,12 @@ func TestReportSnapshotRestart(t *testing.T) {
 	if err := db.SetPlanReportSync(t.Context(), "A", report.RunID, first.BodyHash, "confirmed"); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.ConfirmPlanReportUpload(t.Context(), first); !errors.Is(err, ErrPlanSnapshotStale) {
+		t.Fatal("旧同步状态回执确认后来状态", err)
+	}
+	if pending, err := db.NextPlanReportUpload(t.Context(), "A"); err != nil || pending.SyncState != "confirmed" {
+		t.Fatal("后来状态未保留待补传", err)
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}

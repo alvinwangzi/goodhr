@@ -102,7 +102,7 @@ func (db *DB) SetPlanReportSync(ctx context.Context, scope, runID, hash, state s
 	if state != "pending" && state != "confirmed" {
 		return ErrPlanRequestConflict
 	}
-	result, err := db.conn.ExecContext(ctx, `UPDATE plan_report_snapshots SET sync_state=? WHERE owner_scope=? AND run_id=? AND body_hash=?`, state, scope, runID, hash)
+	result, err := db.conn.ExecContext(ctx, `UPDATE plan_report_snapshots SET upload_state=CASE WHEN sync_state<>? THEN 'pending' ELSE upload_state END,sync_state=? WHERE owner_scope=? AND run_id=? AND body_hash=?`, state, state, scope, runID, hash)
 	if err != nil {
 		return err
 	}
@@ -112,6 +112,27 @@ func (db *DB) SetPlanReportSync(ctx context.Context, scope, runID, hash, state s
 	}
 	if n != 1 {
 		return ErrPlanRequestConflict
+	}
+	return nil
+}
+
+// NextPlanReportUpload 读取原账号的原报告补传，不重新生成摘要或通知接收人。
+func (db *DB) NextPlanReportUpload(ctx context.Context, scope string) (PlanReportRecord, error) {
+	return scanPlanReport(db.conn.QueryRowContext(ctx, `SELECT owner_scope,run_id,body_hash,summary_json,upload_state,sync_state FROM plan_report_snapshots WHERE owner_scope=? AND upload_state='pending' ORDER BY run_id LIMIT 1`, scope))
+}
+
+// ConfirmPlanReportUpload 只确认发送时的原内容和同步状态，迟到旧回执不确认后来状态。
+func (db *DB) ConfirmPlanReportUpload(ctx context.Context, o PlanReportRecord) error {
+	result, err := db.conn.ExecContext(ctx, `UPDATE plan_report_snapshots SET upload_state='confirmed' WHERE owner_scope=? AND run_id=? AND body_hash=? AND sync_state=?`, o.OwnerScope, o.RunID, o.BodyHash, o.SyncState)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrPlanSnapshotStale
 	}
 	return nil
 }

@@ -68,6 +68,7 @@ func (s *Server) saveEndedPlanReports(ctx context.Context, plans []planmodel.Pla
 		if err != nil {
 			return err
 		}
+		s.signalPlanUploads()
 	}
 	return nil
 }

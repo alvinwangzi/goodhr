@@ -3,6 +3,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/planmodel"
@@ -112,6 +114,19 @@ func backgroundPlanFixtureConfigured(t *testing.T, holdPreparation bool, afterPr
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": permit})
 		case r.URL.Path == "/api/positions/same-job":
 			_ = json.NewEncoder(w).Encode(map[string]any{"position": map[string]any{"id": "same-job", "name": "fixture", "platform_id": "boss"}})
+		case strings.HasSuffix(r.URL.Path, "/report"):
+			var input struct {
+				Summary   planmodel.Report `json:"summary"`
+				SyncState string           `json:"sync_state"`
+				MachineID string           `json:"machine_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			raw, _ := json.Marshal(input.Summary)
+			hash := sha256.Sum256(raw)
+			now := time.Now().UTC()
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "report": cloudapi.PlanReportReceipt{RunID: input.Summary.RunID, BodyHash: hex.EncodeToString(hash[:]), Summary: input.Summary, SyncState: input.SyncState, NotificationState: "pending", CreatedAt: now, UpdatedAt: now}})
 		case strings.HasSuffix(r.URL.Path, "/release"):
 			var input cloudapi.PlanRunUpdateRequest
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
