@@ -6,8 +6,57 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// TestExecutionPlanPlatformCapabilities 验证四平台已开放打招呼、仅 Boss 消息、关闭与未知平台的 HTTP 保存边界。
+func TestExecutionPlanPlatformCapabilities(t *testing.T) {
+	for _, platform := range []string{"boss", "hliepin", "liepin", "zhaopin", "unknown"} {
+		t.Run(platform, func(t *testing.T) {
+			server := mustNewServer(t)
+			routes := server.Routes()
+			email := "capability-" + platform + "@example.com"
+			token := loginForTest(t, routes, email)
+			bindPositionDeviceForTest(t, routes, token)
+			if _, err := server.positions.subscriptions.AdjustSubscriptionDays(email, memberTypePro, 30); err != nil {
+				t.Fatal(err)
+			}
+			position, err := server.positions.store.SavePosition(Position{UserEmail: email, PlatformID: platform, Name: "HRPlus 虚构平台岗位", CommonConfig: map[string]any{"mode_default": "keyword"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, action := range []string{"greeting", "auto_reply", "re_greet", "closed"} {
+				open := action != "closed"
+				body, _ := json.Marshal(map[string]any{"id": platform, "open": open})
+				if err := server.positions.systemConfigs.Save(SystemConfig{ConfigKey: "platform." + platform, ConfigValue: string(body), Enabled: true}); err != nil {
+					t.Fatal(err)
+				}
+				config := validPlanConfig()
+				config.Items = config.Items[:1]
+				config.Items[0].PositionID = position.ID
+				config.Items[0].PrioritizeReply = false
+				selected := action
+				if !open {
+					selected = "greeting"
+				}
+				config.Items[0].Actions = []string{selected}
+				raw, _ := json.Marshal(map[string]any{"machine_id": positionTestMachineID, "expected_version": 0, "config": config})
+				request := httptest.NewRequest(http.MethodPost, "/api/execution-plans", bytes.NewReader(raw))
+				request.Header.Set("Authorization", "Bearer "+token)
+				response := httptest.NewRecorder()
+				routes.ServeHTTP(response, request)
+				allowed := platform != "unknown" && open && (selected == "greeting" || platform == "boss")
+				if allowed && response.Code != http.StatusOK {
+					t.Fatalf("%s/%s 应可保存：%s", platform, action, response.Body.String())
+				}
+				if !allowed && (response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "平台")) {
+					t.Fatalf("%s/%s 未明确拒绝：%s", platform, action, response.Body.String())
+				}
+			}
+		})
+	}
+}
 
 // TestExecutionPlanAPI 验证重复岗位保存、缺失绑定、未知字段、越权与版本冲突。
 func TestExecutionPlanAPI(t *testing.T) {
