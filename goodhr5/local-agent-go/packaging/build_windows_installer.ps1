@@ -25,18 +25,32 @@ function Write-Step {
 # 清理旧的构建产物，避免残留文件影响新包。
 Write-Step "清理旧构建产物"
 foreach ($dir in @($DistBinDir, $DistInputDir, $DistInstallerDir)) {
+  $distBoundary = [System.IO.Path]::GetFullPath((Join-Path $RootDir 'dist')) + [System.IO.Path]::DirectorySeparatorChar
+  $resolvedTarget = [System.IO.Path]::GetFullPath($dir)
+  if (-not $resolvedTarget.StartsWith($distBoundary, [StringComparison]::OrdinalIgnoreCase)) { throw "构建清理目录不在工作区 dist 内：$resolvedTarget" }
+  foreach ($checkedPath in @((Join-Path $RootDir 'dist'), (Split-Path -Parent $resolvedTarget), $resolvedTarget)) {
+    if ((Test-Path -LiteralPath $checkedPath) -and ((Get-Item -LiteralPath $checkedPath).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "构建清理目录包含链接，停止清理：$checkedPath" }
+  }
   if (Test-Path $dir) {
-    Remove-Item -Recurse -Force $dir
+    Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
     Write-Step "已删除: $dir"
   }
 }
-# $ConsoleInputDir = Join-Path $DistInputDir "console"
+$ConsoleInputDir = Join-Path $DistInputDir "console"
 $SourceExe = Join-Path $RootDir "dist\bin\$Environment\hrplus-agent-$Environment-windows-amd64.exe"
 $TargetExe = Join-Path $DistInputDir "hrplus-agent.exe"
 $IssPath = Join-Path $PSScriptRoot "GoodHRLocalAgentGo.iss"
-# 暂时不把 frontend-next 打进本地程序安装包，避免前端构建影响本地程序打包。
-# $FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend-next")
-# $FrontendOutDir = Join-Path $FrontendDir "out"
+$FrontendDir = Resolve-Path (Join-Path $RootDir "..\cloud\frontend-next")
+$FrontendOutDir = Join-Path $FrontendDir "out"
+if (-not $ConfigFile) { $ConfigFile = Join-Path $PSScriptRoot "environments\$Environment.json" }
+$ConfigFile = (Resolve-Path -LiteralPath $ConfigFile).Path
+$ConsoleConfigHash = (Get-FileHash -LiteralPath $ConfigFile -Algorithm SHA256).Hash
+New-Item -ItemType Directory -Force -Path $DistBinDir | Out-Null
+$BuildConfigSnapshot = Join-Path $DistBinDir 'console-build-config.json'
+Copy-Item -LiteralPath $ConfigFile -Destination $BuildConfigSnapshot
+if ($ConsoleConfigHash -ne (Get-FileHash -LiteralPath $BuildConfigSnapshot -Algorithm SHA256).Hash) { throw '环境配置快照不一致，停止构建。' }
+$ConsoleBuildConfig = Get-Content -LiteralPath $BuildConfigSnapshot -Raw | ConvertFrom-Json
+$ConsoleCloudAPIBase = [string]$ConsoleBuildConfig.cloud_api_base
 
 # Find-InnoSetup locates the Inno Setup compiler.
 # Returns the ISCC.exe path.
@@ -58,54 +72,13 @@ function Find-InnoSetup {
   throw "Inno Setup compiler ISCC.exe was not found. Please install Inno Setup 6 first."
 }
 
-# Find-Npm locates npm.cmd to avoid PowerShell execution policy issues.
-# Returns the npm.cmd path.
-function Find-Npm {
-  $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
-  if ($npm) {
-    return $npm.Source
-  }
-  $candidates = @(
-    "$env:ProgramFiles\nodejs\npm.cmd",
-    "${env:ProgramFiles(x86)}\nodejs\npm.cmd",
-    "$env:APPDATA\npm\nnpm.cmd"
-  )
-  foreach ($candidate in $candidates) {
-    if (Test-Path $candidate) {
-      return $candidate
-    }
-  }
-  throw "npm.cmd was not found. Please reinstall Node.js LTS or reopen PowerShell after installation."
-}
-
-# Ensure-NodeOnPath makes node.exe visible to npm child scripts.
-# npm install may call "node install.js", so node.exe must be on PATH.
-function Ensure-NodeOnPath {
-  if (Get-Command "node.exe" -ErrorAction SilentlyContinue) {
-    return
-  }
-  $candidates = @(
-    "$env:ProgramFiles\nodejs\node.exe",
-    "${env:ProgramFiles(x86)}\nodejs\node.exe"
-  )
-  foreach ($candidate in $candidates) {
-    if (Test-Path $candidate) {
-      $nodeDir = Split-Path $candidate -Parent
-      $env:Path = "$nodeDir;$env:Path"
-      Write-Step "Node added to PATH: $nodeDir"
-      return
-    }
-  }
-  throw "node.exe was not found. Please reinstall Node.js LTS or reopen PowerShell after installation."
-}
-
 $iscc = Find-InnoSetup
 if (!(Test-Path (Join-Path $RootDir "worker-node\node_modules"))) {
   throw "缺少 Worker 依赖，请先在 worker-node 目录安装依赖后再创建安装包。"
 }
 Write-Step "构建 Windows x64 本地程序：环境=$Environment"
 $buildStartedAt = Get-Date
-& (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version -Environment $Environment -ConfigFile $ConfigFile
+& (Join-Path $RootDir "scripts\build_go_binary.ps1") -TargetOS windows -TargetArch amd64 -Version $Version -Environment $Environment -ConfigFile $BuildConfigSnapshot
 if ($LASTEXITCODE -ne 0) {
   throw "Go build script failed with exit code $LASTEXITCODE."
 }
@@ -116,37 +89,13 @@ if ((Get-Item $SourceExe).LastWriteTime -lt $buildStartedAt.AddSeconds(-2)) {
   throw "Go executable was not refreshed; refusing to package a stale file: $SourceExe"
 }
 
-# Write-Step "Build local console frontend"
-# $npm = Find-Npm
-# Ensure-NodeOnPath
-# Push-Location $FrontendDir
-# try {
-#   if (!(Test-Path (Join-Path $FrontendDir "node_modules"))) {
-#     Write-Step "Install frontend dependencies"
-#     & $npm install
-#     if ($LASTEXITCODE -ne 0) {
-#       throw "Frontend npm install failed with exit code $LASTEXITCODE."
-#     }
-#   }
-#   $env:GOODHR_STATIC_EXPORT = "1"
-#   & $npm run build
-#   if ($LASTEXITCODE -ne 0) {
-#     throw "Frontend build failed with exit code $LASTEXITCODE."
-#   }
-#   if (!(Test-Path (Join-Path $FrontendOutDir "index.html"))) {
-#     throw "Frontend static export output was not found: $FrontendOutDir"
-#   }
-# }
-# finally {
-#   Remove-Item Env:\GOODHR_STATIC_EXPORT -ErrorAction SilentlyContinue
-#   Pop-Location
-# }
-
+Write-Step "构建本地控制台静态页面"
+& (Join-Path $RootDir 'scripts\build_console.ps1') -CloudAPIBase $ConsoleCloudAPIBase
+if ($ConsoleConfigHash -ne (Get-FileHash -LiteralPath $ConfigFile -Algorithm SHA256).Hash -or $ConsoleConfigHash -ne (Get-FileHash -LiteralPath $BuildConfigSnapshot -Algorithm SHA256).Hash) { throw '构建期间环境配置发生变化，请重新打包。' }
 Write-Step "Prepare installer input directory"
 New-Item -ItemType Directory -Force -Path $DistInputDir | Out-Null
 Copy-Item -Force $SourceExe $TargetExe
 if (Test-Path (Join-Path $RootDir "worker-node")) {
-  Remove-Item -Recurse -Force (Join-Path $DistInputDir "worker-node") -ErrorAction SilentlyContinue
   Copy-Item -Recurse -Force (Join-Path $RootDir "worker-node") (Join-Path $DistInputDir "worker-node")
 }
 $sourceWorkerEntry = Join-Path $RootDir "worker-node\src\index.js"
@@ -163,12 +112,20 @@ if (-not (Select-String -LiteralPath $targetWorkerEntry -SimpleMatch 'const work
   throw "Worker automatic version marker is missing from installer input."
 }
 Write-Step "Worker source verified: SHA256=$sourceWorkerHash"
-# Remove-Item -Recurse -Force $ConsoleInputDir -ErrorAction SilentlyContinue
-# New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
-# Copy-Item -Recurse -Force (Join-Path $FrontendOutDir "*") $ConsoleInputDir
+New-Item -ItemType Directory -Force -Path $ConsoleInputDir | Out-Null
+Get-ChildItem -LiteralPath $FrontendOutDir | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $ConsoleInputDir -Recurse -Force }
+$consoleSourceHash = (Get-FileHash -LiteralPath (Join-Path $FrontendOutDir 'admin\execution-plans.html') -Algorithm SHA256).Hash
+$consoleTargetHash = (Get-FileHash -LiteralPath (Join-Path $ConsoleInputDir 'admin\execution-plans.html') -Algorithm SHA256).Hash
+if ($consoleSourceHash -ne $consoleTargetHash) { throw '执行计划页面复制校验失败，拒绝打包。' }
+foreach ($consoleSourceFile in (Get-ChildItem -LiteralPath $FrontendOutDir -Recurse -File)) {
+  $consoleRelativePath = $consoleSourceFile.FullName.Substring(([string]$FrontendOutDir).Length).TrimStart([IO.Path]::DirectorySeparatorChar)
+  $consoleTargetFile = Join-Path $ConsoleInputDir $consoleRelativePath
+  if (-not (Test-Path -LiteralPath $consoleTargetFile -PathType Leaf) -or (Get-FileHash -LiteralPath $consoleSourceFile.FullName -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $consoleTargetFile -Algorithm SHA256).Hash) { throw "控制台静态资源复制不一致：$consoleRelativePath" }
+}
+Write-Step '控制台全部静态文件复制校验通过'
 
 Write-Step "创建 Windows 安装包：环境=$Environment"
-& $iscc "/DMyAppVersion=$Version" "/DBuildEnvironment=$Environment" $IssPath
+& $iscc '/Q' "/DMyAppVersion=$Version" "/DBuildEnvironment=$Environment" $IssPath
 if ($LASTEXITCODE -ne 0) {
   throw "Inno Setup build failed with exit code $LASTEXITCODE."
 }

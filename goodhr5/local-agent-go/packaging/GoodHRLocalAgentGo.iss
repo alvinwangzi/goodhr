@@ -49,8 +49,7 @@ Source: "..\dist\installer-input\{#BuildEnvironment}\{#MyAppExeName}"; DestDir: 
 Source: "..\assets\icons\goodhr-logo.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\audio\*"; DestDir: "{app}\audio"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\installer-input\{#BuildEnvironment}\worker-node\*"; DestDir: "{app}\worker-node"; Flags: ignoreversion recursesubdirs createallsubdirs
-; 暂时不把 frontend-next 打进本地程序安装包，避免前端包影响本地程序打包。
-; Source: "..\dist\installer-input\console\*"; DestDir: "{userappdata}\HRPlus\console"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\installer-input\{#BuildEnvironment}\console\*"; DestDir: "{userappdata}\HRPlus\console"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\HR+"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\goodhr-logo.ico"
