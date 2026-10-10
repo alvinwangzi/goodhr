@@ -67,3 +67,11 @@ export async function readExecutionReport(runID: string): Promise<ExecutionRepor
 
 /** canEditExecutionPlan 停止收尾确认后才开放编辑，不能只看按钮或本地连接状态。 */
 export function canEditExecutionPlan(plan: ExecutionPlan) { return plan.state === "stopped" && !plan.stop_requested; }
+
+export type PlanProgressLog = { id: number; plan_run_id: string; item_run_id: string; task_run_id: string; level: string; message: string; created_at: string };
+/** readPlanProgressLogs 读取执行电脑的原进度日志，回执必须与原运行/项/任务一致，不发送开始命令。 */
+export async function readPlanProgressLogs(base: string, run: string, item: string, task: string, before = 0): Promise<{ logs: PlanProgressLog[]; next_before: number; message: string }> {
+  const result = await localRequest(base, `/api/v1/local/execution-plan-runs/${encodeURIComponent(run)}/items/${encodeURIComponent(item)}/logs?limit=100&before=${before}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (result.run_id !== run || result.item_run_id !== item || result.task_run_id !== task || !Array.isArray(result.logs) || result.logs.some((log: PlanProgressLog) => log.plan_run_id !== run || log.item_run_id !== item || log.task_run_id !== task)) throw new Error("日志与原执行项不一致，请重新核对");
+  return result;
+}

@@ -3,6 +3,7 @@
 import { Alert, Button, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
 import Link from "next/link";
 import { SectionPanel } from "./AdminUI";
+import ExecutionPlanItemLogs from "./ExecutionPlanItemLogs";
 import { PLAN_ACTION_LABELS, type PlanAction } from "@/lib/execution-plans";
 import { EXECUTION_STATE_LABELS, INFORMATION_LABELS, reportCountText, reportItemStatusText, reportNotificationText, reportReasonText, reportSyncText, reportTimeText, reportUnfinishedText, type ExecutionReport, type ReportCount } from "@/lib/execution-plan-report";
 
@@ -32,6 +33,7 @@ export default function ExecutionPlanReport({ report, timezone, positionNames }:
       <ResultTable counts={item.actions} labels={PLAN_ACTION_LABELS as Record<PlanAction, string>} />
       {Object.keys(item.information).length ? <><Typography>索要记录</Typography><ResultTable counts={item.information} labels={INFORMATION_LABELS} /></> : <Typography color="text.secondary">{item.details_available ? "本项没有索要记录" : "索要明细尚未齐备"}</Typography>}
       {item.task_run_id ? <Button component={Link} href={`/admin/position-runs/detail?run_id=${encodeURIComponent(item.task_run_id)}`}>查看本项原任务详情</Button> : <Typography color="text.secondary">本项尚未生成任务记录</Typography>}
+      {item.task_run_id && <ExecutionPlanItemLogs runID={summary.run_id} itemID={item.id} taskID={item.task_run_id} timezone={timezone} />}
     </Stack></SectionPanel>)}
   </Stack>;
 }

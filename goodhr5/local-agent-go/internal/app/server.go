@@ -169,6 +169,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/worker/status", s.handleWorkerStatus)
 	mux.HandleFunc("/api/v1/local/positions/", s.handleLocalPositionItem)
 	mux.HandleFunc("/api/v1/local/execution-plans/", s.handleLocalPlanStart)
+	mux.HandleFunc("/api/v1/local/execution-plan-runs/", s.handlePlanItemLogs)
 	mux.HandleFunc("/api/v1/local/ocr/status", s.handleLocalOCRStatus)
 	mux.HandleFunc("/api/v1/local/ocr/recognize", s.handleLocalOCRRecognize)
 	mux.HandleFunc("/api/v1/local/rules/status", s.handleLocalRulesStatus)
@@ -238,7 +239,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // autoReplyCapabilities 返回本地程序支持的扩展能力标志；前端只在标志明确为 true 时开放入口。
 // 当前包含单岗位协同动作及执行计划；旧程序没有标志时前端禁用对应运行入口。
 func autoReplyCapabilities() map[string]any {
-	return map[string]any{"auto_reply": true, "re_greet": true, "cooperative_actions": true, "execution_plans": true}
+	return map[string]any{"auto_reply": true, "re_greet": true, "cooperative_actions": true, "execution_plans": true, "execution_plan_item_logs": true}
 }
 
 // handleSessionBind 接收前端传来的登录令牌，读取或生成设备编号后请求云端绑定。

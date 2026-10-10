@@ -38,7 +38,7 @@ function fixtureResult(path, body, method) {
   if (path === "/__fixture/new-agent") { supportsPlans = true; return { ok: true }; }
   if (path === "/__fixture/state") return { plans, runs: Object.fromEntries(runs), mutations, starts };
   if (path === "/__fixture/confirm-stop") { for (const plan of plans) if (plan.stop_requested) { plan.stop_requested = false; plan.state = "stopped"; plan.state_sequence++; } changed(); return { ok: true }; }
-  if (path === "/health") return { ok: true, data: { version: "999.0.0", machine_id: machine, capabilities: { ...(supportsPlans ? { execution_plans: true } : {}), cooperative_actions: true, auto_reply: true, re_greet: true } } };
+  if (path === "/health") return { ok: true, data: { version: "999.0.0", machine_id: machine, capabilities: { ...(supportsPlans ? { execution_plans: true, execution_plan_item_logs:true } : {}), cooperative_actions: true, auto_reply: true, re_greet: true } } };
   if (path.includes("login-status")) return { status: { has_password: true, is_locked: false } };
   if (path.includes("agreement-status")) return { agreement_accepted: true };
   if (path.includes("login-password")) return { access_token: "m2-fixture-only-token", user: { email } };
@@ -67,6 +67,8 @@ function fixtureResult(path, body, method) {
     plan.state_sequence++; mutations.push({ action: match[2], request: body }); changed(); return { plan };
   }
   if (/^\/api\/v1\/local\/execution-plans\/[^/]+\/start$/.test(path)) { starts++; return { status: "waiting_time", message: "等待下个执行时间" }; }
+  const logsMatch=path.match(/^\/api\/v1\/local\/execution-plan-runs\/([^/]+)\/items\/([^/]+)\/logs$/);
+  if (logsMatch) { const report=reports.get(logsMatch[1]); const item=report?.summary.items.find(item=>item.id===logsMatch[2]); return {run_id:logsMatch[1],item_run_id:logsMatch[2],task_run_id:item?.task_run_id,logs:item?[{id:1,plan_run_id:logsMatch[1],item_run_id:item.id,task_run_id:item.task_run_id,level:"info",message:"夹具原执行项安全步骤返回，未知结果保留核对",created_at:"2026-10-10T12:03:00Z"}]:[],next_before:0,message:"夹具原执行项进度日志",local_only:true}; }
   return { ok: true, config: {}, invitations: [], data: {} };
 }
 
