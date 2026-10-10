@@ -1,0 +1,74 @@
+/** 本文件提供 HRPlus M2 浏览器表单验收的隔离接口，只使用虚构账号、岗位和设备，不连接真实服务或招聘页面。 */
+import http from "node:http";
+import { randomUUID } from "node:crypto";
+
+const email = "m2-qa@example.com";
+const machine = "m2-test-computer-A";
+const positions = [{ id: "20000000-0000-0000-0000-000000000001", name: "M2 Java测试岗位", platform_id: "boss", match_limit: 2, common_config: { position_name: "Java开发工程师" } }];
+const plans = [];
+const runs = new Map();
+const mutations = [];
+const subscribers = new Set();
+let starts = 0;
+let supportsPlans = true;
+
+/** changed 仅向隔离网页提示重读夹具状态，不会调度本地任务。 */
+function changed() { for (const response of subscribers) response.write("event: changed\ndata: {}\n\n"); }
+
+/** fixtureResult 提供表单与状态演示，所有开始只登记计数，没有执行器。 */
+function fixtureResult(path, body, method) {
+  if (path === "/__fixture/old-agent") { supportsPlans = false; return { ok: true }; }
+  if (path === "/__fixture/new-agent") { supportsPlans = true; return { ok: true }; }
+  if (path === "/__fixture/state") return { plans, runs: Object.fromEntries(runs), mutations, starts };
+  if (path === "/__fixture/confirm-stop") { for (const plan of plans) if (plan.stop_requested) { plan.stop_requested = false; plan.state = "stopped"; plan.state_sequence++; } changed(); return { ok: true }; }
+  if (path === "/health") return { ok: true, data: { version: "999.0.0", machine_id: machine, capabilities: { ...(supportsPlans ? { execution_plans: true } : {}), cooperative_actions: true, auto_reply: true, re_greet: true } } };
+  if (path.includes("login-status")) return { status: { has_password: true, is_locked: false } };
+  if (path.includes("agreement-status")) return { agreement_accepted: true };
+  if (path.includes("login-password")) return { access_token: "m2-fixture-only-token", user: { email } };
+  if (path === "/api/auth/me") return { user: { email, name: "M2 隔离验收", is_admin: true }, show_trial_welcome: false };
+  if (path === "/api/subscription/status") return { subscription: { active: true, member_type: "pro", member_name: "Pro会员", allow_ai: true, allow_auto_reply: true, remaining_days: 30, remaining_seconds: 2592000, features: [] } };
+  if (path === "/api/positions") return { positions };
+  if (path === "/api/agents/bindings") return { agents: [{ machine_id: machine, agent_version: "999.0.0", last_seen_at: "2026-10-10T09:00:00+08:00" }, { machine_id: "m2-test-computer-B", agent_version: "999.0.0", last_seen_at: "2026-10-09T09:00:00+08:00" }] };
+  if (path === "/api/runtime/config") return { config: { local_agent: [{ version: "1.0.0", url_win: "http://127.0.0.1:26284/test-only.exe" }] } };
+  if (path === "/api/ai-wallet") return { wallet: { balance_yuan: 100 } };
+  if (path === "/api/v1/runtime/status") return { node_installed: true, cloakbrowser_installed: true, components: { node_runtime: { installed: true }, cloakbrowser: { installed: true } } };
+  if (path === "/api/execution-plans" && method === "GET") return { plans };
+  if (path === "/api/execution-plans" && method === "POST") {
+    const old = plans.find(plan => plan.id === body.id);
+    if (old && (old.state !== "stopped" || old.stop_requested)) return { ok: false, error: "计划尚未停止并完成收尾，暂不能编辑" };
+    const plan = { id: old?.id || randomUUID(), machine_id: body.machine_id, version: (old?.version || 0) + 1, state_sequence: (old?.state_sequence || 0) + 1, activation_id: "", state: "stopped", stop_requested: false, config: body.config };
+    if (old) plans.splice(plans.indexOf(old), 1, plan); else plans.push(plan);
+    mutations.push({ action: "save", plan }); changed(); return { plan };
+  }
+  const match = path.match(/^\/api\/execution-plans\/([^/]+)\/(arm|stop|runs)$/);
+  if (match) {
+    const plan = plans.find(plan => plan.id === match[1]);
+    if (!plan) return { ok: false, error: "夹具计划不存在" };
+    if (match[2] === "runs") return { runs: runs.get(plan.id) || [] };
+    if (match[2] === "arm") { plan.state = "enabled"; plan.activation_id = randomUUID(); }
+    else plan.stop_requested = true;
+    plan.state_sequence++; mutations.push({ action: match[2], request: body }); changed(); return { plan };
+  }
+  if (/^\/api\/v1\/local\/execution-plans\/[^/]+\/start$/.test(path)) { starts++; return { status: "waiting_time", message: "等待下个执行时间" }; }
+  return { ok: true, config: {}, invitations: [], data: {} };
+}
+
+/** handle 只允许回环监听，未知接口不转发，订阅取消时释放原响应。 */
+async function handle(request, response) {
+  response.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:26373");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  if (request.method === "OPTIONS") { response.end(); return; }
+  const path = new URL(request.url, "http://fixture.invalid").pathname;
+  if (path === "/api/execution-plan-events") {
+    response.setHeader("Content-Type", "text/event-stream"); response.setHeader("Cache-Control", "no-cache");
+    subscribers.add(response); response.write("event: ready\ndata: {}\n\n");
+    response.on("close", () => subscribers.delete(response)); return;
+  }
+  let raw = "";
+  for await (const chunk of request) { raw += chunk; if (raw.length > 1048576) { response.writeHead(413); response.end(); return; } }
+  let body; try { body = JSON.parse(raw || "{}"); } catch { response.writeHead(400); response.end(); return; }
+  response.setHeader("Content-Type", "application/json");
+  response.end(JSON.stringify(fixtureResult(path, body, request.method)));
+}
+for (const port of [26284, 26329]) http.createServer(handle).listen(port, "127.0.0.1", () => process.stdout.write(`M2 UI fixture listening ${port}\n`));

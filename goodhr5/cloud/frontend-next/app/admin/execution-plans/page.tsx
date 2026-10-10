@@ -10,7 +10,7 @@ import { EmptyState, PageHeader, RefreshButton, SectionPanel } from "@/component
 import { cloudRequest, localRequest } from "@/lib/admin-api";
 import { canUseAutoReply } from "@/lib/subscription";
 import { subscribeExecutionPlanEvents } from "@/lib/execution-plan-events";
-import { canEditExecutionPlan, emptyPlanConfig, executionPlanIntent, executionPlanRuns, listExecutionPlans, PLAN_ACTION_LABELS, readExecutionReport, saveExecutionPlan, startExecutionPlan, timeMinute, timeText, validatePlanConfig, type ExecutionPlan, type ExecutionRun, type PlanAction, type PlanConfig } from "@/lib/execution-plans";
+import { canEditExecutionPlan, emptyPlanConfig, executionPlanIntent, executionPlanRuns, listExecutionPlans, PLAN_ACTION_LABELS, readExecutionReport, saveExecutionPlan, startExecutionPlan, timeMinute, timeText, validatePlanConfig, type ExecutionPlan, type ExecutionRun, type PlanAction, type PlanConfig, type PlanDevice } from "@/lib/execution-plans";
 
 type PositionOption = { id: string; name: string; platform_id: string; match_limit?: number };
 type WindowDraft = { id: string; start: string; end: string };
@@ -21,6 +21,8 @@ export default function ExecutionPlansPage() {
   const { agentBase, notify, confirm, subscription, user } = useAdmin();
   const [plans, setPlans] = useState<ExecutionPlan[]>([]);
   const [positions, setPositions] = useState<PositionOption[]>([]);
+  const [devices, setDevices] = useState<PlanDevice[]>([]);
+  const [deviceError, setDeviceError] = useState("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState("");
   const [machine, setMachine] = useState("");
@@ -41,9 +43,9 @@ export default function ExecutionPlansPage() {
     const current = ++generation.current;
     setLoading(true);
     try {
-      const [items, jobs] = await Promise.all([listExecutionPlans(), cloudRequest("/api/positions")]);
+      const [items, jobs, bindings] = await Promise.all([listExecutionPlans(), cloudRequest("/api/positions"), cloudRequest("/api/agents/bindings").catch(() => ({ agents: [], error: "绑定电脑暂时无法读取，请刷新后再选择" }))]);
       if (current !== generation.current) return;
-      setPlans(items); setPositions(jobs.positions || []);
+      setPlans(items); setPositions(jobs.positions || []); setDevices(bindings.agents || []); setDeviceError(bindings.error || "");
       const history = await Promise.all(items.map(async plan => [plan.id, await executionPlanRuns(plan.id)] as const));
       if (current === generation.current) setRuns(Object.fromEntries(history));
     } catch (error) { if (current === generation.current) notify(error instanceof Error ? error.message : "计划暂时无法读取", "error"); }
@@ -51,7 +53,7 @@ export default function ExecutionPlansPage() {
   }, [notify]);
 
   useEffect(() => {
-    setPlans([]); setPositions([]); setRuns({}); setReport(undefined); setDialog(false); setOriginal(undefined); intents.current.clear(); setStatusConnected(false); void load();
+    setPlans([]); setPositions([]); setDevices([]); setDeviceError(""); setRuns({}); setReport(undefined); setDialog(false); setOriginal(undefined); intents.current.clear(); setStatusConnected(false); void load();
     const disconnect = subscribeExecutionPlanEvents(load, setStatusConnected);
     return () => { disconnect(); generation.current++; };
   }, [load, user?.email]);
@@ -65,13 +67,13 @@ export default function ExecutionPlansPage() {
   function edit(plan?: ExecutionPlan) {
     if (plan && !canEditExecutionPlan(plan)) { notify("请先停止并等待收尾，再编辑", "warning"); return; }
     const draft = plan ? structuredClone(plan.config) : emptyPlanConfig();
-    setOriginal(plan); setConfig(draft); setWindows(draft.schedule.windows.map(window => ({ id: crypto.randomUUID(), start: timeText(window.start_minute), end: timeText(window.end_minute) }))); setMachine(plan?.machine_id || connectedMachine); setDialog(true);
+    setOriginal(plan); setConfig(draft); setWindows(draft.schedule.windows.map(window => ({ id: crypto.randomUUID(), start: timeText(window.start_minute), end: timeText(window.end_minute) }))); setMachine(plan?.machine_id || (devices.some(device => device.machine_id === connectedMachine) ? connectedMachine : devices[0]?.machine_id || "")); setDialog(true);
   }
   /** save 只提交本次草稿及原版本，服务端拒绝时保留草稿并刷新事实。 */
   async function save() {
     const submitted = { ...config, schedule: { ...config.schedule, windows: windows.map((window, order) => ({ order, start_minute: timeMinute(window.start), end_minute: timeMinute(window.end) })) } };
     const problem = validatePlanConfig(submitted);
-    if (problem || !machine.trim()) { notify(problem || "请选择执行电脑", "warning"); return; }
+    if (problem || !devices.some(device => device.machine_id === machine)) { notify(problem || "请选择仍与当前账号绑定的执行电脑", "warning"); return; }
     setBusy("save");
     try { await saveExecutionPlan(submitted, machine, original); setDialog(false); notify("计划已保存", "success"); await load(); }
     catch (error) { notify(error instanceof Error ? error.message : "计划保存未确认", "error"); await load(); }
@@ -115,6 +117,7 @@ export default function ExecutionPlansPage() {
       return <SectionPanel key={plan.id}><Stack spacing={1.5}>
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}><Typography variant="h6">{plan.config.name}</Typography><Chip size="small" label={plan.stop_requested ? "正在收尾" : plan.state === "enabled" ? "已启用" : "已停止"} />{latest && <Chip size="small" variant="outlined" label={RUN_LABELS[latest.state] || "待核对"} />}</Stack>
         <Typography color="text.secondary">{plan.config.schedule.cycle === "once" ? `一次性 · ${plan.config.schedule.once_date}` : plan.config.schedule.cycle === "weekly" ? "每周执行" : "每天执行"} · {plan.config.schedule.windows.map(window => `${timeText(window.start_minute)}–${timeText(window.end_minute)}`).join("，")}</Typography>
+        <Typography color="text.secondary">执行电脑：{plan.machine_id === connectedMachine ? "当前电脑" : `电脑 ${plan.machine_id.slice(-8)}`} · 计划启用不代表电脑正在执行</Typography>
         <Typography>岗位顺序：{plan.config.items.map((item, index) => `${index + 1}. ${positions.find(position => position.id === item.position_id)?.name || "原岗位"}（${item.actions.map(action => PLAN_ACTION_LABELS[action]).join("、")}）`).join(" → ")}</Typography>
         {latest && <Typography color="text.secondary">执行日期 {latest.execution_date} · 当前第 {Math.min(latest.current_item + 1, latest.items.length)} 项{latest.end_reason ? ` · ${latest.end_reason}` : ""}</Typography>}
         <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
@@ -129,7 +132,11 @@ export default function ExecutionPlansPage() {
       <Stack spacing={3}>
         <Typography sx={{ fontWeight: 700 }}>名称与周期</Typography>
         <TextField label="计划名称" value={config.name} onChange={event => setConfig(value => ({ ...value, name: event.target.value }))} />
-        <TextField label="执行电脑编号" helperText="计划只在指定电脑执行，可从本地程序连接信息查看。" value={machine} onChange={event => setMachine(event.target.value)} />
+        <TextField select label="执行电脑" helperText={deviceError || (devices.length ? "仅显示当前账号已绑定的电脑。计划只在所选电脑执行，连接记录不代表当前在线。" : "暂无已绑定电脑，请先登录本地程序并连接。") } error={!!deviceError || !devices.length} value={machine} onChange={event => setMachine(event.target.value)}>
+          <MenuItem value="" disabled>请选择执行电脑</MenuItem>
+          {machine && !devices.some(device => device.machine_id === machine) && <MenuItem value={machine} disabled>原电脑已解绑，请重新选择</MenuItem>}
+          {devices.map(device => <MenuItem key={device.machine_id} value={device.machine_id}>{device.machine_id === connectedMachine ? "当前电脑" : `电脑 ${device.machine_id.slice(-8)}`} · 程序 {device.agent_version || "版本未提供"}</MenuItem>)}
+        </TextField>
         <TextField select label="任务周期" value={config.schedule.cycle} onChange={event => setConfig(value => ({ ...value, schedule: { ...value.schedule, cycle: event.target.value as PlanConfig["schedule"]["cycle"] } }))}><MenuItem value="once">一次性</MenuItem><MenuItem value="daily">每天</MenuItem><MenuItem value="weekly">每周</MenuItem></TextField>
         {config.schedule.cycle === "once" ? <TextField type="date" label="执行日期" slotProps={{ inputLabel: { shrink: true } }} value={config.schedule.once_date || ""} onChange={event => setConfig(value => ({ ...value, schedule: { ...value.schedule, once_date: event.target.value } }))} /> : <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>{(["start_date", "end_date"] as const).map(key => <TextField key={key} type="date" label={key === "start_date" ? "生效日期（可选）" : "结束日期（可选）"} slotProps={{ inputLabel: { shrink: true } }} value={config.schedule[key] || ""} onChange={event => setConfig(value => ({ ...value, schedule: { ...value.schedule, [key]: event.target.value } }))} />)}</Stack>}
         {config.schedule.cycle === "weekly" && <Stack direction="row" sx={{ flexWrap: "wrap" }}>{[1, 2, 3, 4, 5, 6, 7].map(day => <FormControlLabel key={day} label={`周${"一二三四五六日"[day - 1]}`} control={<Checkbox checked={config.schedule.weekdays.includes(day)} onChange={(_, checked) => setConfig(value => ({ ...value, schedule: { ...value.schedule, weekdays: checked ? [...value.schedule.weekdays, day] : value.schedule.weekdays.filter(value => value !== day) } }))} />} />)}</Stack>}
@@ -139,8 +146,9 @@ export default function ExecutionPlansPage() {
         <Typography sx={{ fontWeight: 700 }}>岗位执行顺序</Typography>
         {config.items.map((item, index) => { const position = positions.find(value => value.id === item.position_id); return <SectionPanel key={item.id}><Stack spacing={1}>
           <Typography>第 {index + 1} 项</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: "break-all" }}>执行项编号：{item.id}</Typography>
           <TextField select label="招聘岗位" value={item.position_id} onChange={event => setConfig(value => ({ ...value, items: value.items.map(entry => entry.id === item.id ? { ...entry, position_id: event.target.value, actions: ["greeting"], prioritize_reply: false } : entry) }))}>{positions.map(position => <MenuItem value={position.id} key={position.id}>{position.name}</MenuItem>)}</TextField>
-          <Stack direction="row" sx={{ flexWrap: "wrap" }}>{(Object.keys(PLAN_ACTION_LABELS) as PlanAction[]).map(action => <FormControlLabel key={action} label={PLAN_ACTION_LABELS[action]} control={<Checkbox checked={item.actions.includes(action)} disabled={action !== "greeting" && (position?.platform_id !== "boss" || !canUseAutoReply(subscription))} onChange={(_, checked) => setConfig(value => ({ ...value, items: value.items.map(entry => entry.id === item.id ? { ...entry, actions: checked ? [...entry.actions, action] : entry.actions.filter(value => value !== action) } : entry) }))} />} />)}</Stack>
+          <Stack direction="row" sx={{ flexWrap: "wrap" }}>{(Object.keys(PLAN_ACTION_LABELS) as PlanAction[]).map(action => <FormControlLabel key={action} label={PLAN_ACTION_LABELS[action]} control={<Checkbox checked={item.actions.includes(action)} disabled={action !== "greeting" && !item.actions.includes(action) && (position?.platform_id !== "boss" || !canUseAutoReply(subscription))} onChange={(_, checked) => setConfig(value => ({ ...value, items: value.items.map(entry => entry.id === item.id ? { ...entry, actions: checked ? [...entry.actions, action] : entry.actions.filter(value => value !== action), prioritize_reply: action === "auto_reply" && !checked ? false : entry.prioritize_reply } : entry) }))} />} />)}</Stack>
           {item.actions.includes("auto_reply") && <FormControlLabel label="优先回复新消息" control={<Checkbox checked={item.prioritize_reply} onChange={(_, checked) => setConfig(value => ({ ...value, items: value.items.map(entry => entry.id === item.id ? { ...entry, prioritize_reply: checked } : entry) }))} />} />}
           {item.actions.includes("greeting") && <Typography color="text.secondary">打招呼按原岗位上限执行：{position?.match_limit ?? "原岗位配置"}</Typography>}
           <Typography color="text.secondary">回复和复打目前仅支持 BOSS，且需要对应会员权限。</Typography>

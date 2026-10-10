@@ -171,6 +171,7 @@ func (s *Server) Routes() http.Handler {
 	// 注册本地程序连接接口，用于云端记录当前账号对应的本地 Agent。
 	mux.HandleFunc("/api/agents/bind", s.agent.Bind)
 	mux.HandleFunc("/api/agents/current", s.agent.Current)
+	mux.HandleFunc("/api/agents/bindings", s.agent.Bindings)
 	mux.HandleFunc("/api/agents/ws", s.agentWS.ServeWS)
 	mux.HandleFunc("/api/agents/ws-status", s.agentWS.Status)
 	mux.HandleFunc("/api/user-flow", s.userFlow.Current)

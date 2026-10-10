@@ -51,3 +51,11 @@ test("停止请求和时段间歇不能开放编辑，必须云端确认停止",
   for (const plan of [{ state: "enabled", stop_requested: false }, { state: "stopped", stop_requested: true }, { state: "waiting_window", stop_requested: false }]) assert.equal(canEditExecutionPlan(plan), false);
   assert.equal(canEditExecutionPlan({ state: "stopped", stop_requested: false }), true);
 });
+
+test("只有找简历的项不能保留隐藏的优先回复标记", () => {
+  const config = validConfig();
+  config.items[0].actions = ["greeting"];
+  assert.equal(validatePlanConfig(config), "优先回复需要勾选自动回复");
+  config.items[0].prioritize_reply = false;
+  assert.equal(validatePlanConfig(config), "");
+});

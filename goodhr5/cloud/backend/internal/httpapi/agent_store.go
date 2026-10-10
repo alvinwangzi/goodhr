@@ -37,6 +37,7 @@ type AgentBinding struct {
 type AgentStore interface {
 	SaveBinding(binding AgentBinding) (AgentBinding, error)
 	CurrentBinding(userEmail string) (AgentBinding, error)
+	ListBindings(userEmail string) ([]AgentBinding, error)
 	HasActiveBinding(userEmail string, machineID string) (bool, error)
 	DisableBindings(userEmail string) error
 	ActiveBindingCount() (int, error)

@@ -8,6 +8,7 @@ export type PlanWindow = { order: number; start_minute: number; end_minute: numb
 export type PlanItem = { id: string; position_id: string; order: number; actions: PlanAction[]; prioritize_reply: boolean };
 export type PlanConfig = { name: string; schedule: { cycle: "once" | "daily" | "weekly"; timezone: string; once_date?: string; start_date?: string; end_date?: string; weekdays: number[]; windows: PlanWindow[] }; items: PlanItem[] };
 export type ExecutionPlan = { id: string; machine_id: string; version: number; state_sequence: number; activation_id: string; state: string; stop_requested: boolean; config: PlanConfig };
+export type PlanDevice = { machine_id: string; agent_version: string; last_seen_at: string };
 export type ExecutionRun = { id: string; activation_id: string; execution_date: string; state: string; current_item: number; end_reason: string; items: { id: string; item_id: string; task_run_id?: string; state: string; actions: Record<string, { state: string; count: number; unknown_count: number }> }[] };
 export const PLAN_ACTION_LABELS: Record<PlanAction, string> = { greeting: "打招呼", auto_reply: "自动回复", re_greet: "自动复打招呼" };
 
@@ -37,6 +38,7 @@ export function validatePlanConfig(config: PlanConfig): string {
   }
   if (!config.items.length) return "至少添加一个岗位执行项";
   if (config.items.some(item => !item.position_id || !item.actions.length)) return "每个执行项都需要岗位和动作";
+  if (config.items.some(item => item.prioritize_reply && !item.actions.includes("auto_reply"))) return "优先回复需要勾选自动回复";
   return "";
 }
 
