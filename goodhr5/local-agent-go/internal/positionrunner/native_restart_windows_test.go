@@ -86,6 +86,11 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": result})
 		case "/api/auth/me":
 			_ = json.NewEncoder(w).Encode(map[string]any{"user": map[string]any{"email": "restart@example.com"}})
+		case "/api/execution-plans":
+			if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer fixture-token" {
+				t.Error("计划同步未使用只读请求和原登录证明")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "plans": []any{}})
 		case "/api/agents/bind":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		case "/api/positions/position/re-greet-report":
