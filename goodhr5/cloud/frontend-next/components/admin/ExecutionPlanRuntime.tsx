@@ -12,7 +12,11 @@ export default function ExecutionPlanRuntime({ value, names, details = false }: 
   return <Stack spacing={1}>
     <Typography>当前安排：{PLAN_WAIT_LABELS[value.wait_reason] || "状态需要核对"}</Typography>
     {value.nominal_at && <Typography>名义开始时间：{reportTimeText(value.nominal_at, timezone)} · {timezone}</Typography>}
-    {value.wait_reason === "account_busy" && value.account_owner && <Typography color="text.secondary">占用电脑：{value.account_owner.machine_id.slice(-8)} · {EXECUTION_STATE_LABELS[value.account_owner.state] || "等待核对"}。当前计划尚未确认开始。</Typography>}
+    {value.waiting && <>
+      <Typography>原定触发时间：{reportTimeText(value.waiting.triggered_at, timezone)}</Typography>
+      <Typography>实际入队时间：{value.waiting.queued_at ? reportTimeText(value.waiting.queued_at, timezone) : "旧记录未保存"} · {value.wait_seconds === undefined ? "等待时长未记录" : `读取时已等待 ${Math.floor(value.wait_seconds / 60)} 分 ${value.wait_seconds % 60} 秒`}</Typography>
+    </>}
+    {["account_busy", "queued", "queue_waiting_time"].includes(value.wait_reason) && value.account_owner && <Typography color="text.secondary">占用电脑：{value.account_owner.machine_id.slice(-8)} · {EXECUTION_STATE_LABELS[value.account_owner.state] || "等待核对"}。当前计划尚未确认开始。</Typography>}
     <Typography variant="caption" color="text.secondary">云端事实读取于 {reportTimeText(value.observed_at, timezone)}；名义时间不代表实际开始时间。</Typography>
     {details && <>
       {!run ? <Alert severity="info">当前执行日尚无已确认的运行记录。</Alert> : <>

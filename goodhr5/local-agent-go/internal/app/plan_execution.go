@@ -192,11 +192,17 @@ func (s *Server) processPlanExecutionsRequest(parent context.Context, requested 
 			active.cancel()
 		}
 		// 长任务期间仍登记其他计划的原定触发，不等当前任务结束才发现错过的窗口。
-		return active.scheduler.EnqueueDue(ctx, plans, identity.MachineID, a)
+		if err := active.scheduler.EnqueueDue(ctx, plans, identity.MachineID, a); err != nil {
+			return err
+		}
+		return active.scheduler.SyncWaitingFacts(ctx, plans, identity.MachineID, a)
 	}
 	coordinator := planrunner.New(s.db, s.runner, client, s.planNow)
 	scheduler := planrunner.NewScheduler(coordinator)
 	if err := scheduler.EnqueueDue(ctx, plans, identity.MachineID, a); err != nil {
+		return err
+	}
+	if err := scheduler.SyncWaitingFacts(ctx, plans, identity.MachineID, a); err != nil {
 		return err
 	}
 	// 长任务上下文属于本地服务，不继承网页请求或这次十五秒读取期限。

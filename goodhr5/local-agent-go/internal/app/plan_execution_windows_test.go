@@ -65,6 +65,12 @@ func backgroundPlanFixtureConfigured(t *testing.T, holdPreparation bool, afterPr
 		mu.Lock()
 		defer mu.Unlock()
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/wait"):
+			var input cloudapi.PlanWaitFact
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "wait": input})
 		case r.URL.Path == "/api/auth/me":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": plan.UserEmail, "tenant_id": plan.TenantID}})
 		case r.URL.Path == "/api/execution-plans":

@@ -65,11 +65,11 @@ function fixtureResult(path, body, method) {
     if (!plan) return { ok: false, error: "夹具计划不存在" };
     if (match[2] === "runs") return { runs: runs.get(plan.id) || [] };
     if (match[2] === "runtime") {
-      const history = runs.get(plan.id) || [];
+      const history = runtimeMode === "queued" ? [] : runs.get(plan.id) || [];
       const current = history.find(run => run.activation_id === plan.activation_id);
       if (runtimeMode === "executing" && current) { current.state = "running"; current.current_item = 0; current.items[0].state = "running"; }
       const reason = plan.stop_requested ? "stopping" : plan.state === "stopped" ? "stopped" : runtimeMode;
-      return {runtime:{plan,runs:history,observed_at:"2026-10-10T02:00:00Z",wait_reason:reason,...(current?{current_run:current}:{}),...(reason==="waiting_time"?{nominal_at:"2026-10-11T01:00:00Z"}:{}),...(reason==="account_busy"?{nominal_at:"2026-10-10T01:00:00Z",account_owner:{owner_id:randomUUID(),owner_type:"manual",machine_id:"m2-test-computer-B",state:"draining"}}:{})}};
+      return {runtime:{plan,runs:history,observed_at:"2026-10-10T02:00:00Z",wait_reason:reason,...(current?{current_run:current}:{}),...(reason==="waiting_time"?{nominal_at:"2026-10-11T01:00:00Z"}:{}),...(["account_busy","queued"].includes(reason)?{nominal_at:"2026-10-10T01:00:00Z",account_owner:{owner_id:randomUUID(),owner_type:"manual",machine_id:"m2-test-computer-B",state:"draining"}}:{}),...(reason==="queued"?{waiting:{plan_id:plan.id,request_id:randomUUID(),activation_id:plan.activation_id,config_version:plan.version,machine_id:plan.machine_id,triggered_at:"2026-10-10T01:00:00Z",queued_at:"2026-10-10T01:55:00Z"},wait_seconds:300}:{})}};
     }
     if (match[2] === "arm") { plan.state = "enabled"; plan.activation_id = randomUUID(); }
     else plan.stop_requested = true;

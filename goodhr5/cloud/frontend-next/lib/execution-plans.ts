@@ -11,8 +11,8 @@ export type PlanConfig = { name: string; schedule: { cycle: "once" | "daily" | "
 export type ExecutionPlan = { id: string; machine_id: string; version: number; state_sequence: number; activation_id: string; state: string; stop_requested: boolean; config: PlanConfig };
 export type PlanDevice = { machine_id: string; agent_version: string; last_seen_at: string };
 export type ExecutionRun = { id: string; activation_id: string; execution_date: string; state: string; current_item: number; end_reason: string; snapshot: PlanConfig; items: { id: string; item_id: string; task_run_id?: string; state: string; actions: Record<string, { state: string; count: number; unknown_count: number }> }[] };
-export type PlanRuntime = { plan: ExecutionPlan; runs: ExecutionRun[]; observed_at: string; nominal_at?: string; wait_reason: string; current_run?: ExecutionRun; account_owner?: { owner_id: string; owner_type: string; machine_id: string; state: string } };
-export const PLAN_WAIT_LABELS: Record<string, string> = { stopped: "计划已停止", stopping: "等待当前动作收尾并确认停止", executing: "已有执行记录，按最后确认的状态显示", recovery_required: "旧执行日的任务尚未结算，等待执行电脑核对", waiting_time: "等待名义开始时间", waiting_start: "名义时间已到，等待执行电脑确认开始", account_busy: "账号有其他任务执行或收尾，等待释放执行权", no_future_window: "没有后续执行时间" };
+export type PlanRuntime = { plan: ExecutionPlan; runs: ExecutionRun[]; observed_at: string; nominal_at?: string; wait_reason: string; current_run?: ExecutionRun; waiting?: { plan_id: string; request_id: string; activation_id: string; config_version: number; machine_id: string; triggered_at: string; queued_at?: string }; wait_seconds?: number; account_owner?: { owner_id: string; owner_type: string; machine_id: string; state: string } };
+export const PLAN_WAIT_LABELS: Record<string, string> = { stopped: "计划已停止", stopping: "等待当前动作收尾并确认停止", executing: "已有执行记录，按最后确认的状态显示", recovery_required: "旧执行日的任务尚未结算，等待执行电脑核对", waiting_time: "等待名义开始时间", waiting_start: "名义时间已到，等待执行电脑确认开始", account_busy: "账号有其他任务执行或收尾，等待释放执行权", queued: "执行电脑已登记原排队，尚未确认开始", queue_waiting_time: "原任务仍在排队，等待下一时间段", queue_day_missed: "当天排队任务未能开始，原记录已保留", no_future_window: "没有后续执行时间" };
 export const PLAN_ACTION_LABELS: Record<PlanAction, string> = { greeting: "打招呼", auto_reply: "自动回复", re_greet: "自动复打招呼" };
 
 /** emptyPlanConfig 创建默认编排，同岗位可重复添加独立执行项。 */
@@ -69,6 +69,8 @@ export async function readPlanRuntime(id: string): Promise<PlanRuntime> {
   const result = await cloudRequest(`/api/execution-plans/${encodeURIComponent(id)}/runtime`);
   const value = result.runtime as PlanRuntime;
   if (value?.plan?.id !== id || !Array.isArray(value.runs) || !Number.isFinite(Date.parse(value.observed_at)) || (value.nominal_at && !Number.isFinite(Date.parse(value.nominal_at))) || (value.current_run && (!value.runs.some(run => run.id === value.current_run?.id) || value.current_run.activation_id !== value.plan.activation_id))) throw new Error("计划状态与原配置不一致，请刷新核对");
+  if (value.waiting && (value.waiting.plan_id !== id || value.waiting.activation_id !== value.plan.activation_id || value.waiting.config_version !== value.plan.version || value.waiting.machine_id !== value.plan.machine_id || !Number.isFinite(Date.parse(value.waiting.triggered_at)) || (value.waiting.queued_at && !Number.isFinite(Date.parse(value.waiting.queued_at))))) throw new Error("排队记录与原计划不一致，请刷新核对");
+  if (value.wait_seconds !== undefined && (!Number.isSafeInteger(value.wait_seconds) || value.wait_seconds < 0 || !value.waiting?.queued_at)) throw new Error("排队时长尚未核对，请刷新读取");
   return value;
 }
 

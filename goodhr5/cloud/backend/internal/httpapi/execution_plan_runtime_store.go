@@ -10,6 +10,7 @@ import (
 
 // ExecutionPlanRuntimeSnapshot 保留同一读取边界的配置和执行事实，不含凭证或页面信息。
 type ExecutionPlanRuntimeSnapshot struct {
+	Waits        []ExecutionPlanWait    `json:"waits"`
 	Plan         ExecutionPlan          `json:"plan"`
 	Runs         []ExecutionPlanRun     `json:"runs"`
 	AccountOwner *AccountExecutionOwner `json:"account_owner,omitempty"`
@@ -31,6 +32,11 @@ func (s *MemoryExecutionPlanStore) RuntimeSnapshot(ctx context.Context, tenant, 
 		return ExecutionPlanRuntimeSnapshot{}, ErrNotFound
 	}
 	value := ExecutionPlanRuntimeSnapshot{Plan: cloneExecutionPlan(plan), Runs: []ExecutionPlanRun{}}
+	for _, wait := range s.waits {
+		if wait.PlanID == id && wait.ActivationID == plan.ActivationID && wait.ConfigVersion == plan.Version {
+			value.Waits = append(value.Waits, clonePlanWait(wait))
+		}
+	}
 	for _, run := range s.runs {
 		if run.PlanID == id {
 			value.Runs = append(value.Runs, clonePlanRunPermit(ExecutionPlanRunPermit{Run: run}).Run)
@@ -94,6 +100,23 @@ func (s *PostgresExecutionPlanStore) RuntimeSnapshot(ctx context.Context, tenant
 		}
 	}
 	var owner AccountExecutionOwner
+	waitRows, err := tx.QueryContext(ctx, `SELECT plan_id::text,request_id::text,activation_id::text,config_version,machine_id,triggered_at,queued_at FROM execution_plan_waits WHERE plan_id=$1 AND activation_id=NULLIF($2,'')::uuid AND config_version=$3 AND triggered_at>=NOW()-INTERVAL '48 hours'`, id, plan.ActivationID, plan.Version)
+	if err != nil {
+		return value, err
+	}
+	for waitRows.Next() {
+		var wait ExecutionPlanWait
+		if err = waitRows.Scan(&wait.PlanID, &wait.RequestID, &wait.ActivationID, &wait.ConfigVersion, &wait.MachineID, &wait.TriggeredAt, &wait.QueuedAt); err != nil {
+			waitRows.Close()
+			return value, err
+		}
+		value.Waits = append(value.Waits, wait)
+	}
+	err = waitRows.Err()
+	waitRows.Close()
+	if err != nil {
+		return value, err
+	}
 	err = tx.QueryRowContext(ctx, `SELECT owner_id::text,owner_type,machine_id,state FROM account_execution_owners WHERE account_key=$1`, email).Scan(&owner.OwnerID, &owner.OwnerType, &owner.MachineID, &owner.State)
 	if err == nil {
 		value.AccountOwner = &owner

@@ -25,3 +25,12 @@ test("其他计划、其他批次、无原运行和损坏时间不能更新当�
     const value=validRuntime(); change(value); await assert.rejects(runtimeReader(value)("original-plan"),/原配置不一致/);
   }
 });
+
+test("等待时长必须属于原电脑原批次，未知入队时间不能虚构计时",async()=>{
+  const value=validRuntime(); value.plan.version=1; value.plan.machine_id="A";
+  value.waiting={plan_id:"original-plan",activation_id:"original-activation",config_version:1,machine_id:"A",triggered_at:"2026-10-10T01:00:00Z",queued_at:"2026-10-10T01:55:00Z"}; value.wait_seconds=300;
+  assert.equal((await runtimeReader(value)("original-plan")).wait_seconds,300);
+  value.waiting.machine_id="B"; await assert.rejects(runtimeReader(value)("original-plan"),/原计划不一致/);
+  value.waiting.machine_id="A"; delete value.waiting.queued_at; await assert.rejects(runtimeReader(value)("original-plan"),/时长尚未核对/);
+  delete value.wait_seconds; assert.equal((await runtimeReader(value)("original-plan")).wait_seconds,undefined);
+});

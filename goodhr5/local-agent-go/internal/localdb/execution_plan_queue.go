@@ -71,9 +71,19 @@ func (db *DB) EnqueuePlanRequest(ctx context.Context, request PlanWaitingRequest
 		return PlanWaitingRequest{}, err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO plan_waiting_requests(owner_scope,request_id,plan_id,activation_id,triggered_ns) VALUES(?,?,?,?,?) ON CONFLICT(owner_scope,request_id) DO NOTHING`, request.OwnerScope, request.RequestID, request.PlanID, request.ActivationID, request.TriggeredAt.UnixNano())
+	inserted, err := tx.ExecContext(ctx, `INSERT INTO plan_waiting_requests(owner_scope,request_id,plan_id,activation_id,triggered_ns) VALUES(?,?,?,?,?) ON CONFLICT(owner_scope,request_id) DO NOTHING`, request.OwnerScope, request.RequestID, request.PlanID, request.ActivationID, request.TriggeredAt.UnixNano())
 	if err != nil {
 		return PlanWaitingRequest{}, err
+	}
+	count, err := inserted.RowsAffected()
+	if err != nil {
+		return PlanWaitingRequest{}, err
+	}
+	if count == 1 {
+		_, err = tx.ExecContext(ctx, `INSERT INTO plan_wait_receipts(owner_scope,request_id,queued_ns) VALUES(?,?,?)`, request.OwnerScope, request.RequestID, time.Now().UTC().Truncate(time.Microsecond).UnixNano())
+		if err != nil {
+			return PlanWaitingRequest{}, err
+		}
 	}
 	var saved PlanWaitingRequest
 	var triggered int64

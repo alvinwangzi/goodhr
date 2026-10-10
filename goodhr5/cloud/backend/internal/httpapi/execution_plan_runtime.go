@@ -9,10 +9,12 @@ import (
 // ExecutionPlanRuntimeView 将当前名义安排与最后已确认事实分开，不能作为页面启动许可。
 type ExecutionPlanRuntimeView struct {
 	ExecutionPlanRuntimeSnapshot
-	ObservedAt time.Time         `json:"observed_at"`
-	NominalAt  *time.Time        `json:"nominal_at,omitempty"`
-	WaitReason string            `json:"wait_reason"`
-	CurrentRun *ExecutionPlanRun `json:"current_run,omitempty"`
+	ObservedAt  time.Time          `json:"observed_at"`
+	NominalAt   *time.Time         `json:"nominal_at,omitempty"`
+	WaitReason  string             `json:"wait_reason"`
+	CurrentRun  *ExecutionPlanRun  `json:"current_run,omitempty"`
+	Waiting     *ExecutionPlanWait `json:"waiting,omitempty"`
+	WaitSeconds *int64             `json:"wait_seconds,omitempty"`
 }
 
 // runtimeDateAllowed 只用于显示原配置日期，执行授权继续由本地计划时钟核对。
@@ -130,6 +132,32 @@ func buildPlanRuntimeView(snapshot ExecutionPlanRuntimeSnapshot, now time.Time) 
 		view.WaitReason = "waiting_start"
 		if snapshot.AccountOwner != nil {
 			view.WaitReason = "account_busy"
+		}
+	}
+	if !finishedToday {
+		for _, wait := range snapshot.Waits {
+			if wait.ActivationID != plan.ActivationID || wait.ConfigVersion != plan.Version || wait.TriggeredAt.In(loc).Format("2006-01-02") != date || now.Before(wait.TriggeredAt) {
+				continue
+			}
+			if view.CurrentRun != nil && view.CurrentRun.StartedAt != nil && !wait.TriggeredAt.After(*view.CurrentRun.StartedAt) {
+				continue
+			}
+			if view.Waiting == nil || wait.TriggeredAt.Before(view.Waiting.TriggeredAt) {
+				copy := clonePlanWait(wait)
+				view.Waiting = &copy
+			}
+		}
+		if view.Waiting != nil {
+			view.WaitReason = "queued"
+			if view.NominalAt == nil || view.NominalAt.In(loc).Format("2006-01-02") != date {
+				view.WaitReason = "queue_day_missed"
+			} else if now.Before(*view.NominalAt) {
+				view.WaitReason = "queue_waiting_time"
+			}
+			if view.Waiting.QueuedAt != nil && !now.Before(*view.Waiting.QueuedAt) {
+				seconds := int64(now.Sub(*view.Waiting.QueuedAt) / time.Second)
+				view.WaitSeconds = &seconds
+			}
 		}
 	}
 	return view, nil
