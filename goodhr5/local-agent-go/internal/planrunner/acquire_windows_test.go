@@ -57,6 +57,14 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "user": map[string]any{"email": "fixture@example.com"}})
 			return
 		}
+		if r.URL.Path == "/api/positions/native-java" || r.URL.Path == "/api/positions/native-sales" {
+			id, name := "native-java", "Java"
+			if strings.HasSuffix(r.URL.Path, "native-sales") {
+				id, name = "native-sales", "销售"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"position": map[string]any{"id": id, "name": name, "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": name, "mode_default": "keyword", "detail_mode": "keyword"}}})
+			return
+		}
 		var configuration any
 		switch r.URL.Path {
 		case "/api/execution-plan-runs/" + permit.Run.ID:
@@ -76,8 +84,18 @@ func acquireFixtureWithWorker(t *testing.T, mode *atomic.Int32, worker positionr
 		}
 		if configuration != nil {
 			if r.URL.Path == "/api/platforms/config/" {
-				body, _ := json.Marshal(map[string]any{"id": "boss", "auth": map[string]any{"pages": []any{map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true}}}, "position": map[string]any{"current": map[string]any{"selector": ".fixture-job"}}})
+				body, _ := json.Marshal(map[string]any{"id": "boss", "auth": map[string]any{"pages": []any{map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true}}}, "position": map[string]any{"current": map[string]any{"target_classes": []any{"fixture-job"}, "parent_classes": []any{}}}})
 				configuration = map[string]any{"configs": []map[string]any{{"config_key": "platform.boss", "config_value": string(body)}}}
+				if permit.Run.Snapshot.Items[0].PositionID == "native-java" {
+					body, _ = json.Marshal(map[string]any{"id": "boss", "auth": map[string]any{"pages": []any{map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true}}}, "position": map[string]any{"current": map[string]any{"target_classes": []any{"fixture-job"}, "parent_classes": []any{}}, "switchBtn": map[string]any{"target_classes": []any{"fixture-picker"}, "parent_classes": []any{}}, "list": map[string]any{"target_classes": []any{"fixture-menu"}, "parent_classes": []any{}}, "item": map[string]any{"target_classes": []any{"fixture-item"}, "parent_classes": []any{}}, "itemText": map[string]any{"target_classes": []any{"fixture-title"}, "parent_classes": []any{}}}})
+					configuration = map[string]any{"configs": []map[string]any{{"config_key": "platform.boss", "config_value": string(body)}}}
+					var nativeConfig map[string]any
+					_ = json.Unmarshal(body, &nativeConfig)
+					nativeConfig["card"] = map[string]any{"item": map[string]any{"selector": ".candidate-card-wrap"}, "fields": map[string]any{"name": map[string]any{"selector": ".candidate-name"}}}
+					nativeConfig["actions"] = map[string]any{"greetBtn": map[string]any{"selector": ".greet-btn"}, "continueBtn": map[string]any{"selector": ".continue-btn"}}
+					body, _ = json.Marshal(nativeConfig)
+					configuration = map[string]any{"configs": []map[string]any{{"config_key": "platform.boss", "config_value": string(body)}}}
+				}
 			}
 			_ = json.NewEncoder(w).Encode(configuration)
 			return

@@ -36,7 +36,10 @@ func (r *Runtime) SelectPosition(ctx context.Context, exec platformcore.Executor
 	if switchButton == nil {
 		return fmt.Errorf("平台配置中无岗位选择入口")
 	}
-	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{"element": switchButton, "timeout": 10000}); err != nil {
+	if _, err := exec.Post(ctx, "/api/v1/page/ensure-visible", map[string]any{"element": switchButton, "wheel_target": map[string]any{"selector": "body"}, "viewport_scope": "page", "require_full": true, "viewport_margin": 0, "max_attempts": 8, "distance": 360}); err != nil {
+		return fmt.Errorf("岗位选择入口未能恢复到可点击区域：%w", err)
+	}
+	if _, err := exec.Post(ctx, "/api/v1/page/click", map[string]any{"element": switchButton, "require_full": true, "require_in_viewport": true, "viewport_margin": 0, "timeout": 10000}); err != nil {
 		return err
 	}
 	if err := exec.Delay(ctx, "等待岗位列表展开", 0.5); err != nil {

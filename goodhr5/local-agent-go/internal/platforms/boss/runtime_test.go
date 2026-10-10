@@ -92,7 +92,7 @@ func TestSelectPositionUsesSearchInputFirst(t *testing.T) {
 	if err := runtime.SelectPosition(context.Background(), exec, cfg, "销售顾问"); err != nil {
 		t.Fatalf("切换岗位不应失败：%v", err)
 	}
-	wantPaths := []string{"/api/v1/page/click", "/api/v1/page/type", "/api/v1/page/find-elements", "/api/v1/page/click"}
+	wantPaths := []string{"/api/v1/page/ensure-visible", "/api/v1/page/click", "/api/v1/page/type", "/api/v1/page/find-elements", "/api/v1/page/click"}
 	if len(exec.calls) != len(wantPaths) {
 		t.Fatalf("调用次数不对：got=%d want=%d calls=%v", len(exec.calls), len(wantPaths), exec.calls)
 	}
@@ -101,11 +101,14 @@ func TestSelectPositionUsesSearchInputFirst(t *testing.T) {
 			t.Fatalf("第 %d 次调用路径不对：got=%s want=%s", index+1, exec.calls[index].path, want)
 		}
 	}
-	typePayload := exec.calls[1].payload
+	if exec.calls[0].payload["viewport_scope"] != "page" || exec.calls[0].payload["require_full"] != true || exec.calls[1].payload["require_in_viewport"] != true {
+		t.Fatal("岗位入口没有先核对完整屏幕可见")
+	}
+	typePayload := exec.calls[2].payload
 	if typePayload["text"] != "销售顾问" {
 		t.Fatalf("岗位搜索关键词不对：%v", typePayload["text"])
 	}
-	clickPayload := exec.calls[3].payload
+	clickPayload := exec.calls[4].payload
 	if clickPayload["element_ref"] != "job-ref-1" {
 		t.Fatalf("应该点击搜索结果第一个元素引用：%v", clickPayload["element_ref"])
 	}
@@ -139,7 +142,7 @@ func TestSelectPositionSearchClicksMatchingResult(t *testing.T) {
 	if err := runtime.SelectPosition(context.Background(), exec, cfg, positionName); err != nil {
 		t.Fatalf("切换岗位不应失败：%v", err)
 	}
-	if query := exec.calls[1].payload["text"]; query != "门店前台销售" {
+	if query := exec.calls[2].payload["text"]; query != "门店前台销售" {
 		t.Fatalf("应该使用精简后的岗位搜索词：%v", query)
 	}
 	lastCall := exec.calls[len(exec.calls)-1]

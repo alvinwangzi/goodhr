@@ -6,6 +6,7 @@ import { combinedChatFixture } from "./combined-chat-fixture.mjs";
 const ledger = { launches: [], requests: [], clicks: 0, jobSelections: 0, sendOrder: [], greetOrder: [], timeline: [] };
 let account = 901;
 let missingCandidateID = false;
+let m2Job="Java";
 const accountPath = "/wapi/zpuser/wap/getUserInfo.json";
 
 /** saveLedger 保存虚构运行证据，不包含 Cookie、令牌或真实候选人内容。 */
@@ -18,6 +19,13 @@ async function fixtureRoute(route) {
   if (url.hostname !== "www.zhipin.com") return route.abort();
 	if (url.pathname === "/fixture/job-select") { ledger.jobSelections++; saveLedger(); return route.fulfill({contentType:"application/json",body:"{}"}); }
   ledger.requests.push(url.pathname); saveLedger();
+  if (process.env.HRPLUS_M1_FIXTURE_MODE === "m2-plans") {
+    if (url.pathname==="/fixture/greet") { ledger.greetOrder.push(url.searchParams.get("id"));ledger.timeline.push("greet:"+m2Job);saveLedger();return route.fulfill({contentType:"application/json",body:"{}"}); }
+    if (url.pathname==="/web/frame/recommend/") { const id=m2Job==="Java"?"java-person":"sales-person"; return route.fulfill({contentType:"text/html; charset=utf-8",body:`<style>body{margin:0}.candidate-card-wrap{height:140px;border:1px solid #ddd}</style><section class="candidate-card-wrap"><div class="card-inner" data-geekid="${id}"><span class="candidate-name">${m2Job}虚构候选人</span><span>本科</span><button class="greet-btn" onclick="this.textContent='继续沟通';this.className='continue-btn';fetch('/fixture/greet?id=${id}')">打招呼</button></div></section>`}); }
+    if (url.pathname===accountPath) return route.fulfill({contentType:"application/json",body:JSON.stringify({code:0,zpData:{userId:account}})});
+    if (url.pathname==="/web/chat/recommend") { if(url.searchParams.has("m2job")){m2Job=url.searchParams.get("m2job");ledger.timeline.push("select:"+m2Job);saveLedger();} return route.fulfill({contentType:"text/html; charset=utf-8",body:`<style>.fixture-menu{height:220px;width:320px;padding:30px;overflow:auto}.fixture-item{height:40px;cursor:pointer}</style><button class="fixture-picker" onclick="document.querySelector('.fixture-menu').hidden=false">岗位</button><span class="fixture-job">${m2Job}</span><div class="fixture-menu" hidden>${["Java","销售"].map(job=>`<div class="fixture-item" onclick="location.href='/web/chat/recommend?m2job=${encodeURIComponent(job)}'"><span class="fixture-title">${job}</span></div>`).join("")}</div><iframe name="recommendFrame" style="width:900px;height:640px" src="/web/frame/recommend/"></iframe><iframe hidden src="${accountPath}"></iframe>`}); }
+    return route.abort();
+  }
   if (url.pathname === accountPath) return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { userId: account } }) });
   if (url.pathname === "/wapi/zpjob/rec/geek/list") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { geekList: ["A", "B", "C", "D"].map((suffix, i) => ({ encryptGeekId: "opaque-" + suffix, geekCard: { geekId: 123 + i, encGeekId: "opaque-" + suffix } })) } }) });
   if (url.pathname === "/wapi/zprelation/friend/getBossFriendListV2.json") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ code: 0, zpData: { friendList: [{ uid: 123, encryptUid: "opaque-A" }, { uid: 124, encryptUid: "opaque-B" }] } }) });

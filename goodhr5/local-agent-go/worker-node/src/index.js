@@ -862,7 +862,7 @@ async function ensureElementVisible(payload) {
     wheelLocator || wheelTarget,
     {
       ...payload,
-      container_locator: wheelLocator || null,
+      container_locator: payload.viewport_scope === "page" ? null : wheelLocator || null,
       margin: payload.viewport_margin ?? payload.margin ?? 60,
       require_full: payload.require_full ?? true,
     },
