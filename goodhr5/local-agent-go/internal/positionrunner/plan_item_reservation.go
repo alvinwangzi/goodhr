@@ -4,6 +4,7 @@ package positionrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"strings"
 	"time"
@@ -78,11 +79,22 @@ func (p *PlanItemReservation) ReleaseAfterCleanup(cleanupConfirmed bool) error {
 		return ErrPlanBrowserCleanup
 	}
 	r := p.parent.runner
+	if p.released {
+		return nil
+	}
 	if p.scan != nil && !p.scan.finished {
 		p.state.cancel()
 		for !p.scan.finished {
 			frame := <-p.scan.frames
 			p.scan.finished = frame.Done
+		}
+	}
+	if waiter, ok := r.worker.(interface{ WaitForIdle(context.Context) error }); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), stopGracefulTimeout)
+		err := waiter.WaitForIdle(ctx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("%w: 浏览器原动作尚未退出: %v", ErrPlanBrowserCleanup, err)
 		}
 	}
 	r.mu.Lock()

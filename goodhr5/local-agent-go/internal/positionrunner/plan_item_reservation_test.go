@@ -6,7 +6,36 @@ import (
 	"errors"
 	"goodhr5/local-agent-go/internal/localdb"
 	"testing"
+	"time"
 )
+
+// TestPlanItemWaitsForWorkerIdle 验证计划子项也必须等待原浏览器动作退出，不能提前交还父占用。
+func TestPlanItemWaitsForWorkerIdle(t *testing.T) {
+	child, _, _, _ := planMessageFixture(t, 0)
+	w := &stopDrainWorker{entered: make(chan struct{}), idle: make(chan struct{})}
+	child.parent.runner.worker = w
+	done := make(chan error, 1)
+	go func() { done <- child.ReleaseAfterCleanup(true) }()
+	select {
+	case <-w.entered:
+	case err := <-done:
+		t.Fatalf("浏览器原动作未退出就交还引用: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("没有等待底层动作")
+	}
+	if child.CleanupReleased() {
+		t.Fatal("原浏览器动作执行中却已清理")
+	}
+	close(w.idle)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("底层动作退出后仍未交还引用")
+	}
+}
 
 // TestPlanItemInheritance 验证原检查点归属、父引用收尾和同岗位再次附加的迟到释放隔离。
 func TestPlanItemInheritance(t *testing.T) {
