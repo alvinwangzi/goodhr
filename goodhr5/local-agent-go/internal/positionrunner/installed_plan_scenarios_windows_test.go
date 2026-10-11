@@ -77,10 +77,19 @@ func TestInstalledNextDayOfflineReport(t *testing.T) {
 	runNativeReceiptRestart(t, true, true, true)
 }
 
+// TestInstalledUnknownCandidateProtection 验证原发送结果未知的候选人在安装程序重启执行和报告重启时均不重发。
+func TestInstalledUnknownCandidateProtection(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "unknown-send")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
 // nativeCompoundScenario 判断受控组合是否需要同一岗位的三类动作。
 func nativeCompoundScenario() bool {
 	scenario := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO")
-	return scenario == "compound" || scenario == "timed-compound"
+	return scenario == "compound" || scenario == "timed-compound" || scenario == "unknown-send"
 }
 
 // configureInstalledPlanScenario 为受控组合设置原计划，不改变客户端执行逻辑。

@@ -59,6 +59,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	executeScheduled := len(scheduled) > 1 && scheduled[1]
 	var executed planmodel.Permit
 	var yesterday planmodel.Run
+	var unknownOriginal localdb.ActionCheckpoint
 	var executionLedger string
 	archivedRuns := map[string]planmodel.Permit{}
 	archivedReplies := map[string]map[string][]byte{}
@@ -342,6 +343,15 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	planScope := cloudapi.SessionOwnerScope(cloud.URL, "restart@example.com")
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "unknown-send" {
+		unknownOriginal, err = db.CreateActionRun(t.Context(), localdb.ActionCheckpoint{PositionID: "fixture-old-position", Platform: "boss", ProfileScope: platformcore.ReplyHash("profile:default")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = db.SaveActionCandidate(t.Context(), unknownOriginal, "opaque-C", "processing", "greet_sending"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "next-day-offline-report" {
 		yesterday = planPermit.Run
 		yesterday.ID, yesterday.ActivationID = uuid.NewString(), scheduledPlan.ActivationID
@@ -733,6 +743,9 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		if compound {
 			expectedFirstGreet = 3
 		}
+		if unknownOriginal.RunID != "" {
+			expectedFirstGreet = 2
+		}
 		deadline = time.Now().Add(150 * time.Second)
 		var final planmodel.Run
 		for time.Now().Before(deadline) {
@@ -782,6 +795,9 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		if compound {
 			expectedGreets, expectedSends, firstGreet = 3, 2, "opaque-C"
 		}
+		if unknownOriginal.RunID != "" {
+			expectedGreets, firstGreet = 2, "opaque-D"
+		}
 		if len(scheduledPlan.Config.Items) == 4 {
 			expectedGreets, expectedSends = 2, 0
 		}
@@ -797,13 +813,18 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 		if compound {
 			expectedTimeline := "message:123|message:124|greet:opaque-C|greet:opaque-D|greet:opaque-E"
+			expectedGreetOrder := "opaque-C|opaque-D|opaque-E"
 			if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "timed-compound" {
 				expectedTimeline = "greet:opaque-C|message:123|message:124|greet:opaque-D|greet:opaque-E"
 			}
-			if final.Items[0].Actions["auto_reply"].Count != 1 || final.Items[0].Actions["re_greet"].Count != 1 || fmt.Sprint(actual.Sends) != "[123 124]" || strings.Join(actual.Greets, "|") != "opaque-C|opaque-D|opaque-E" || strings.Join(actual.Timeline, "|") != expectedTimeline {
+			if unknownOriginal.RunID != "" {
+				expectedTimeline = "message:123|message:124|greet:opaque-D|greet:opaque-E"
+				expectedGreetOrder = "opaque-D|opaque-E"
+			}
+			if final.Items[0].Actions["auto_reply"].Count != 1 || final.Items[0].Actions["re_greet"].Count != 1 || fmt.Sprint(actual.Sends) != "[123 124]" || strings.Join(actual.Greets, "|") != expectedGreetOrder || strings.Join(actual.Timeline, "|") != expectedTimeline {
 				t.Fatalf("三动作数量或优先穿插不正确: %v", actual.Timeline)
 			}
-			t.Log("三动作确认数量：打招呼=3，回复=1，复打=1；页面台账", actual.Timeline)
+			t.Logf("三动作确认数量：打招呼=%d，回复=1，复打=1；页面台账 %v", expectedFirstGreet, actual.Timeline)
 		}
 		if yesterday.ID != "" {
 			prior, err := db.PlanRunSnapshot(t.Context(), planScope, yesterday.ID)
@@ -814,6 +835,10 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 				t.Fatal("昨日未完成报告丢失、沿用旧任务或离线报告阻止今日执行", err, attempts)
 			}
 			t.Log("受控昨日记录保留；昨日实际日报上传被503拒绝，今日新运行从第一项开始并确认一次")
+			// 今日执行已经完成后才恢复昨日报告网络，随后继续核对今日原报告的断网重启。
+			mu.Lock()
+			archivedReports[yesterday.ID].Ready = true
+			mu.Unlock()
 		}
 		if len(scheduledPlan.Config.Items) == 4 {
 			if strings.Join(actual.Timeline, "|") != "greet:Java|select:销售|greet:销售|reply:Java|reply:销售" {
@@ -887,6 +912,13 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		raw, err = os.ReadFile(executionLedger)
 		if err != nil || string(raw) != firstLedger || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != expectedGreets {
 			t.Fatal("报告补传再次执行了招聘动作", err)
+		}
+		if unknownOriginal.RunID != "" {
+			state, err := db.ActionCandidateStatus(t.Context(), unknownOriginal.RunID, unknownOriginal.PositionID, "opaque-C")
+			if err != nil || state != "processing" {
+				t.Fatal("原未知发送保护被改写", err, state)
+			}
+			t.Log("原未知候选人opaque-C未重发、不计成功，历史保护保留；其他候选人正常执行")
 		}
 	}
 	deadline = time.Now().Add(3 * time.Second)
