@@ -67,6 +67,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	var prepareOnce sync.Once
 	var scheduledPlan planmodel.Plan
 	var scheduledClaims []cloudapi.PlanClaimRequest
+	var scheduledClaimTimes []time.Time
 	var scheduledCalls atomic.Int32
 	if protectedRestore {
 		raw, e := os.ReadFile(filepath.Join("..", "planmodel", "testdata", "permit.json"))
@@ -177,6 +178,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			}
 			mu.Lock()
 			scheduledClaims = append(scheduledClaims, claim)
+			scheduledClaimTimes = append(scheduledClaimTimes, time.Now())
 			mu.Unlock()
 			scheduledCalls.Add(1)
 			if executeScheduled {
@@ -530,6 +532,12 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 		if final.State != "completed" || final.ID != waiting.ID || final.CurrentItem != 2 || final.Items[0].TaskRunID != firstTask || final.Items[0].Actions["greeting"].Count != 1 || final.Items[1].Actions["greeting"].Count != 1 || scheduledCalls.Load() != 2 {
 			t.Fatal("实际后续窗口没有沿原任务续跑", err, final.State)
+		}
+		mu.Lock()
+		legalResume := len(scheduledClaimTimes) == 2 && !scheduledClaimTimes[1].Before(intervals[1].Start)
+		mu.Unlock()
+		if !legalResume {
+			t.Fatal("第二次领取早于合法窗口或领取次数不正确")
 		}
 		raw, _ := os.ReadFile(executionLedger)
 		var ledger struct {
