@@ -28,6 +28,8 @@ type nativeRestartReportGate struct {
 	WindowRestDone  bool
 	ScanStarted     bool
 	Ready           bool
+	ManualRuns      int
+	ManualStops     int
 	Summaries       [][]byte
 }
 
@@ -71,7 +73,10 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.MachineID != "fixture-machine" {
 				t.Error("原手动入口状态来源不正确", err)
 			}
-			result = map[string]any{"ok": true, "status": input.Status, "run_id": "70000000-0000-0000-0000-000000000555", "notice_sent": false}
+			if input.Status == "running" {
+				reports.ManualRuns++
+			}
+			result = map[string]any{"ok": true, "status": input.Status, "run_id": fmt.Sprintf("70000000-0000-0000-0000-%012d", 554+reports.ManualRuns), "notice_sent": false}
 		} else {
 			result = map[string]any{"ok": true}
 		}
@@ -80,9 +85,10 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 			RunID     string `json:"run_id"`
 			MachineID string `json:"machine_id"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.RunID != "70000000-0000-0000-0000-000000000555" || input.MachineID != "fixture-machine" {
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.RunID != fmt.Sprintf("70000000-0000-0000-0000-%012d", 554+reports.ManualRuns) || input.MachineID != "fixture-machine" {
 			t.Error("原强制停止未绑定手动任务", err)
 		}
+		reports.ManualStops++
 		result = map[string]any{"ok": true, "run_id": input.RunID}
 	case "/api/config/effective-ai":
 		result = map[string]any{"config": map[string]any{"base_url": "http://" + r.Host + "/model", "api_key": "fixture-token", "model": "fixture"}}

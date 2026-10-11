@@ -595,6 +595,33 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			t.Fatal("手动停止丢失原岗位事实", err, position.Status, position.GreetedCount)
 		}
 		t.Log("原手动入口实际打招呼一次，强制停止确认原任务及Worker收尾，计划领取零")
+		if _, err := worker.CallOnce(t.Context(), "/api/v1/local/positions/native-java/run", map[string]any{"token": "fixture-token", "task_type": "greeting"}); err != nil {
+			t.Fatal("原入口不能建立第二个独立任务", err)
+		}
+		if _, err := worker.CallOnce(t.Context(), "/api/v1/local/positions/native-java/stop", map[string]any{"token": "fixture-token", "run_id": "70000000-0000-0000-0000-000000000555", "force": true}); err == nil {
+			t.Fatal("旧停止请求误接受新任务")
+		}
+		response, err := http.Get(worker.base + "/api/v1/local/positions/native-java/status")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var active struct {
+			Data map[string]any `json:"data"`
+		}
+		err = json.NewDecoder(response.Body).Decode(&active)
+		_ = response.Body.Close()
+		if err != nil || active.Data["running"] != true || active.Data["cloud_run_id"] != "70000000-0000-0000-0000-000000000556" {
+			t.Fatal("旧停止取消了新任务", err, active.Data)
+		}
+		result, err = worker.CallOnce(t.Context(), "/api/v1/local/positions/native-java/stop", map[string]any{"token": "fixture-token", "run_id": "70000000-0000-0000-0000-000000000556", "force": true})
+		data, _ = result["data"].(map[string]any)
+		mu.Lock()
+		stops, runs := reportGate.ManualStops, reportGate.ManualRuns
+		mu.Unlock()
+		if err != nil || data["running"] != false || data["stop_cloud_confirmed"] != true || stops != 2 || runs != 2 {
+			t.Fatal("新任务独立停止未确认或旧停止访问了云端", err, result, stops, runs)
+		}
+		t.Log("旧555停止被拒绝且556继续持有运行占用；两个独立任务仅各有一次有效云端停止")
 		return
 	}
 	if executeScheduled && os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "day-incomplete" {
