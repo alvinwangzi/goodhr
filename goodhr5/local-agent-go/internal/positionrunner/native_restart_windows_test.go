@@ -566,6 +566,90 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if executeScheduled && os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "manual-compat" {
+		if _, err := worker.CallOnce(t.Context(), "/api/v1/local/positions/native-java/run", map[string]any{"token": "fixture-token", "task_type": "greeting"}); err != nil {
+			t.Fatal("安装版原手动入口启动失败", err)
+		}
+		deadline = time.Now().Add(30 * time.Second)
+		var ledger struct {
+			Greets []string `json:"greetOrder"`
+		}
+		for time.Now().Before(deadline) {
+			raw, _ := os.ReadFile(executionLedger)
+			_ = json.Unmarshal(raw, &ledger)
+			if len(ledger.Greets) > 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if strings.Join(ledger.Greets, "|") != "java-person" || scheduledCalls.Load() != 0 {
+			t.Fatal("手动入口未实际发送或被计划抢占", ledger.Greets)
+		}
+		result, err := worker.CallOnce(t.Context(), "/api/v1/local/positions/native-java/stop", map[string]any{"token": "fixture-token", "run_id": "70000000-0000-0000-0000-000000000555", "force": true})
+		data, _ := result["data"].(map[string]any)
+		if err != nil || data["running"] != false || data["stop_cloud_confirmed"] != true {
+			t.Fatal("原手动任务强制停止没有完成真实收尾及云端确认", err, result)
+		}
+		position, err := db.GetPosition("native-java")
+		if err != nil || position.Status != "stopped" || position.GreetedCount != 1 {
+			t.Fatal("手动停止丢失原岗位事实", err, position.Status, position.GreetedCount)
+		}
+		t.Log("原手动入口实际打招呼一次，强制停止确认原任务及Worker收尾，计划领取零")
+		return
+	}
+	if executeScheduled && os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "day-incomplete" {
+		deadline = time.Now().Add(8 * time.Minute)
+		var incomplete planmodel.Run
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			id := executed.Run.ID
+			mu.Unlock()
+			if id != "" {
+				incomplete, err = db.PlanRunSnapshot(t.Context(), planScope, id)
+			}
+			if err == nil && incomplete.State == "incomplete" {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		if incomplete.State != "incomplete" || incomplete.CurrentItem != 0 || incomplete.Items[0].Actions["greeting"].Count != 1 || incomplete.Items[1].TaskRunID != "" || scheduledCalls.Load() != 1 {
+			t.Fatal("真实日末未按原进度结算", err, incomplete.State)
+		}
+		window := scheduledPlan.Config.Schedule.Windows[0]
+		grace, err := db.PlanWindowGrace(t.Context(), planScope, scheduledPlan.ID, incomplete.ExecutionDate, window.StartMinute, window.EndMinute, func() time.Duration { t.Fatal("日末随机收尾未持久保存"); return 0 })
+		day, _ := time.Parse("2006-01-02", incomplete.ExecutionDate)
+		intervals, intervalErr := scheduledPlan.Config.Schedule.OnDate(day)
+		if err != nil || intervalErr != nil || len(intervals) != 1 || grace < 3*time.Minute || grace > 6*time.Minute || time.Now().Before(intervals[0].End.Add(grace)) {
+			t.Fatal("日末结算早于原随机边界", err, intervalErr, grace)
+		}
+		deadline = time.Now().Add(15 * time.Second)
+		var report localdb.PlanReportRecord
+		for time.Now().Before(deadline) {
+			report, err = db.PlanReportSnapshot(t.Context(), planScope, incomplete.ID)
+			if err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err != nil || report.UploadState != "pending" || report.Report.Items[0].Actions["greeting"].Confirmed != 1 || len(report.Report.Items) != 2 {
+			t.Fatal("未完成日报没有保留实际数量及未开始后项", err)
+		}
+		mu.Lock()
+		stillEnabled := scheduledPlan.State == "enabled"
+		mu.Unlock()
+		if !stillEnabled {
+			t.Fatal("日末未完成关闭了周期计划")
+		}
+		raw, _ := os.ReadFile(executionLedger)
+		var ledger struct {
+			Greets []string `json:"greetOrder"`
+		}
+		if json.Unmarshal(raw, &ledger) != nil || strings.Join(ledger.Greets, "|") != "java-person" {
+			t.Fatal("日末出现后项或重复动作")
+		}
+		t.Log("真实最后窗口结算未完成；原计数和未执行销售保留，报告断网留存，周期计划仍启用；随机收尾", grace)
+		return
+	}
 	if scenario := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO"); executeScheduled && (scenario == "unknown-platform" || scenario == "unsupported-messages") {
 		deadline = time.Now().Add(30 * time.Second)
 		var rejected planmodel.Run

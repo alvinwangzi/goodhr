@@ -86,6 +86,24 @@ func TestInstalledUnknownCandidateProtection(t *testing.T) {
 	runNativeReceiptRestart(t, true, true, true)
 }
 
+// TestInstalledPlanDayIncomplete 验证最后时段实际结束后保存未完成日报，不启动后项或关闭周期计划。
+func TestInstalledPlanDayIncomplete(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "day-incomplete")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
+// TestInstalledManualEntry 验证原单岗位入口仍可用，并通过原任务编号强制停止实际安装程序。
+func TestInstalledManualEntry(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "manual-compat")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
 // nativeCompoundScenario 判断受控组合是否需要同一岗位的三类动作。
 func nativeCompoundScenario() bool {
 	scenario := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO")
@@ -126,14 +144,14 @@ func configureInstalledPlanScenario(t *testing.T, config *planmodel.Config) {
 		config.Items[0].PrioritizeReply = true
 		return
 	}
-	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "stop-edit" || os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" {
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "stop-edit" || os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" || os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "day-incomplete" {
 		first := config.Items[0]
 		second := first
 		second.ID = "restart-sales"
 		second.Order = 1
 		second.PositionID = "native-sales"
 		config.Items = append(config.Items, second)
-		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" {
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" || os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "day-incomplete" {
 			config.Schedule.Timezone = "UTC"
 			now := time.Now().UTC()
 			minute := now.Hour()*60 + now.Minute()
@@ -141,10 +159,13 @@ func configureInstalledPlanScenario(t *testing.T, config *planmodel.Config) {
 				t.Fatal("真实跨窗口验收需在UTC日末20分钟前启动")
 			}
 			config.Schedule.Windows = []planclock.Window{{Order: 0, StartMinute: minute, EndMinute: minute + 2}, {Order: 1, StartMinute: minute + 9, EndMinute: minute + 12}}
+			if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "day-incomplete" {
+				config.Schedule.Windows = []planclock.Window{{Order: 0, StartMinute: minute, EndMinute: minute + 1}}
+			}
 		}
 		return
 	}
-	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "outside-window" {
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "outside-window" || os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "manual-compat" {
 		zone, err := time.LoadLocation(config.Schedule.Timezone)
 		if err != nil {
 			t.Fatal(err)

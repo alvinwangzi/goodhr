@@ -55,13 +55,35 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		result = map[string]any{"subscription": map[string]any{"active": true, "allow_auto_reply": true}}
 	case "/api/config/user-preferences":
 		result = map[string]any{"config": map[string]any{}}
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "manual-compat" {
+			result = map[string]any{"config": map[string]any{"rest_after_candidates_min": 1, "rest_after_candidates_max": 1, "rest_times_min": 1, "rest_times_max": 1, "rest_duration_min": 20, "rest_duration_max": 20}}
+		}
 		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "timed-compound" {
 			// 使用真实休息跨过既有60秒检查点，不加速或替换安装程序时钟。
 			result = map[string]any{"config": map[string]any{"rest_after_candidates_min": 1, "rest_after_candidates_max": 1, "rest_times_min": 1, "rest_times_max": 1, "rest_duration_min": 1.5, "rest_duration_max": 1.5}}
 		}
-		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" && !reports.WindowRestDone {
+		if (os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" || os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "day-incomplete") && !reports.WindowRestDone {
 			result = map[string]any{"config": map[string]any{"rest_after_candidates_min": 1, "rest_after_candidates_max": 1, "rest_times_min": 1, "rest_times_max": 1, "rest_duration_min": 20, "rest_duration_max": 20}}
 		}
+	case "/api/positions/native-java/status":
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "manual-compat" {
+			var input cloudapi.TaskStatusRequest
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.MachineID != "fixture-machine" {
+				t.Error("原手动入口状态来源不正确", err)
+			}
+			result = map[string]any{"ok": true, "status": input.Status, "run_id": "70000000-0000-0000-0000-000000000555", "notice_sent": false}
+		} else {
+			result = map[string]any{"ok": true}
+		}
+	case "/api/positions/native-java/stop":
+		var input struct {
+			RunID     string `json:"run_id"`
+			MachineID string `json:"machine_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.RunID != "70000000-0000-0000-0000-000000000555" || input.MachineID != "fixture-machine" {
+			t.Error("原强制停止未绑定手动任务", err)
+		}
+		result = map[string]any{"ok": true, "run_id": input.RunID}
 	case "/api/config/effective-ai":
 		result = map[string]any{"config": map[string]any{"base_url": "http://" + r.Host + "/model", "api_key": "fixture-token", "model": "fixture"}}
 	case "/api/positions/native-java":
