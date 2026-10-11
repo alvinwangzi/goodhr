@@ -1,6 +1,6 @@
 # Purpose: build the HRPlus Local Agent and create the Windows installer.
 param(
-  [string]$Version = "0.1.13",
+  [string]$Version = "0.1.14",
   [string]$Environment = $env:GOODHR_APP_ENV,
   [string]$ConfigFile = ""
 )

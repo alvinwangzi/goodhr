@@ -10,24 +10,73 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"goodhr5/local-agent-go/internal/version"
 )
 
+// TestWaitForIdleEnvelope 验证真实 Worker 的 data 包装被正确读取，忙碌时不会提前结束。
+func TestWaitForIdleEnvelope(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/browser/action-status" {
+			t.Error("空闲核对执行了其他动作")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "data": map[string]any{"idle": calls.Add(1) >= 2}})
+	}))
+	defer server.Close()
+	m := NewWorkerManager(nil)
+	m.baseURL = server.URL
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	if err := m.WaitForIdle(ctx); err != nil {
+		t.Fatal("真实空闲回执未被正确识别", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatal("尚在忙碌时即释放或没有使用原回执")
+	}
+}
+
+// TestCallOnceDoesNotReplay 验证发送请求断连时不重启 Worker、不自动重发动作。
+
+// TestWaitForIdleRejectsUnknown 验证缺失或不可信空闲事实不能释放，失败请求不重启或重放。
+func TestWaitForIdleRejectsUnknown(t *testing.T) {
+	for _, body := range []string{`{"ok":true,"data":{}}`, `{"ok":false,"data":{"idle":true}}`, `{"ok":true,"data":{"idle":"true"}}`} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
+			defer server.Close()
+			m := NewWorkerManager(nil)
+			m.baseURL = server.URL
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+			defer cancel()
+			if err := m.WaitForIdle(ctx); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal("未知空闲事实被接受", err)
+			}
+		})
+	}
+}
+
 // TestCallOnceDoesNotReplay 验证发送请求断连时不重启 Worker、不自动重发动作。
 func TestCallOnceDoesNotReplay(t *testing.T) {
- calls:=0
- server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
-  calls++
-  connection,_,err:=w.(http.Hijacker).Hijack()
-  if err!=nil { t.Error(err);return }; _=connection.Close()
- }))
- defer server.Close()
- manager:=NewWorkerManager(nil);manager.baseURL=server.URL
- _,err:=manager.CallOnce(t.Context(),"/api/v1/page/click",map[string]any{"selector_spec":map[string]any{"selectors":[]string{"button"}}})
- if err==nil || calls!=1 { t.Fatalf("断连动作被重试：%d %v",calls,err) }
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		connection, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		_ = connection.Close()
+	}))
+	defer server.Close()
+	manager := NewWorkerManager(nil)
+	manager.baseURL = server.URL
+	_, err := manager.CallOnce(t.Context(), "/api/v1/page/click", map[string]any{"selector_spec": map[string]any{"selectors": []string{"button"}}})
+	if err == nil || calls != 1 {
+		t.Fatalf("断连动作被重试：%d %v", calls, err)
+	}
 }
 
 // TestSetAgentBaseURLUsesNextPort 验证 Worker 固定使用本地程序端口加一。

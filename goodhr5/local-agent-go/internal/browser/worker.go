@@ -278,7 +278,8 @@ func (m *WorkerManager) WaitForIdle(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if result["idle"] == true {
+		data, _ := result["data"].(map[string]any)
+		if result["ok"] == true && data["idle"] == true {
 			return nil
 		}
 		select {

@@ -88,6 +88,10 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 	}
 	cloud := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/execution-plan-events" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return // 固定端口期间主控台旧事件连接保持不可用，不伪造事件确认。
+		}
 		if executeScheduled {
 			mu.Lock()
 			handled := nativeRestartExecutionCloud(t, w, r, &executed, executionReplies, &reportGate)
