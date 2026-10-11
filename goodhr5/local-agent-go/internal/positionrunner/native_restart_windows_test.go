@@ -626,12 +626,18 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		var report localdb.PlanReportRecord
 		for time.Now().Before(deadline) {
 			report, err = db.PlanReportSnapshot(t.Context(), planScope, incomplete.ID)
-			if err == nil {
+			mu.Lock()
+			attempted := len(reportGate.Summaries) > 0
+			mu.Unlock()
+			if err == nil && attempted {
 				break
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		if err != nil || report.UploadState != "pending" || report.Report.Items[0].Actions["greeting"].Confirmed != 1 || len(report.Report.Items) != 2 {
+		mu.Lock()
+		uploadAttempted := len(reportGate.Summaries) > 0
+		mu.Unlock()
+		if err != nil || !uploadAttempted || report.UploadState != "pending" || report.Report.Items[0].Actions["greeting"].Confirmed != 1 || len(report.Report.Items) != 2 {
 			t.Fatal("未完成日报没有保留实际数量及未开始后项", err)
 		}
 		mu.Lock()
