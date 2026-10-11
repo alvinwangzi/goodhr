@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"net/http"
@@ -28,6 +29,10 @@ func TestNativeAgentScheduledExecutionRestart(t *testing.T) {
 // 调用方持有共同测试锁，避免云端回执与观察结果并发改变。
 func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Request, permit *planmodel.Permit, replies map[string][]byte, reports *nativeRestartReportGate) bool {
 	t.Helper()
+	if strings.HasPrefix(r.URL.Path, "/model/") {
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"action":"reply","text":"岗位仍在招聘，欢迎沟通。","reason":"虚构岗位问答","request_resume":false}`}}}})
+		return true
+	}
 	var result any
 	switch r.URL.Path {
 	case "/api/subscription/status":
@@ -35,14 +40,16 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 	case "/api/config/user-preferences":
 		result = map[string]any{"config": map[string]any{}}
 	case "/api/config/effective-ai":
-		result = map[string]any{"config": map[string]any{}}
+		result = map[string]any{"config": map[string]any{"base_url": "http://" + r.Host + "/model", "api_key": "fixture-token", "model": "fixture"}}
 	case "/api/positions/native-java":
 		result = map[string]any{"position": map[string]any{"id": "native-java", "name": "Java", "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": "Java", "mode_default": "keyword", "detail_mode": "keyword"}}}
+	case "/api/positions/native-sales":
+		result = map[string]any{"position": map[string]any{"id": "native-sales", "name": "销售", "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": "销售", "mode_default": "keyword", "detail_mode": "keyword"}}}
 	case "/api/platforms/config/":
 		body, _ := json.Marshal(map[string]any{"id": "boss", "auth": map[string]any{"pages": []any{map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true}}}, "position": map[string]any{"current": map[string]any{"target_classes": []string{"fixture-job"}, "parent_classes": []string{}}, "switchBtn": map[string]any{"target_classes": []string{"fixture-picker"}, "parent_classes": []string{}}, "list": map[string]any{"target_classes": []string{"fixture-menu"}, "parent_classes": []string{}}, "item": map[string]any{"target_classes": []string{"fixture-item"}, "parent_classes": []string{}}, "itemText": map[string]any{"target_classes": []string{"fixture-title"}, "parent_classes": []string{}}}, "card": map[string]any{"item": map[string]any{"selector": ".candidate-card-wrap"}, "fields": map[string]any{"name": map[string]any{"selector": ".candidate-name"}}}, "actions": map[string]any{"greetBtn": map[string]any{"selector": ".greet-btn"}, "continueBtn": map[string]any{"selector": ".continue-btn"}}})
 		result = map[string]any{"configs": []any{map[string]any{"config_key": "platform.boss", "config_value": string(body)}}}
 	default:
-		if strings.HasPrefix(r.URL.Path, "/api/positions/native-java/") {
+		if strings.HasPrefix(r.URL.Path, "/api/positions/native-java/") || strings.HasPrefix(r.URL.Path, "/api/positions/native-sales/") {
 			result = map[string]any{"ok": true}
 		}
 	}
@@ -77,26 +84,28 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "report": cloudapi.PlanReportReceipt{RunID: permit.Run.ID, BodyHash: hex.EncodeToString(hash[:]), Summary: input.Summary, SyncState: input.SyncState, NotificationState: "not_configured", CreatedAt: now, UpdatedAt: now}})
 		return true
 	}
-	if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/items/"+permit.Run.Items[0].ID+"/prepare" {
-		var input cloudapi.PlanItemTaskRequest
-		if e := json.NewDecoder(r.Body).Decode(&input); e != nil {
-			t.Error(e)
-		}
-		input.RunID, input.ItemRunID = permit.Run.ID, permit.Run.Items[0].ID
-		if prior := replies[input.RequestID]; prior != nil {
-			_, _ = w.Write(prior)
+	for index := range permit.Run.Items {
+		if r.URL.Path == "/api/execution-plan-runs/"+permit.Run.ID+"/items/"+permit.Run.Items[index].ID+"/prepare" {
+			var input cloudapi.PlanItemTaskRequest
+			if e := json.NewDecoder(r.Body).Decode(&input); e != nil {
+				t.Error(e)
+			}
+			input.RunID, input.ItemRunID = permit.Run.ID, permit.Run.Items[index].ID
+			if prior := replies[input.RequestID]; prior != nil {
+				_, _ = w.Write(prior)
+				return true
+			}
+			if input.RunID != permit.Run.ID || input.OwnerID != permit.Owner.OwnerID || input.MachineID != permit.Owner.MachineID {
+				t.Error("重启准备任务来源不匹配")
+			}
+			if permit.Run.Items[index].TaskRunID == "" {
+				permit.Run.Sequence++
+				permit.Run.Items[index].TaskRunID = fmt.Sprintf("70000000-0000-0000-0000-%012d", index+99)
+			}
+			replies[input.RequestID], _ = json.Marshal(map[string]any{"ok": true, "permit": permit})
+			_, _ = w.Write(replies[input.RequestID])
 			return true
 		}
-		if input.RunID != permit.Run.ID || input.OwnerID != permit.Owner.OwnerID || input.MachineID != permit.Owner.MachineID {
-			t.Error("重启准备任务来源不匹配")
-		}
-		if permit.Run.Items[0].TaskRunID == "" {
-			permit.Run.Sequence++
-			permit.Run.Items[0].TaskRunID = "70000000-0000-0000-0000-000000000099"
-		}
-		replies[input.RequestID], _ = json.Marshal(map[string]any{"ok": true, "permit": permit})
-		_, _ = w.Write(replies[input.RequestID])
-		return true
 	}
 	if strings.HasSuffix(r.URL.Path, "/status") || strings.HasSuffix(r.URL.Path, "/release") {
 		var input cloudapi.PlanRunUpdateRequest
@@ -116,6 +125,17 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		permit.Run.EndReason = input.EndReason
 		for index, item := range input.Items {
 			permit.Run.Items[index].State, permit.Run.Items[index].Actions = item.State, item.Actions
+			if input.Action == "release" && input.State != "completed" && input.State != "waiting_window" {
+				if item.State == "pending" || item.State == "running" {
+					permit.Run.Items[index].State = "stopped"
+				}
+				for action, progress := range permit.Run.Items[index].Actions {
+					if progress.State == "active" {
+						progress.State = "stopped"
+						permit.Run.Items[index].Actions[action] = progress
+					}
+				}
+			}
 		}
 		if input.State == "running" && permit.Run.StartedAt == nil {
 			now := time.Now().UTC()

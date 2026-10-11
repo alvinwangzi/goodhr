@@ -80,6 +80,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 				config.Items[0].PositionID = "native-java"
 				config.Items[0].Actions = []string{"greeting"}
 				config.Items[0].PrioritizeReply = false
+				configureInstalledPlanScenario(t, &config)
 			}
 			scheduledPlan = planmodel.Plan{ID: planPermit.Run.PlanID, UserEmail: "restart@example.com", MachineID: "fixture-machine", Version: 1, StateSequence: 1, ActivationID: "30000000-0000-0000-0000-000000000002", State: "enabled", Config: config, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 			if e = scheduledPlan.Validate(); e != nil {
@@ -88,6 +89,10 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 	}
 	cloud := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/platforms/config/" && r.Header.Get("Authorization") != "Bearer fixture-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return // 固定端口不向原主控台登录返回虚构账号、计划或许可。
+		}
 		if r.URL.Path == "/api/execution-plan-events" {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return // 固定端口期间主控台旧事件连接保持不可用，不伪造事件确认。
@@ -130,6 +135,14 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			if executeScheduled {
 				mu.Lock()
 				executed = planmodel.Permit{Run: planmodel.Run{ID: claim.RunID, PlanID: claim.PlanID, ActivationID: claim.ActivationID, ExecutionDate: claim.ExecutionDate, ConfigVersion: claim.ExpectedVersion, Sequence: 1, State: "starting", Snapshot: scheduledPlan.Config, OwnerID: claim.OwnerID, Items: []planmodel.ItemRun{{ID: "50000000-0000-0000-0000-000000000099", ItemID: scheduledPlan.Config.Items[0].ID, Order: 0, Snapshot: scheduledPlan.Config.Items[0], State: "pending", Actions: map[string]planmodel.ActionProgress{"greeting": {State: "pending"}}}}}, Owner: planmodel.Owner{OwnerID: claim.OwnerID, OwnerType: "plan", MachineID: claim.MachineID, State: "starting"}}
+				executed.Run.Items = nil
+				for index, item := range scheduledPlan.Config.Items {
+					actions := map[string]planmodel.ActionProgress{}
+					for _, action := range item.Actions {
+						actions[action] = planmodel.ActionProgress{State: "pending"}
+					}
+					executed.Run.Items = append(executed.Run.Items, planmodel.ItemRun{ID: fmt.Sprintf("50000000-0000-0000-0000-%012d", index+99), ItemID: item.ID, Order: index, Snapshot: item, State: "pending", Actions: actions})
+				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": executed})
 				mu.Unlock()
 				return
@@ -389,8 +402,24 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if executeScheduled && os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "outside-window" {
+		result, err := worker.CallOnce(t.Context(), "/api/v1/local/execution-plans/"+scheduledPlan.ID+"/start", map[string]any{"token": "fixture-token", "expected_version": scheduledPlan.Version, "activation_id": scheduledPlan.ActivationID})
+		data, _ := result["data"].(map[string]any)
+		if err != nil || data["status"] != "waiting_time" {
+			t.Fatalf("时段外立即开始未保持等待: %v %+v", err, result)
+		}
+		time.Sleep(6 * time.Second)
+		if scheduledCalls.Load() != 0 {
+			t.Fatal("时段外仍领取了执行许可")
+		}
+		if _, err = os.Stat(executionLedger); !os.IsNotExist(err) {
+			t.Fatal("时段外仍打开了招聘页面或产生动作", err)
+		}
+		t.Log("时段外立即开始：waiting_time，许可领取=0，招聘页面动作=0")
+		return
+	}
 	if executeScheduled {
-		deadline = time.Now().Add(60 * time.Second)
+		deadline = time.Now().Add(150 * time.Second)
 		var final planmodel.Run
 		for time.Now().Before(deadline) {
 			mu.Lock()
@@ -404,7 +433,10 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		if final.State != "completed" || final.CurrentItem != 1 || final.Items[0].Actions["greeting"].Count != 1 || scheduledCalls.Load() != 1 {
+		if final.State != "completed" || final.CurrentItem != len(scheduledPlan.Config.Items) || final.Items[0].Actions["greeting"].Count != 1 || scheduledCalls.Load() != 1 {
+			mu.Lock()
+			t.Log("夹具原结束原因", executed.Run.EndReason)
+			mu.Unlock()
 			entries, _ := db.ListPositionLogs("native-java", 40)
 			for _, entry := range entries {
 				t.Log(entry.Message)
@@ -426,11 +458,33 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 		raw, e := os.ReadFile(executionLedger)
 		var actual struct {
-			Greets []string `json:"greetOrder"`
-			Sends  []int    `json:"sendOrder"`
+			Greets   []string `json:"greetOrder"`
+			Sends    []int    `json:"sendOrder"`
+			Timeline []string `json:"timeline"`
 		}
-		if e != nil || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != 1 || actual.Greets[0] != "java-person" || len(actual.Sends) != 0 {
+		expectedGreets, expectedSends := 1, 0
+		if len(scheduledPlan.Config.Items) == 4 {
+			expectedGreets, expectedSends = 2, 0
+		}
+		if e != nil || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != expectedGreets || actual.Greets[0] != "java-person" || len(actual.Sends) != expectedSends {
 			t.Fatal("实际程序没有按计划执行一次或额外发消息", e)
+		}
+		if len(scheduledPlan.Config.Items) == 4 {
+			if strings.Join(actual.Timeline, "|") != "greet:Java|select:销售|greet:销售|reply:Java|reply:销售" {
+				t.Fatalf("四项页面顺序不正确: %v", actual.Timeline)
+			}
+			tasks := map[string]bool{}
+			for _, item := range final.Items {
+				if item.TaskRunID == "" || tasks[item.TaskRunID] {
+					t.Fatal("重复岗位没有独立原任务")
+				}
+				tasks[item.TaskRunID] = true
+				for _, action := range item.Snapshot.Actions {
+					if item.Actions[action].Count != 1 {
+						t.Fatal("单项数量不正确", item.Order, action, item.Actions[action])
+					}
+				}
+			}
 		}
 		firstLedger := string(raw)
 		var report localdb.PlanReportRecord
@@ -485,7 +539,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 		mu.Unlock()
 		raw, err = os.ReadFile(executionLedger)
-		if err != nil || string(raw) != firstLedger || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != 1 {
+		if err != nil || string(raw) != firstLedger || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != expectedGreets {
 			t.Fatal("报告补传再次执行了招聘动作", err)
 		}
 	}
