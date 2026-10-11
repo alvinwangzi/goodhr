@@ -110,26 +110,18 @@ export function membershipName(memberType: unknown) {
   }
 }
 
-/** estimateSubscriptionQuote 预计普通购买或套餐切换的实付与抵扣金额。 */
+/** canPurchaseSubscription 禁止有效Pro会员主动购买Plus，到期后仍可重新选择套餐。 */
+export function canPurchaseSubscription(subscription: SubscriptionStatus, target: SubscriptionPlan) {
+  return !(subscription.active && subscription.member_type === "pro" && target.member_type === "plus");
+}
+
+/** estimateSubscriptionQuote 预计普通购买或套餐升级的实付与抵扣金额。 */
 export function estimateSubscriptionQuote(
   subscription: SubscriptionStatus,
   plans: SubscriptionPlan[],
   target: SubscriptionPlan,
 ): SubscriptionUpgradeQuote {
   const targetCents = planPriceCents(target);
-  if (
-    subscription.active &&
-    subscription.member_type === "pro" &&
-    target.member_type === "plus"
-  ) {
-    return {
-      amountCents: targetCents,
-      creditCents: 0,
-      upgrade: false,
-      replacement: true,
-      sourceMemberType: "pro",
-    };
-  }
   if (
     !subscription.active ||
     subscription.member_type !== "plus" ||

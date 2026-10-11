@@ -43,6 +43,7 @@ import {
   type WechatPaymentState,
 } from "@/components/payment/WechatPayDialog";
 import {
+  canPurchaseSubscription,
   estimateSubscriptionQuote,
   membershipName,
   normalizeSubscriptionPlans,
@@ -195,6 +196,11 @@ export default function SubscriptionPage() {
   /** pay 创建会员套餐支付订单。 */
   async function pay(planID: string) {
     if (!planID) return;
+    const plan = plans.find((item) => item.id === planID);
+    if (!plan || !canPurchaseSubscription(subscription, plan)) {
+      notify("当前为有效的 Pro会员，可以续费 Pro，不能切换为 Plus", "warning");
+      return;
+    }
     setPayingPlanID(planID);
     try {
       const data = await cloudRequest("/api/payment/orders", {
@@ -228,6 +234,7 @@ export default function SubscriptionPage() {
     if (!planID) return;
     const plan = plans.find((item) => item.id === planID);
     if (!plan) return;
+    if (!canPurchaseSubscription(subscription, plan)) return;
     setPendingPayment({ type: "membership", planID });
   }
 
@@ -518,7 +525,7 @@ export default function SubscriptionPage() {
           alignItems: "stretch",
         }}
       >
-        {plans.map((plan, index) => (
+        {plans.filter((plan) => canPurchaseSubscription(subscription, plan)).map((plan, index) => (
           <PlanCard
             key={plan.id || index}
             plan={plan}
@@ -707,9 +714,7 @@ function PaymentUnderstandingDialog({
             >
               <Typography sx={{ fontWeight: 800 }}>{plan.name}</Typography>
               <Typography sx={{ mt: 0.5, color: "text.secondary" }}>
-                {quote.sourceMemberType === "pro"
-                  ? `支付成功后会立即切换为 Plus，原 Pro 剩余时间不折算，Plus 从付款时间重新计算 ${plan.duration_days} 天。`
-                  : quote.upgrade
+                {quote.upgrade
                   ? `Plus 剩余时间抵扣 ￥${(quote.creditCents / 100).toFixed(2)}，预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。最终金额以后端下单时的剩余时间为准。`
                   : `本次预计实付 ￥${(quote.amountCents / 100).toFixed(2)}。`}
               </Typography>
@@ -1192,11 +1197,6 @@ function PlanCard({
           已按 Plus 剩余时间抵扣 ￥{(quote.creditCents / 100).toFixed(2)}，预计应付 ￥{(quote.amountCents / 100).toFixed(2)}
         </Typography>
       ) : null}
-      {quote.sourceMemberType === "pro" ? (
-        <Typography sx={{ mt: 1, color: "#80621f", fontSize: 13, fontWeight: 700 }}>
-          立即切换 Plus，原 Pro 剩余时间不折算
-        </Typography>
-      ) : null}
       <Stack spacing={1.1} sx={{ mt: 2.25, flex: 1 }}>
         {(Array.isArray(plan.features) ? plan.features : []).map(
           (feature: string) => (
@@ -1235,9 +1235,7 @@ function PlanCard({
         >
           {paying
             ? "正在创建订单"
-            : quote.sourceMemberType === "pro"
-              ? "切换为 Plus"
-              : quote.upgrade
+            : quote.upgrade
                 ? "补差价升级 Pro"
                 : "立即订阅"}
         </Button>

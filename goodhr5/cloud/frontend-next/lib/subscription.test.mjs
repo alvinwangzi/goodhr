@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canUseAutoReply,
+  canPurchaseSubscription,
   estimateSubscriptionQuote,
   normalizeSubscription,
   normalizeSubscriptionPlans,
@@ -81,16 +82,14 @@ test("自动回复只接受后端返回的明确权限", () => {
   );
 });
 
-test("有效 Pro 可以原价切换 Plus", () => {
+test("有效 Pro 禁止购买 Plus，允许续费 Pro，到期后允许购买 Plus", () => {
   const subscription = normalizeSubscription({
     active: true,
     member_type: "pro",
     allow_ai: true,
     allow_auto_reply: true,
   });
-  const quote = estimateSubscriptionQuote(subscription, plans, plans[0]);
-  assert.equal(quote.amountCents, 4000);
-  assert.equal(quote.creditCents, 0);
-  assert.equal(quote.replacement, true);
-  assert.equal(quote.sourceMemberType, "pro");
+  assert.equal(canPurchaseSubscription(subscription, plans[0]), false);
+  assert.equal(canPurchaseSubscription(subscription, plans[1]), true);
+  assert.equal(canPurchaseSubscription({ ...subscription, active: false }, plans[0]), true);
 });

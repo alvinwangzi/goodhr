@@ -240,18 +240,12 @@ func (s *MemorySubscriptionStore) ApplyGrant(grant SubscriptionGrant) (Subscript
 		current, err := s.UserSubscription(grant.Email)
 		return current, false, err
 	}
-	var (
-		subscription Subscription
-		err          error
-	)
-	if grant.ReplaceFromNow {
-		subscription, err = s.ReplaceSubscriptionFromNow(grant.Email, grant.MemberType, grant.Days)
-	} else {
-		subscription, err = s.ExtendSubscription(grant.Email, grant.MemberType, grant.Days)
-	}
+	current, err := s.UserSubscription(grant.Email)
 	if err != nil {
 		return Subscription{}, false, err
 	}
+	subscription := applySubscriptionGrant(current, grant, s.now())
+	s.items[grant.Email] = subscription
 	s.grants[key] = struct{}{}
 	return subscription, true, nil
 }
@@ -436,7 +430,9 @@ func (s *PostgresSubscriptionStore) ApplyGrant(grant SubscriptionGrant) (Subscri
 		return Subscription{}, false, err
 	}
 
-	next := applySubscriptionGrant(current, grant, time.Now())
+	now := time.Now()
+	grant = preserveActiveProGrant(current, grant, now)
+	next := applySubscriptionGrant(current, grant, now)
 	payload, err := json.Marshal(next)
 	if err != nil {
 		return Subscription{}, false, err
@@ -469,8 +465,18 @@ func validateSubscriptionGrant(grant SubscriptionGrant) error {
 	return nil
 }
 
+// preserveActiveProGrant 保留有效Pro的付款权益，旧Plus订单按原等级续时，不改变管理员调整规则。
+func preserveActiveProGrant(current Subscription, grant SubscriptionGrant, now time.Time) SubscriptionGrant {
+	if grant.GrantType == "buyer" && normalizeMemberType(grant.MemberType) == memberTypePlus && normalizeMemberType(current.MemberType) == memberTypePro && current.ExpiresAt.After(now) {
+		grant.MemberType = memberTypePro
+		grant.ReplaceFromNow = false
+	}
+	return grant
+}
+
 // applySubscriptionGrant 根据当前会员和发放方式计算新的会员状态。
 func applySubscriptionGrant(current Subscription, grant SubscriptionGrant, now time.Time) Subscription {
+	grant = preserveActiveProGrant(current, grant, now)
 	memberType := normalizeMemberType(grant.MemberType)
 	if memberType == "" {
 		memberType = normalizeMemberType(current.MemberType)

@@ -25,6 +25,10 @@ func TestUpdatedSubscriptionOrderPrices(t *testing.T) {
 			routes := server.Routes()
 			email := "new-price@example.com"
 			token := loginForTest(t, routes, email)
+			// 价格测试使用已到期账号，不能借默认Pro试用期测试主动降级。
+			if _, err := server.payments.subscriptions.AdjustSubscriptionDays(email, memberTypePro, -10); err != nil {
+				t.Fatal(err)
+			}
 			before, err := server.payments.subscriptions.UserSubscription(email)
 			if err != nil {
 				t.Fatal(err)
@@ -270,49 +274,113 @@ func TestApplyPlusUpgradeReplacesExpiryFromNow(t *testing.T) {
 	}
 }
 
-// TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus 验证有效 Pro 可以原价切换 Plus。
-func TestBuildSubscriptionPaymentQuoteAllowsMaxToPlus(t *testing.T) {
+// TestPaymentOrderRejectsActiveProDowngrade 验证HTTP下单拦截有效Pro降级，不创建订单或调用支付渠道。
+func TestPaymentOrderRejectsActiveProDowngrade(t *testing.T) {
+	server := mustNewServer(t)
+	provider := &fakeWechatPaymentProvider{}
+	server.payments.providers = map[string]PaymentProvider{provider.Name(): provider}
+	routes := server.Routes()
+	email := "pro-no-downgrade@example.com"
+	token := loginForTest(t, routes, email)
+	request := httptest.NewRequest(http.MethodPost, "/api/payment/orders", bytes.NewBufferString(`{"plan_id":"monthly"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	routes.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("有效Pro降级未被HTTP拒绝: %s", response.Body.String())
+	}
+	orders, err := server.payments.orders.ListByUser(email)
+	if err != nil || len(orders) != 0 {
+		t.Fatal("拒绝的降级仍创建订单", err, len(orders))
+	}
+}
+
+// TestPostgresLatePlusGrantPreservesPro 验证真实数据库行锁内保护Pro、实际记账规则及重复到账幂等。
+func TestPostgresLatePlusGrantPreservesPro(t *testing.T) {
+	db := planPostgresFixture(t)
+	store := NewPostgresSubscriptionStore(db)
+	id, _ := newExecutionPlanID()
+	email := id + "@fixture.test"
+	defer func() {
+		db.Exec(`DELETE FROM subscription_order_grants WHERE user_email=$1`, email)
+		db.Exec(`DELETE FROM payment_orders WHERE user_email=$1`, email)
+		db.Exec(`DELETE FROM users WHERE email=$1`, email)
+	}()
+	current, err := store.AdjustSubscriptionDays(email, memberTypePro, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := SubscriptionGrant{OrderNo: "late-" + id, GrantType: "buyer", Email: email, MemberType: memberTypePlus, Days: 30, ReplaceFromNow: true}
+	expiredAt := time.Now().Add(time.Hour)
+	if _, err := NewPostgresPaymentStore(db).Create(PaymentOrder{OrderNo: grant.OrderNo, UserEmail: email, MemberType: memberTypePlus, DurationDays: 30, Status: "paid", PaymentProvider: "fixture", ExpiredAt: &expiredAt}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		actual, changed, err := store.ApplyGrant(grant)
+		if err != nil || changed != (i == 0) || actual.MemberType != memberTypePro || !actual.ExpiresAt.Equal(current.ExpiresAt.Add(30*24*time.Hour)) {
+			t.Fatal("数据库到账降级、损失剩余时间或重复续时", actual, changed, err)
+		}
+	}
+	var tier string
+	var replacement bool
+	if err := db.QueryRow(`SELECT member_type,replace_from_now FROM subscription_order_grants WHERE order_no=$1`, grant.OrderNo).Scan(&tier, &replacement); err != nil || tier != memberTypePro || replacement {
+		t.Fatal("到账记账与实际保留Pro规则不一致", err, tier, replacement)
+	}
+	if _, err := db.Exec(`DELETE FROM subscription_order_grants WHERE order_no=$1`, grant.OrderNo); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBuildSubscriptionPaymentQuoteRejectsProDowngrade 验证有效Pro不能下单Plus，但到期后购买和Pro续费仍允许。
+func TestBuildSubscriptionPaymentQuoteRejectsProDowngrade(t *testing.T) {
 	plans, err := loadSubscriptionPlans(NewMemorySystemConfigStore())
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, ok := subscriptionPlanByMemberType(plans, memberTypePlus)
-	if !ok {
-		t.Fatal("Plus 套餐不存在")
+	plus, _ := subscriptionPlanByMemberType(plans, memberTypePlus)
+	pro, _ := subscriptionPlanByMemberType(plans, memberTypePro)
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	current := Subscription{MemberType: memberTypePro, ExpiresAt: now.Add(72 * time.Hour)}
+	if _, err := buildSubscriptionPaymentQuote(plans, current, plus, now); err == nil {
+		t.Fatal("有效Pro仍可购买Plus")
 	}
-	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
-	quote, err := buildSubscriptionPaymentQuote(plans, Subscription{
-		MemberType: memberTypePro,
-		ExpiresAt:  now.Add(24 * time.Hour),
-	}, target, now)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := buildSubscriptionPaymentQuote(plans, current, pro, now); err != nil {
+		t.Fatal("Pro续费被拦截", err)
 	}
-	if quote.UpgradeFromType != memberTypePro || quote.UpgradeCreditCents != 0 || quote.AmountCents != 9900 {
-		t.Fatalf("Pro 切换 Plus 报价不正确: %+v", quote)
+	current.ExpiresAt = now
+	if _, err := buildSubscriptionPaymentQuote(plans, current, plus, now); err != nil {
+		t.Fatal("到期购买Plus被拦截", err)
 	}
 }
 
-// TestApplyMaxToPlusReplacesExpiryFromNow 验证 Pro 切换 Plus 后从付款时间重新计算 30 天。
-func TestApplyMaxToPlusReplacesExpiryFromNow(t *testing.T) {
+// TestApplyLatePlusOrderPreservesPro 验证旧Plus订单迟到不覆盖有效Pro或损失原剩余时间，重复到账不重复续时。
+func TestApplyLatePlusOrderPreservesPro(t *testing.T) {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	store := NewMemorySubscriptionStore()
 	store.now = func() time.Time { return now }
-	email := "max-to-plus@example.com"
-	store.items[email] = Subscription{MemberType: memberTypePro, ExpiresAt: now.Add(72 * time.Hour)}
+	email := "late-plus@example.com"
+	original := Subscription{MemberType: memberTypePro, ExpiresAt: now.Add(72 * time.Hour)}
+	store.items[email] = original
 	service := &PaymentService{subscriptions: store, systemConfigs: NewMemorySystemConfigStore()}
-	if err := service.applyPaidSubscriptionOrder(PaymentOrder{
-		OrderNo: "max-to-plus", UserEmail: email, MemberType: memberTypePlus,
-		DurationDays: 30, UpgradeFromType: memberTypePro,
-	}); err != nil {
-		t.Fatal(err)
+	order := PaymentOrder{OrderNo: "late-plus", UserEmail: email, MemberType: memberTypePlus, DurationDays: 30, UpgradeFromType: memberTypePro}
+	for i := 0; i < 2; i++ {
+		if err := service.applyPaidSubscriptionOrder(order); err != nil {
+			t.Fatal(err)
+		}
 	}
-	subscription, err := store.UserSubscription(email)
-	if err != nil {
-		t.Fatal(err)
+	actual, err := store.UserSubscription(email)
+	if err != nil || actual.MemberType != memberTypePro || !actual.ExpiresAt.Equal(original.ExpiresAt.Add(30*24*time.Hour)) {
+		t.Fatalf("旧订单损坏Pro或重复到账: %+v %v", actual, err)
 	}
-	want := now.Add(30 * 24 * time.Hour)
-	if subscription.MemberType != memberTypePlus || !subscription.ExpiresAt.Equal(want) {
-		t.Fatalf("Pro 切换 Plus 到期时间不正确: got=%+v want=%s", subscription, want)
+	// PostgreSQL复用同一个纯计算函数，核对其有效期保护与到期边界。
+	grant := SubscriptionGrant{GrantType: "buyer", MemberType: memberTypePlus, Days: 30, ReplaceFromNow: true}
+	computed := applySubscriptionGrant(original, grant, now)
+	if computed != actual {
+		t.Fatalf("两种存储的到账规则不一致: %+v", computed)
+	}
+	expired := original
+	expired.ExpiresAt = now
+	if got := applySubscriptionGrant(expired, grant, now); got.MemberType != memberTypePlus {
+		t.Fatal("到期会员购买Plus被改变", got)
 	}
 }

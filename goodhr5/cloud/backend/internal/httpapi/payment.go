@@ -422,8 +422,6 @@ func (s *PaymentService) applyPaidSubscriptionOrder(order PaymentOrder) error {
 	reason := "充值会员成功"
 	if fromType == memberTypePlus && targetType == memberTypePro {
 		reason = "Plus 升级 Pro 成功"
-	} else if fromType == memberTypePro && targetType == memberTypePlus {
-		reason = "Pro 转为 Plus 成功"
 	}
 	if changed {
 		if noticeErr := sendSubscriptionRewardNotice(s.mailer, s.systemConfigs, order.UserEmail, SubscriptionRewardNotice{
@@ -531,8 +529,7 @@ func buildSubscriptionPaymentQuote(plans []subscriptionPlan, current Subscriptio
 	quote := subscriptionPaymentQuote{AmountCents: targetAmount}
 	targetType := normalizeMemberType(target.MemberType)
 	if currentAccess.Active && currentAccess.MemberType == memberTypePro && targetType == memberTypePlus {
-		quote.UpgradeFromType = memberTypePro
-		return quote, nil
+		return subscriptionPaymentQuote{}, fmt.Errorf("当前为有效的 Pro会员，可以续费 Pro，不能切换为 Plus")
 	}
 	if !currentAccess.Active ||
 		currentAccess.MemberType != memberTypePlus ||
