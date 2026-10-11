@@ -26,6 +26,7 @@ type nativeRestartReportGate struct {
 	ContactAt       time.Time
 	ReGreetReported bool
 	WindowRestDone  bool
+	ScanStarted     bool
 	Ready           bool
 	Summaries       [][]byte
 }
@@ -54,6 +55,10 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		result = map[string]any{"subscription": map[string]any{"active": true, "allow_auto_reply": true}}
 	case "/api/config/user-preferences":
 		result = map[string]any{"config": map[string]any{}}
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "timed-compound" {
+			// 使用真实休息跨过既有60秒检查点，不加速或替换安装程序时钟。
+			result = map[string]any{"config": map[string]any{"rest_after_candidates_min": 1, "rest_after_candidates_max": 1, "rest_times_min": 1, "rest_times_max": 1, "rest_duration_min": 1.5, "rest_duration_max": 1.5}}
+		}
 		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" && !reports.WindowRestDone {
 			result = map[string]any{"config": map[string]any{"rest_after_candidates_min": 1, "rest_after_candidates_max": 1, "rest_times_min": 1, "rest_times_max": 1, "rest_duration_min": 20, "rest_duration_max": 20}}
 		}
@@ -61,11 +66,18 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		result = map[string]any{"config": map[string]any{"base_url": "http://" + r.Host + "/model", "api_key": "fixture-token", "model": "fixture"}}
 	case "/api/positions/native-java":
 		result = map[string]any{"position": map[string]any{"id": "native-java", "name": "Java", "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": "Java", "mode_default": "keyword", "detail_mode": "keyword"}}}
-		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+		if scenario := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO"); scenario == "unknown-platform" || scenario == "unsupported-messages" {
+			platform := "fixture-unknown-platform"
+			if scenario == "unsupported-messages" {
+				platform = "zhaopin"
+			}
+			result = map[string]any{"position": map[string]any{"id": "native-java", "name": "Java", "platform_id": platform, "match_limit": 1}}
+		}
+		if nativeCompoundScenario() {
 			result = map[string]any{"position": map[string]any{"id": "native-java", "name": "Go", "platform_id": "boss", "match_limit": 3, "keywords": []string{}, "common_config": map[string]any{"position_name": "Go", "mode_default": "keyword", "detail_mode": "keyword"}}}
 		}
 	case "/api/positions/native-java/screenings/find":
-		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+		if nativeCompoundScenario() {
 			result = map[string]any{"item": map[string]any{"id": "fixture-screen-A", "position_id": "native-java", "platform": "boss", "platform_candidate_id": "opaque-A", "candidate_name": "同名候选人 A", "score": 90}}
 		} else {
 			result = map[string]any{"ok": true}
@@ -75,7 +87,7 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		if reports.ContactAt.IsZero() {
 			reports.ContactAt = time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Microsecond)
 		}
-		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" && !reports.ReGreetReported {
+		if nativeCompoundScenario() && !reports.ReGreetReported && (os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") != "timed-compound" || reports.ScanStarted) {
 			items = append(items, map[string]any{"id": "fixture-screen-B", "position_id": "native-java", "platform": "boss", "platform_candidate_id": "opaque-B", "candidate_name": "同名候选人 B", "greeted_at": reports.ContactAt.Format(time.RFC3339Nano), "re_greet_count": 0})
 		}
 		result = map[string]any{"ok": true, "re_greet_receipts": true, "items": items}
@@ -117,7 +129,7 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 	case "/api/positions/native-sales":
 		result = map[string]any{"position": map[string]any{"id": "native-sales", "name": "销售", "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": "销售", "mode_default": "keyword", "detail_mode": "keyword"}}}
 	case "/api/platforms/config/":
-		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+		if nativeCompoundScenario() {
 			result = map[string]any{"configs": []any{map[string]any{"config_key": "platform.boss", "config_value": `{"id":"boss","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]},"position":{"current":{"selector":".current-position"},"switchBtn":{"selector":".switch-position"},"list":{"selector":".position-list"},"item":{"selector":".position-item"},"itemText":{"selector":".position-name"}},"card":{"item":{"selector":".candidate-card-wrap"},"fields":{"name":{"selector":".candidate-name"}}},"actions":{"greetBtn":{"selector":".greet-btn"},"continueBtn":{"selector":".continue-btn"}}}`}}}
 			break
 		}

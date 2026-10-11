@@ -11,6 +11,7 @@ import (
 	"goodhr5/local-agent-go/internal/localdb"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"goodhr5/local-agent-go/internal/planoperations"
+	"goodhr5/local-agent-go/internal/platformcore"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,8 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	var calls atomic.Int32
 	var planCalls atomic.Int32
 	var accept atomic.Bool
+	var expired atomic.Bool
+	var expiredChecks atomic.Int32
 	var mu sync.Mutex
 	var receipts []cloudapi.ReGreetReceiptRequest
 	var planBodies []cloudapi.PlanRunUpdateRequest
@@ -55,6 +58,8 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	scheduledRestore := len(scheduled) > 0 && scheduled[0]
 	executeScheduled := len(scheduled) > 1 && scheduled[1]
 	var executed planmodel.Permit
+	var yesterday planmodel.Run
+	var executionLedger string
 	archivedRuns := map[string]planmodel.Permit{}
 	archivedReplies := map[string]map[string][]byte{}
 	archivedReports := map[string]*nativeRestartReportGate{}
@@ -99,6 +104,15 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 	}
 	cloud := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if expired.Load() {
+			if r.URL.Path == "/api/auth/me" {
+				expiredChecks.Add(1)
+			} else {
+				t.Errorf("过期登录仍访问云端业务接口 %s", r.URL.Path)
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		if r.URL.Path != "/api/platforms/config/" && r.Header.Get("Authorization") != "Bearer fixture-token" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return // 固定端口不向原主控台登录返回虚构账号、计划或许可。
@@ -131,6 +145,14 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 				return
 			}
 			mu.Lock()
+			if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "timed-compound" {
+				raw, _ := os.ReadFile(executionLedger)
+				var ledger struct {
+					Greets []string `json:"greetOrder"`
+				}
+				_ = json.Unmarshal(raw, &ledger)
+				reportGate.ScanStarted = len(ledger.Greets) > 0
+			}
 			handled := nativeRestartExecutionCloud(t, w, r, &executed, executionReplies, &reportGate)
 			mu.Unlock()
 			if handled {
@@ -320,6 +342,28 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	planScope := cloudapi.SessionOwnerScope(cloud.URL, "restart@example.com")
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "next-day-offline-report" {
+		yesterday = planPermit.Run
+		yesterday.ID, yesterday.ActivationID = uuid.NewString(), scheduledPlan.ActivationID
+		yesterday.Snapshot = scheduledPlan.Config
+		zone, err := time.LoadLocation(scheduledPlan.Config.Schedule.Timezone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		yesterday.ExecutionDate = time.Now().In(zone).AddDate(0, 0, -1).Format("2006-01-02")
+		yesterday.State, yesterday.CurrentItem, yesterday.EndReason = "incomplete", 0, "window_ended"
+		finished := time.Now().Add(-24 * time.Hour).UTC()
+		yesterday.FinishedAt = &finished
+		item := scheduledPlan.Config.Items[0]
+		yesterday.Items = []planmodel.ItemRun{{ID: uuid.NewString(), ItemID: item.ID, Order: 0, Snapshot: item, TaskRunID: uuid.NewString(), State: "stopped", Actions: map[string]planmodel.ActionProgress{"greeting": {State: "stopped", Count: 1}}}}
+		if err := db.SavePlanRunSnapshot(t.Context(), planScope, yesterday); err != nil {
+			t.Fatal(err)
+		}
+		previous := planmodel.Permit{Run: yesterday, Owner: planmodel.Owner{OwnerID: yesterday.OwnerID, OwnerType: "plan", MachineID: scheduledPlan.MachineID, State: "released"}}
+		archivedRuns[yesterday.ID] = previous
+		archivedReplies[yesterday.ID] = map[string][]byte{}
+		archivedReports[yesterday.ID] = &nativeRestartReportGate{}
+	}
 	planUpdate := cloudapi.PlanRunUpdateRequest{RunID: planPermit.Run.ID, Action: "release", RequestID: "60000000-0000-0000-0000-000000000007", OwnerID: planPermit.Owner.OwnerID, MachineID: "fixture-machine", Credential: "fixture-native-plan-secret-0123456789", Sequence: 2, State: "waiting_window", CleanupConfirmed: true}
 	if protectedRestore {
 		if _, err = planoperations.New(db).StageUpdate(t.Context(), planScope, planPermit.Run.PlanID, planUpdate); err != nil {
@@ -332,7 +376,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	executable := nativeAcceptanceExecutable(t, root, directory)
-	executionLedger := filepath.Join(directory, "execution-ledger.json")
+	executionLedger = filepath.Join(directory, "execution-ledger.json")
 	var cachedBrowser string
 	if executeScheduled {
 		cachedBrowser = filepath.Join(os.Getenv("APPDATA"), "HRPlus", "runtime", "cloakbrowser", "chrome.exe")
@@ -376,8 +420,11 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			command.Dir = root
 			preload := filepath.ToSlash(filepath.Join(root, "worker-node", "test", "fixtures", "worker-native-preload.mjs"))
 			mode := "m2-plans"
-			if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+			if nativeCompoundScenario() {
 				mode = "triple-job"
+			}
+			if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "timed-compound" {
+				mode = "triple-timed-job"
 			}
 			command.Env = append(command.Env, "NODE_OPTIONS=--import=file:///"+preload, "HRPLUS_M2_NATIVE_BROWSER_SOURCE="+cachedBrowser, "HRPLUS_M1_FIXTURE_MODE="+mode, "HRPLUS_M1_FIXTURE_LEDGER="+executionLedger, "GOODHR_WORKER_PORT_END="+fmt.Sprint(port+1))
 		}
@@ -416,6 +463,9 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal("退出前没有实际补传尝试")
 	}
 	accept.Store(true)
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "expired-login" {
+		expired.Store(true)
+	}
 	second := start(!protectedRestore)
 	defer func() {
 		if executeScheduled {
@@ -427,6 +477,26 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		_ = second.Process.Kill()
 		_ = second.Wait()
 	}()
+	if expired.Load() {
+		beforeReceipts, beforeUpdates := calls.Load(), planCalls.Load()
+		time.Sleep(6 * time.Second)
+		response, err := http.Get(worker.base + "/api/v1/session/status")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var status struct {
+			Data struct {
+				Verified  bool   `json:"verified"`
+				UserEmail string `json:"user_email"`
+			} `json:"data"`
+		}
+		if err = json.NewDecoder(response.Body).Decode(&status); err != nil || response.StatusCode != 200 || status.Data.Verified || status.Data.UserEmail != "" || expiredChecks.Load() == 0 || calls.Load() != beforeReceipts || planCalls.Load() != beforeUpdates || scheduledCalls.Load() != 0 {
+			t.Fatal("失效登录仍恢复原身份或继续业务操作", err, status.Data)
+		}
+		t.Log("已安装程序拒绝过期登录；实际云端核对发生，补传与计划领取均未继续")
+		return
+	}
 	deadline = time.Now().Add(12 * time.Second)
 	for (calls.Load() < 2 || (protectedRestore && planCalls.Load() < 2)) && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
@@ -486,6 +556,30 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if scenario := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO"); executeScheduled && (scenario == "unknown-platform" || scenario == "unsupported-messages") {
+		deadline = time.Now().Add(30 * time.Second)
+		var rejected planmodel.Run
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			id := executed.Run.ID
+			mu.Unlock()
+			if id != "" {
+				rejected, err = db.PlanRunSnapshot(t.Context(), planScope, id)
+			}
+			if err == nil && rejected.State == "blocked" {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if rejected.State != "blocked" || rejected.EndReason == "" || scheduledCalls.Load() != 1 {
+			t.Fatal("不支持的平台未拒绝原执行", err, rejected.State)
+		}
+		if _, err := os.Stat(executionLedger); !os.IsNotExist(err) {
+			t.Fatal("拒绝平台仍产生招聘页面动作", err)
+		}
+		t.Log("安装程序拒绝平台/动作能力，页面台账不存在，原任务失败记录保留")
+		return
+	}
 	if executeScheduled && realWindows {
 		deadline = time.Now().Add(9 * time.Minute)
 		var waiting planmodel.Run
@@ -635,7 +729,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	}
 	if executeScheduled {
 		expectedFirstGreet := 1
-		compound := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound"
+		compound := nativeCompoundScenario()
 		if compound {
 			expectedFirstGreet = 3
 		}
@@ -673,7 +767,8 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			t.Fatal("实际重启定时计划未完成", err, final.State)
 		}
 		checkpoint, e := db.LoadActionCheckpoint(t.Context(), final.Items[0].ID)
-		if e != nil || checkpoint.Greeted != expectedFirstGreet || checkpoint.CloudRunID != final.Items[0].TaskRunID {
+		expectedScope := platformcore.ReplyHash("m1-account:" + platformcore.ReplyHash("profile:default") + ":boss:" + planScope + ":901")
+		if e != nil || checkpoint.Greeted != expectedFirstGreet || checkpoint.CloudRunID != final.Items[0].TaskRunID || checkpoint.ProfileScope != expectedScope || !checkpoint.AccountBound || checkpoint.Platform != "boss" {
 			t.Fatal("重启动作没有原 TaskRun 检查点", e)
 		}
 		raw, e := os.ReadFile(executionLedger)
@@ -701,10 +796,24 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			t.Fatalf("实际程序动作与原计划不符 err=%v 台账=%s", e, raw)
 		}
 		if compound {
-			if final.Items[0].Actions["auto_reply"].Count != 1 || final.Items[0].Actions["re_greet"].Count != 1 || fmt.Sprint(actual.Sends) != "[123 124]" || strings.Join(actual.Greets, "|") != "opaque-C|opaque-D|opaque-E" || strings.Join(actual.Timeline, "|") != "message:123|message:124|greet:opaque-C|greet:opaque-D|greet:opaque-E" {
+			expectedTimeline := "message:123|message:124|greet:opaque-C|greet:opaque-D|greet:opaque-E"
+			if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "timed-compound" {
+				expectedTimeline = "greet:opaque-C|message:123|message:124|greet:opaque-D|greet:opaque-E"
+			}
+			if final.Items[0].Actions["auto_reply"].Count != 1 || final.Items[0].Actions["re_greet"].Count != 1 || fmt.Sprint(actual.Sends) != "[123 124]" || strings.Join(actual.Greets, "|") != "opaque-C|opaque-D|opaque-E" || strings.Join(actual.Timeline, "|") != expectedTimeline {
 				t.Fatalf("三动作数量或优先穿插不正确: %v", actual.Timeline)
 			}
 			t.Log("三动作确认数量：打招呼=3，回复=1，复打=1；页面台账", actual.Timeline)
+		}
+		if yesterday.ID != "" {
+			prior, err := db.PlanRunSnapshot(t.Context(), planScope, yesterday.ID)
+			mu.Lock()
+			attempts := len(archivedReports[yesterday.ID].Summaries)
+			mu.Unlock()
+			if err != nil || prior.State != "incomplete" || prior.Items[0].Actions["greeting"].Count != 1 || final.ID == yesterday.ID || final.ExecutionDate == yesterday.ExecutionDate || final.Items[0].TaskRunID == yesterday.Items[0].TaskRunID || attempts == 0 {
+				t.Fatal("昨日未完成报告丢失、沿用旧任务或离线报告阻止今日执行", err, attempts)
+			}
+			t.Log("受控昨日记录保留；昨日实际日报上传被503拒绝，今日新运行从第一项开始并确认一次")
 		}
 		if len(scheduledPlan.Config.Items) == 4 {
 			if strings.Join(actual.Timeline, "|") != "greet:Java|select:销售|greet:销售|reply:Java|reply:销售" {

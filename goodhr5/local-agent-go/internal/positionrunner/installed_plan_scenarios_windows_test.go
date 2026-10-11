@@ -37,6 +37,52 @@ func TestInstalledPlanCompound(t *testing.T) {
 	runNativeReceiptRestart(t, true, true, true)
 }
 
+// TestInstalledPlanTimedCompound 验证新回复和到期复打在扫描开始后出现，实际安装程序在扫描完成前穿插处理。
+func TestInstalledPlanTimedCompound(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "timed-compound")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
+// TestInstalledExpiredLoginRestart 验证安装程序重启后拒绝已过期的原登录，不领取计划或补传数据。
+func TestInstalledExpiredLoginRestart(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "expired-login")
+	runNativeReceiptRestart(t, true)
+}
+
+// TestInstalledUnsupportedPlatform 验证安装程序拒绝未知平台和不支持消息动作的平台，且没有招聘页面动作。
+func TestInstalledUnsupportedPlatform(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	for _, scenario := range []string{"unknown-platform", "unsupported-messages"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", scenario)
+			runNativeReceiptRestart(t, true, true, true)
+		})
+	}
+}
+
+// TestInstalledNextDayOfflineReport 验证虚构的昨日未完成记录和离线日报不阻止安装程序从今日第一项启动。
+func TestInstalledNextDayOfflineReport(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "next-day-offline-report")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
+// nativeCompoundScenario 判断受控组合是否需要同一岗位的三类动作。
+func nativeCompoundScenario() bool {
+	scenario := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO")
+	return scenario == "compound" || scenario == "timed-compound"
+}
+
 // configureInstalledPlanScenario 为受控组合设置原计划，不改变客户端执行逻辑。
 
 // TestInstalledPlanStopEditRestart 验证实装停止旧批次后交换岗位并从新第一项开始，原历史保留。
@@ -62,7 +108,11 @@ func TestInstalledPlanAcrossWindows(t *testing.T) {
 // configureInstalledPlanScenario 为受控组合设置原计划，不改变客户端执行逻辑。
 func configureInstalledPlanScenario(t *testing.T, config *planmodel.Config) {
 	t.Helper()
-	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "unsupported-messages" {
+		config.Items[0].Actions = []string{"auto_reply"}
+		return
+	}
+	if nativeCompoundScenario() {
 		config.Items[0].Actions = []string{"greeting", "auto_reply", "re_greet"}
 		config.Items[0].PrioritizeReply = true
 		return
