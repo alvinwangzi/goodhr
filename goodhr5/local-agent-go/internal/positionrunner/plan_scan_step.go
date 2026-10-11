@@ -149,6 +149,7 @@ func (p *PlanItemReservation) runPlanScan() {
 		s.frames <- p.planScanFrame(true, failure)
 	}()
 	options := p.state.options
+	p.parent.runner.initRestState(p.positionID, options)
 	pendingRescan := false
 	options.requestScanRescan = func() { pendingRescan = true }
 	options.acknowledgeRescan = func() { pendingRescan = false }

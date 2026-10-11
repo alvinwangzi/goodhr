@@ -2,7 +2,7 @@
 param(
   [string]$TargetOS = "windows",
   [string]$TargetArch = "amd64",
-  [string]$Version = "0.1.14",
+  [string]$Version = "0.1.15",
   [string]$Environment = $env:GOODHR_APP_ENV,
   [string]$ConfigFile = ""
 )
