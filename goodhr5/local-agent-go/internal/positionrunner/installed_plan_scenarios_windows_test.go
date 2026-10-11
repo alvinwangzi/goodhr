@@ -27,9 +27,23 @@ func TestInstalledPlanOutsideWindow(t *testing.T) {
 	runNativeReceiptRestart(t, true, true, true)
 }
 
+// TestInstalledPlanCompound 验证实装同岗位三动作穿插，各自数量和原任务归属保留。
+func TestInstalledPlanCompound(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "compound")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
 // configureInstalledPlanScenario 为受控组合设置原计划，不改变客户端执行逻辑。
 func configureInstalledPlanScenario(t *testing.T, config *planmodel.Config) {
 	t.Helper()
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+		config.Items[0].Actions = []string{"greeting", "auto_reply", "re_greet"}
+		config.Items[0].PrioritizeReply = true
+		return
+	}
 	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "outside-window" {
 		zone, err := time.LoadLocation(config.Schedule.Timezone)
 		if err != nil {

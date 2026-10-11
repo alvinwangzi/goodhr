@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/planmodel"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +18,14 @@ import (
 
 // nativeRestartReportGate 保存原报告补传台账，先拒绝回执，再由测试在进程退出后恢复网络。
 type nativeRestartReportGate struct {
-	Ready     bool
-	Summaries [][]byte
+	ReGreetReceipts map[string]struct {
+		Body     string
+		Response []byte
+	}
+	ContactAt       time.Time
+	ReGreetReported bool
+	Ready           bool
+	Summaries       [][]byte
 }
 
 // TestNativeAgentScheduledExecutionRestart 验证受保护登录冷恢复后实际后台执行计划并保存浏览器确认事实。
@@ -30,6 +38,11 @@ func TestNativeAgentScheduledExecutionRestart(t *testing.T) {
 func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Request, permit *planmodel.Permit, replies map[string][]byte, reports *nativeRestartReportGate) bool {
 	t.Helper()
 	if strings.HasPrefix(r.URL.Path, "/model/") {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "should_send") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"should_send":true,"message":"方便时可以继续了解岗位。","is_refused":false,"refuse_reason":""}`}}}})
+			return true
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": `{"action":"reply","text":"岗位仍在招聘，欢迎沟通。","reason":"虚构岗位问答","request_resume":false}`}}}})
 		return true
 	}
@@ -43,9 +56,66 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		result = map[string]any{"config": map[string]any{"base_url": "http://" + r.Host + "/model", "api_key": "fixture-token", "model": "fixture"}}
 	case "/api/positions/native-java":
 		result = map[string]any{"position": map[string]any{"id": "native-java", "name": "Java", "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": "Java", "mode_default": "keyword", "detail_mode": "keyword"}}}
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+			result = map[string]any{"position": map[string]any{"id": "native-java", "name": "Go", "platform_id": "boss", "match_limit": 3, "keywords": []string{}, "common_config": map[string]any{"position_name": "Go", "mode_default": "keyword", "detail_mode": "keyword"}}}
+		}
+	case "/api/positions/native-java/screenings/find":
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+			result = map[string]any{"item": map[string]any{"id": "fixture-screen-A", "position_id": "native-java", "platform": "boss", "platform_candidate_id": "opaque-A", "candidate_name": "同名候选人 A", "score": 90}}
+		} else {
+			result = map[string]any{"ok": true}
+		}
+	case "/api/positions/native-java/re-greet-candidates":
+		items := []any{}
+		if reports.ContactAt.IsZero() {
+			reports.ContactAt = time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Microsecond)
+		}
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" && !reports.ReGreetReported {
+			items = append(items, map[string]any{"id": "fixture-screen-B", "position_id": "native-java", "platform": "boss", "platform_candidate_id": "opaque-B", "candidate_name": "同名候选人 B", "greeted_at": reports.ContactAt.Format(time.RFC3339Nano), "re_greet_count": 0})
+		}
+		result = map[string]any{"ok": true, "re_greet_receipts": true, "items": items}
+	case "/api/positions/native-java/re-greet-report":
+		var input cloudapi.ReGreetReceiptRequest
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return true
+		}
+		if len(permit.Run.Items) == 0 || input.RunID != permit.Run.Items[0].TaskRunID || input.PlatformCandidateID != "opaque-B" || !input.Success || input.MachineID != permit.Owner.MachineID || input.Platform != "boss" || input.OperationID == "" || input.BaseCount != 0 || !input.BaseContactAt.Equal(reports.ContactAt) || input.SentAt.IsZero() {
+			t.Error("复打收据未绑定原任务及真实映射")
+			w.WriteHeader(http.StatusConflict)
+			return true
+		}
+		body, _ := json.Marshal(input)
+		if prior, ok := reports.ReGreetReceipts[input.OperationID]; ok {
+			if prior.Body != string(body) {
+				t.Error("同一复打操作改变原发送事实")
+				w.WriteHeader(http.StatusConflict)
+				return true
+			}
+			_, _ = w.Write(prior.Response)
+			return true
+		}
+		reports.ReGreetReported = true
+		result = map[string]any{"receipt": cloudapi.ReGreetReceiptResponse{OperationID: input.OperationID, ResultCount: input.BaseCount + 1, SentAt: input.SentAt, ReceivedAt: time.Now()}}
+		if reports.ReGreetReceipts == nil {
+			reports.ReGreetReceipts = map[string]struct {
+				Body     string
+				Response []byte
+			}{}
+		}
+		response, _ := json.Marshal(result)
+		reports.ReGreetReceipts[input.OperationID] = struct {
+			Body     string
+			Response []byte
+		}{string(body), response}
 	case "/api/positions/native-sales":
 		result = map[string]any{"position": map[string]any{"id": "native-sales", "name": "销售", "platform_id": "boss", "match_limit": 1, "keywords": []string{}, "common_config": map[string]any{"position_name": "销售", "mode_default": "keyword", "detail_mode": "keyword"}}}
 	case "/api/platforms/config/":
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+			result = map[string]any{"configs": []any{map[string]any{"config_key": "platform.boss", "config_value": `{"id":"boss","auth":{"pages":[{"url":"https://www.zhipin.com/web/chat/recommend","entry":true}]},"position":{"current":{"selector":".current-position"},"switchBtn":{"selector":".switch-position"},"list":{"selector":".position-list"},"item":{"selector":".position-item"},"itemText":{"selector":".position-name"}},"card":{"item":{"selector":".candidate-card-wrap"},"fields":{"name":{"selector":".candidate-name"}}},"actions":{"greetBtn":{"selector":".greet-btn"},"continueBtn":{"selector":".continue-btn"}}}`}}}
+			break
+		}
 		body, _ := json.Marshal(map[string]any{"id": "boss", "auth": map[string]any{"pages": []any{map[string]any{"url": "https://www.zhipin.com/web/chat/recommend", "entry": true}}}, "position": map[string]any{"current": map[string]any{"target_classes": []string{"fixture-job"}, "parent_classes": []string{}}, "switchBtn": map[string]any{"target_classes": []string{"fixture-picker"}, "parent_classes": []string{}}, "list": map[string]any{"target_classes": []string{"fixture-menu"}, "parent_classes": []string{}}, "item": map[string]any{"target_classes": []string{"fixture-item"}, "parent_classes": []string{}}, "itemText": map[string]any{"target_classes": []string{"fixture-title"}, "parent_classes": []string{}}}, "card": map[string]any{"item": map[string]any{"selector": ".candidate-card-wrap"}, "fields": map[string]any{"name": map[string]any{"selector": ".candidate-name"}}}, "actions": map[string]any{"greetBtn": map[string]any{"selector": ".greet-btn"}, "continueBtn": map[string]any{"selector": ".continue-btn"}}})
 		result = map[string]any{"configs": []any{map[string]any{"config_key": "platform.boss", "config_value": string(body)}}}
 	default:

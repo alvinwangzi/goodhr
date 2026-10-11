@@ -295,7 +295,11 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		if executeScheduled {
 			command.Dir = root
 			preload := filepath.ToSlash(filepath.Join(root, "worker-node", "test", "fixtures", "worker-native-preload.mjs"))
-			command.Env = append(command.Env, "NODE_OPTIONS=--import=file:///"+preload, "HRPLUS_M2_NATIVE_BROWSER_SOURCE="+cachedBrowser, "HRPLUS_M1_FIXTURE_MODE=m2-plans", "HRPLUS_M1_FIXTURE_LEDGER="+executionLedger, "GOODHR_WORKER_PORT_END="+fmt.Sprint(port+1))
+			mode := "m2-plans"
+			if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
+				mode = "triple-job"
+			}
+			command.Env = append(command.Env, "NODE_OPTIONS=--import=file:///"+preload, "HRPLUS_M2_NATIVE_BROWSER_SOURCE="+cachedBrowser, "HRPLUS_M1_FIXTURE_MODE="+mode, "HRPLUS_M1_FIXTURE_LEDGER="+executionLedger, "GOODHR_WORKER_PORT_END="+fmt.Sprint(port+1))
 		}
 		if err := command.Start(); err != nil {
 			t.Fatal(err)
@@ -419,6 +423,11 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		return
 	}
 	if executeScheduled {
+		expectedFirstGreet := 1
+		compound := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound"
+		if compound {
+			expectedFirstGreet = 3
+		}
 		deadline = time.Now().Add(150 * time.Second)
 		var final planmodel.Run
 		for time.Now().Before(deadline) {
@@ -433,7 +442,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		if final.State != "completed" || final.CurrentItem != len(scheduledPlan.Config.Items) || final.Items[0].Actions["greeting"].Count != 1 || scheduledCalls.Load() != 1 {
+		if final.State != "completed" || final.CurrentItem != len(scheduledPlan.Config.Items) || final.Items[0].Actions["greeting"].Count != int64(expectedFirstGreet) || scheduledCalls.Load() != 1 {
 			mu.Lock()
 			t.Log("夹具原结束原因", executed.Run.EndReason)
 			mu.Unlock()
@@ -453,7 +462,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			t.Fatal("实际重启定时计划未完成", err, final.State)
 		}
 		checkpoint, e := db.LoadActionCheckpoint(t.Context(), final.Items[0].ID)
-		if e != nil || checkpoint.Greeted != 1 || checkpoint.CloudRunID != final.Items[0].TaskRunID {
+		if e != nil || checkpoint.Greeted != expectedFirstGreet || checkpoint.CloudRunID != final.Items[0].TaskRunID {
 			t.Fatal("重启动作没有原 TaskRun 检查点", e)
 		}
 		raw, e := os.ReadFile(executionLedger)
@@ -463,11 +472,28 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			Timeline []string `json:"timeline"`
 		}
 		expectedGreets, expectedSends := 1, 0
+		firstGreet := "java-person"
+		if compound {
+			expectedGreets, expectedSends, firstGreet = 3, 2, "opaque-C"
+		}
 		if len(scheduledPlan.Config.Items) == 4 {
 			expectedGreets, expectedSends = 2, 0
 		}
-		if e != nil || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != expectedGreets || actual.Greets[0] != "java-person" || len(actual.Sends) != expectedSends {
-			t.Fatal("实际程序没有按计划执行一次或额外发消息", e)
+		if e != nil || json.Unmarshal(raw, &actual) != nil || len(actual.Greets) != expectedGreets || actual.Greets[0] != firstGreet || len(actual.Sends) != expectedSends {
+			entries, _ := db.ListPositionLogs("native-java", 100)
+			for _, entry := range entries {
+				if strings.Contains(entry.Message, "复打") {
+					t.Log(entry.Message)
+				}
+			}
+			t.Log("原动作计数", final.Items[0].Actions, "原复打统计", checkpoint.ReGreetStats)
+			t.Fatalf("实际程序动作与原计划不符 err=%v 台账=%s", e, raw)
+		}
+		if compound {
+			if final.Items[0].Actions["auto_reply"].Count != 1 || final.Items[0].Actions["re_greet"].Count != 1 || fmt.Sprint(actual.Sends) != "[123 124]" || strings.Join(actual.Greets, "|") != "opaque-C|opaque-D|opaque-E" || strings.Join(actual.Timeline, "|") != "message:123|message:124|greet:opaque-C|greet:opaque-D|greet:opaque-E" {
+				t.Fatalf("三动作数量或优先穿插不正确: %v", actual.Timeline)
+			}
+			t.Log("三动作确认数量：打招呼=3，回复=1，复打=1；页面台账", actual.Timeline)
 		}
 		if len(scheduledPlan.Config.Items) == 4 {
 			if strings.Join(actual.Timeline, "|") != "greet:Java|select:销售|greet:销售|reply:Java|reply:销售" {
@@ -502,7 +528,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		mu.Lock()
 		offlineAttempted := len(reportGate.Summaries) > 0
 		mu.Unlock()
-		if err != nil || !offlineAttempted || report.UploadState != "pending" || report.Report.Items[0].Actions["greeting"].Confirmed != 1 {
+		if err != nil || !offlineAttempted || report.UploadState != "pending" || report.Report.Items[0].Actions["greeting"].Confirmed != int64(expectedFirstGreet) {
 			t.Fatal("离线报告没有保存原实际结果", err)
 		}
 		_, _ = worker.CallOnce(t.Context(), "/api/v1/browser/stop", map[string]any{})
