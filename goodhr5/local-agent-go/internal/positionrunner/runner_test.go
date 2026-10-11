@@ -539,7 +539,7 @@ func TestRunnerStartStop(t *testing.T) {
 	}
 	// completed 已写入并不代表 Worker 收尾已结束，必须等待真实运行占用释放。
 	deadline := time.Now().Add(5 * time.Second)
-	for runner.IsRunning(position.ID) && time.Now().Before(deadline) {
+	for runner.hasRunningLock(position.ID) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	status, err := runner.Status(position.ID)
