@@ -59,7 +59,8 @@ Name: "{autodesktop}\HR+"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{ap
 Name: "desktopicon"; Description: "创建桌面快捷方式（请务必勾选）"; GroupDescription: "快捷方式："
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--restart"; Description: "启动 HR+"; Flags: nowait postinstall
+; 静默安装仅更新文件，避免未经交互选择就恢复用户已有招聘任务。
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--restart"; Description: "启动 HR+"; Flags: nowait postinstall skipifsilent
 ; 刷新 Windows 图标缓存，确保桌面快捷方式立即显示新图标。
 Filename: "ie4uinit.exe"; Parameters: "-show"; Flags: runhidden postinstall skipifsilent
 
