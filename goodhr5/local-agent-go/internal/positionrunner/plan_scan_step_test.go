@@ -165,6 +165,29 @@ func (w *planScanWorker) CallOnce(ctx context.Context, path string, payload any)
 	return w.Call(ctx, path, payload)
 }
 
+// TestPlanScanRestConfigurationSurvivesSteps 验证计划读取休息配置，交接不重置休息次数且取消可退出休息。
+func TestPlanScanRestConfigurationSurvivesSteps(t *testing.T) {
+	child, permit, snapshot, _ := planScanFixture(t)
+	child.state.options.RestTimesMin, child.state.options.RestTimesMax = 1, 1
+	child.state.options.RestAfterCandidatesMin, child.state.options.RestAfterCandidatesMax = 1, 1
+	child.state.options.RestDurationMin, child.state.options.RestDurationMax = 1, 1
+	for i := 0; i < 2; i++ {
+		step, err := child.ScanStep(permit, snapshot)
+		if err != nil || step.Done || step.Greeted != 1 {
+			t.Fatal("休息期间继续处理了下一候选人", step, err)
+		}
+		child.parent.runner.mu.Lock()
+		used, maximum := child.state.restUsed, child.state.restMaxTimes
+		child.parent.runner.mu.Unlock()
+		if used != 1 || maximum != 1 {
+			t.Fatal("计划未初始化休息或交接重置了次数", used, maximum)
+		}
+	}
+	if err := child.ReleaseAfterCleanup(true); err != nil {
+		t.Fatal("取消不能退出休息并清理", err)
+	}
+}
+
 // planScanFixture 建立原计划、云端所有者、真实 M1 检查点和本地父子占用。
 func planScanFixture(t *testing.T, keywords ...[]string) (*PlanItemReservation, planmodel.Permit, PositionRuntimeSnapshot, *planScanWorker) {
 	t.Helper()

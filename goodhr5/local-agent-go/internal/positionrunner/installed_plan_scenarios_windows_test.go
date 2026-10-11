@@ -3,6 +3,7 @@ package positionrunner
 
 import (
 	"fmt"
+	"goodhr5/local-agent-go/internal/planclock"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"os"
 	"testing"
@@ -37,11 +38,51 @@ func TestInstalledPlanCompound(t *testing.T) {
 }
 
 // configureInstalledPlanScenario 为受控组合设置原计划，不改变客户端执行逻辑。
+
+// TestInstalledPlanStopEditRestart 验证实装停止旧批次后交换岗位并从新第一项开始，原历史保留。
+func TestInstalledPlanStopEditRestart(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "stop-edit")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
+// configureInstalledPlanScenario 为受控组合设置原计划，不改变客户端执行逻辑。
+
+// TestInstalledPlanAcrossWindows 使用真实分钟边界及模拟休息，验证随机收尾后沿原运行续跑。
+func TestInstalledPlanAcrossWindows(t *testing.T) {
+	if os.Getenv("HRPLUS_M2_INSTALLED_AGENT_EXE") == "" {
+		t.Skip("需明确已安装程序及摘要")
+	}
+	t.Setenv("HRPLUS_M2_ACCEPTANCE_SCENARIO", "across-windows")
+	runNativeReceiptRestart(t, true, true, true)
+}
+
+// configureInstalledPlanScenario 为受控组合设置原计划，不改变客户端执行逻辑。
 func configureInstalledPlanScenario(t *testing.T, config *planmodel.Config) {
 	t.Helper()
 	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "compound" {
 		config.Items[0].Actions = []string{"greeting", "auto_reply", "re_greet"}
 		config.Items[0].PrioritizeReply = true
+		return
+	}
+	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "stop-edit" || os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" {
+		first := config.Items[0]
+		second := first
+		second.ID = "restart-sales"
+		second.Order = 1
+		second.PositionID = "native-sales"
+		config.Items = append(config.Items, second)
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" {
+			config.Schedule.Timezone = "UTC"
+			now := time.Now().UTC()
+			minute := now.Hour()*60 + now.Minute()
+			if minute > 1420 {
+				t.Fatal("真实跨窗口验收需在UTC日末20分钟前启动")
+			}
+			config.Schedule.Windows = []planclock.Window{{Order: 0, StartMinute: minute, EndMinute: minute + 2}, {Order: 1, StartMinute: minute + 9, EndMinute: minute + 12}}
+		}
 		return
 	}
 	if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "outside-window" {

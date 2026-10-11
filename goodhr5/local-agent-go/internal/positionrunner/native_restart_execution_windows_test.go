@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/planmodel"
 	"io"
@@ -24,6 +25,7 @@ type nativeRestartReportGate struct {
 	}
 	ContactAt       time.Time
 	ReGreetReported bool
+	WindowRestDone  bool
 	Ready           bool
 	Summaries       [][]byte
 }
@@ -52,6 +54,9 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		result = map[string]any{"subscription": map[string]any{"active": true, "allow_auto_reply": true}}
 	case "/api/config/user-preferences":
 		result = map[string]any{"config": map[string]any{}}
+		if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows" && !reports.WindowRestDone {
+			result = map[string]any{"config": map[string]any{"rest_after_candidates_min": 1, "rest_after_candidates_max": 1, "rest_times_min": 1, "rest_times_max": 1, "rest_duration_min": 20, "rest_duration_max": 20}}
+		}
 	case "/api/config/effective-ai":
 		result = map[string]any{"config": map[string]any{"base_url": "http://" + r.Host + "/model", "api_key": "fixture-token", "model": "fixture"}}
 	case "/api/positions/native-java":
@@ -171,6 +176,9 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 			if permit.Run.Items[index].TaskRunID == "" {
 				permit.Run.Sequence++
 				permit.Run.Items[index].TaskRunID = fmt.Sprintf("70000000-0000-0000-0000-%012d", index+99)
+				if os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "stop-edit" {
+					permit.Run.Items[index].TaskRunID = uuid.NewSHA1(uuid.NameSpaceURL, []byte(permit.Run.Items[index].ID)).String()
+				}
 			}
 			replies[input.RequestID], _ = json.Marshal(map[string]any{"ok": true, "permit": permit})
 			_, _ = w.Write(replies[input.RequestID])
@@ -217,7 +225,12 @@ func nativeRestartExecutionCloud(t *testing.T, w http.ResponseWriter, r *http.Re
 		}
 		if input.Action == "release" {
 			now := time.Now().UTC()
-			permit.Run.FinishedAt = &now
+			if input.State == "waiting_window" {
+				permit.Run.FinishedAt = nil
+				reports.WindowRestDone = true
+			} else {
+				permit.Run.FinishedAt = &now
+			}
 			permit.Owner.State = "released"
 		}
 		replies[input.RequestID], _ = json.Marshal(map[string]any{"ok": true, "permit": permit})

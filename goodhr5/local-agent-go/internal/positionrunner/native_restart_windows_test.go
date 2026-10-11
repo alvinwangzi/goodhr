@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"goodhr5/local-agent-go/internal/cloudapi"
 	"goodhr5/local-agent-go/internal/config"
 	"goodhr5/local-agent-go/internal/localdb"
@@ -54,8 +55,16 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	scheduledRestore := len(scheduled) > 0 && scheduled[0]
 	executeScheduled := len(scheduled) > 1 && scheduled[1]
 	var executed planmodel.Permit
+	archivedRuns := map[string]planmodel.Permit{}
+	archivedReplies := map[string]map[string][]byte{}
+	archivedReports := map[string]*nativeRestartReportGate{}
 	executionReplies := map[string][]byte{}
 	reportGate := nativeRestartReportGate{}
+	lifecycle := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "stop-edit"
+	realWindows := os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "across-windows"
+	preparingSecond := make(chan struct{})
+	finishHeldPreparation := make(chan struct{})
+	var prepareOnce sync.Once
 	var scheduledPlan planmodel.Plan
 	var scheduledClaims []cloudapi.PlanClaimRequest
 	var scheduledCalls atomic.Int32
@@ -99,6 +108,28 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		}
 		if executeScheduled {
 			mu.Lock()
+			for id, original := range archivedRuns {
+				if strings.HasPrefix(r.URL.Path, "/api/execution-plan-runs/"+id) {
+					handled := nativeRestartExecutionCloud(t, w, r, &original, archivedReplies[id], archivedReports[id])
+					archivedRuns[id] = original
+					mu.Unlock()
+					if handled {
+						return
+					}
+					mu.Lock()
+				}
+			}
+			hold := lifecycle && scheduledPlan.Version == 1 && len(executed.Run.Items) > 1 && r.URL.Path == "/api/execution-plan-runs/"+executed.Run.ID+"/items/"+executed.Run.Items[1].ID+"/prepare"
+			mu.Unlock()
+			if hold {
+				prepareOnce.Do(func() { close(preparingSecond) })
+				select {
+				case <-r.Context().Done():
+				case <-finishHeldPreparation:
+				}
+				return
+			}
+			mu.Lock()
 			handled := nativeRestartExecutionCloud(t, w, r, &executed, executionReplies, &reportGate)
 			mu.Unlock()
 			if handled {
@@ -117,6 +148,22 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			return
 		}
 		switch r.URL.Path {
+		case "/api/execution-plans/" + scheduledPlan.ID + "/confirm-stop":
+			mu.Lock()
+			var input cloudapi.PlanStopRequest
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			if !lifecycle || input.Validate() != nil || input.ExpectedVersion != scheduledPlan.Version || input.ActivationID != scheduledPlan.ActivationID || input.MachineID != scheduledPlan.MachineID || executed.Owner.State != "released" || executed.Run.State != "stopped" {
+				t.Error("停止确认未等待原页面及占用收尾")
+				w.WriteHeader(409)
+				mu.Unlock()
+				return
+			}
+			scheduledPlan.StopRequested = false
+			scheduledPlan.StateSequence++
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "plan": scheduledPlan})
+			mu.Unlock()
 		case "/api/execution-plan-runs/claim":
 			if !scheduledRestore {
 				t.Error("补传测试不应新领取计划")
@@ -134,6 +181,29 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			scheduledCalls.Add(1)
 			if executeScheduled {
 				mu.Lock()
+				if realWindows && executed.Run.ID == claim.RunID && executed.Run.State == "waiting_window" && executed.Owner.State == "released" {
+					if executed.Run.Items[0].Actions["greeting"].Count != 1 || executed.Run.CurrentItem != 0 {
+						t.Error("跨窗口没有保留第一项真实进度")
+					}
+					executed.Run.Sequence++
+					executed.Run.State = "starting"
+					executed.Run.OwnerID = claim.OwnerID
+					executed.Owner = planmodel.Owner{OwnerID: claim.OwnerID, OwnerType: "plan", MachineID: claim.MachineID, State: "starting"}
+					_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": executed})
+					mu.Unlock()
+					return
+				}
+				if lifecycle && executed.Run.ID != "" && executed.Run.ID != claim.RunID {
+					raw, _ := json.Marshal(executed)
+					var original planmodel.Permit
+					_ = json.Unmarshal(raw, &original)
+					archivedRuns[original.Run.ID] = original
+					archivedReplies[original.Run.ID] = executionReplies
+					reports := reportGate
+					archivedReports[original.Run.ID] = &reports
+					executionReplies = map[string][]byte{}
+					reportGate = nativeRestartReportGate{}
+				}
 				executed = planmodel.Permit{Run: planmodel.Run{ID: claim.RunID, PlanID: claim.PlanID, ActivationID: claim.ActivationID, ExecutionDate: claim.ExecutionDate, ConfigVersion: claim.ExpectedVersion, Sequence: 1, State: "starting", Snapshot: scheduledPlan.Config, OwnerID: claim.OwnerID, Items: []planmodel.ItemRun{{ID: "50000000-0000-0000-0000-000000000099", ItemID: scheduledPlan.Config.Items[0].ID, Order: 0, Snapshot: scheduledPlan.Config.Items[0], State: "pending", Actions: map[string]planmodel.ActionProgress{"greeting": {State: "pending"}}}}}, Owner: planmodel.Owner{OwnerID: claim.OwnerID, OwnerType: "plan", MachineID: claim.MachineID, State: "starting"}}
 				executed.Run.Items = nil
 				for index, item := range scheduledPlan.Config.Items {
@@ -141,7 +211,11 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 					for _, action := range item.Actions {
 						actions[action] = planmodel.ActionProgress{State: "pending"}
 					}
-					executed.Run.Items = append(executed.Run.Items, planmodel.ItemRun{ID: fmt.Sprintf("50000000-0000-0000-0000-%012d", index+99), ItemID: item.ID, Order: index, Snapshot: item, State: "pending", Actions: actions})
+					itemRunID := fmt.Sprintf("50000000-0000-0000-0000-%012d", index+99)
+					if lifecycle {
+						itemRunID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(claim.RunID+":"+item.ID)).String()
+					}
+					executed.Run.Items = append(executed.Run.Items, planmodel.ItemRun{ID: itemRunID, ItemID: item.ID, Order: index, Snapshot: item, State: "pending", Actions: actions})
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "permit": executed})
 				mu.Unlock()
@@ -181,11 +255,13 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer fixture-token" {
 				t.Error("计划同步未使用只读请求和原登录证明")
 			}
+			mu.Lock()
 			plans := []any{}
 			if scheduledRestore && accept.Load() {
 				plans = append(plans, scheduledPlan)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "plans": plans})
+			mu.Unlock()
 		case "/api/agents/bind":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		case "/api/positions/position/re-greet-report":
@@ -208,6 +284,8 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	}))
 	startNativeAcceptanceCloud(t, cloud)
 	defer cloud.Close()
+	defer cloud.CloseClientConnections()
+	defer close(finishHeldPreparation)
 	db, err := localdb.Open(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -406,6 +484,131 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		t.Fatal(err)
 	}
 	defer db.Close()
+	if executeScheduled && realWindows {
+		deadline = time.Now().Add(9 * time.Minute)
+		var waiting planmodel.Run
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			id := executed.Run.ID
+			mu.Unlock()
+			if id != "" {
+				waiting, err = db.PlanRunSnapshot(t.Context(), planScope, id)
+				if err == nil && waiting.State == "waiting_window" {
+					break
+				}
+			}
+			time.Sleep(time.Second)
+		}
+		if waiting.State != "waiting_window" || waiting.Items[0].Actions["greeting"].Count != 1 || waiting.CurrentItem != 0 || waiting.Items[1].TaskRunID != "" {
+			t.Fatal("真实首窗口未安全收尾或提前激活下一岗位", err, waiting.State)
+		}
+		firstWindow := scheduledPlan.Config.Schedule.Windows[0]
+		grace, err := db.PlanWindowGrace(t.Context(), planScope, scheduledPlan.ID, waiting.ExecutionDate, firstWindow.StartMinute, firstWindow.EndMinute, func() time.Duration { t.Fatal("实装未保存原随机延迟"); return 0 })
+		if err != nil || grace < 3*time.Minute || grace > 6*time.Minute {
+			t.Fatal("随机收尾记录不正确", err, grace)
+		}
+		day, _ := time.Parse("2006-01-02", waiting.ExecutionDate)
+		intervals, err := scheduledPlan.Config.Schedule.OnDate(day)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(intervals) != 2 {
+			t.Fatal("跨窗口日期没有两段安排")
+		}
+		if time.Now().Before(intervals[0].End.Add(grace)) {
+			t.Fatal("真实收尾早于原随机边界")
+		}
+		firstTask := waiting.Items[0].TaskRunID
+		deadline = time.Now().Add(6 * time.Minute)
+		var final planmodel.Run
+		for time.Now().Before(deadline) {
+			final, err = db.PlanRunSnapshot(t.Context(), planScope, waiting.ID)
+			if err == nil && final.State == "completed" {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		if final.State != "completed" || final.ID != waiting.ID || final.CurrentItem != 2 || final.Items[0].TaskRunID != firstTask || final.Items[0].Actions["greeting"].Count != 1 || final.Items[1].Actions["greeting"].Count != 1 || scheduledCalls.Load() != 2 {
+			t.Fatal("实际后续窗口没有沿原任务续跑", err, final.State)
+		}
+		raw, _ := os.ReadFile(executionLedger)
+		var ledger struct {
+			Greets []string `json:"greetOrder"`
+		}
+		if json.Unmarshal(raw, &ledger) != nil || strings.Join(ledger.Greets, "|") != "java-person|sales-person" {
+			t.Fatalf("跨窗口重复或错岗位打招呼: %s", raw)
+		}
+		t.Log("真实跨窗口完成；原运行、第一项任务和计数保留；随机收尾", grace)
+		return
+	}
+	if executeScheduled && lifecycle {
+		select {
+		case <-preparingSecond:
+		case <-time.After(60 * time.Second):
+			t.Fatal("旧批次没有到第二项准备点")
+		}
+		mu.Lock()
+		oldRunID := executed.Run.ID
+		oldTaskID := executed.Run.Items[0].TaskRunID
+		if executed.Run.Items[0].Actions["greeting"].Count != 1 || executed.Run.Items[1].TaskRunID != "" {
+			t.Fatal("停止边界不是第一项确认后、第二项动作前")
+		}
+		scheduledPlan.State = "stopped"
+		scheduledPlan.StopRequested = true
+		scheduledPlan.StateSequence++
+		mu.Unlock()
+		deadline = time.Now().Add(20 * time.Second)
+		confirmed := false
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			confirmed = !scheduledPlan.StopRequested && executed.Run.State == "stopped" && executed.Owner.State == "released"
+			mu.Unlock()
+			if confirmed {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !confirmed {
+			t.Fatal("用户停止未确认原批次收尾")
+		}
+		original, err := db.PlanRunSnapshot(t.Context(), planScope, oldRunID)
+		if err != nil || original.State != "stopped" || original.Items[0].TaskRunID != oldTaskID || original.Items[0].Actions["greeting"].Count != 1 {
+			t.Fatal("原运行及已确认计数丢失", err)
+		}
+		mu.Lock()
+		scheduledPlan.Config.Items[0], scheduledPlan.Config.Items[1] = scheduledPlan.Config.Items[1], scheduledPlan.Config.Items[0]
+		for i := range scheduledPlan.Config.Items {
+			scheduledPlan.Config.Items[i].Order = i
+		}
+		scheduledPlan.Version++
+		scheduledPlan.StateSequence++
+		scheduledPlan.ActivationID = uuid.NewString()
+		scheduledPlan.State = "enabled"
+		mu.Unlock()
+		deadline = time.Now().Add(90 * time.Second)
+		var fresh planmodel.Run
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			id := executed.Run.ID
+			mu.Unlock()
+			if id != "" && id != oldRunID {
+				fresh, err = db.PlanRunSnapshot(t.Context(), planScope, id)
+				if err == nil && fresh.State == "completed" {
+					break
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if fresh.State != "completed" || fresh.CurrentItem != 2 || fresh.ID == oldRunID || fresh.ConfigVersion != 2 || fresh.Items[0].Snapshot.PositionID != "native-sales" || fresh.Items[0].Actions["greeting"].Count != 1 || scheduledCalls.Load() != 2 {
+			t.Fatalf("编辑后的新批次未从第一项执行: %v %+v", err, fresh)
+		}
+		original, err = db.PlanRunSnapshot(t.Context(), planScope, oldRunID)
+		if err != nil || original.State != "stopped" || original.Items[0].TaskRunID != oldTaskID || original.Items[0].Actions["greeting"].Count != 1 {
+			t.Fatal("新批次覆盖原历史", err)
+		}
+		t.Log("实装停止确认→交换岗位→新批次第一项销售；原Java任务及计数保留")
+		return
+	}
 	if executeScheduled && os.Getenv("HRPLUS_M2_ACCEPTANCE_SCENARIO") == "outside-window" {
 		result, err := worker.CallOnce(t.Context(), "/api/v1/local/execution-plans/"+scheduledPlan.ID+"/start", map[string]any{"token": "fixture-token", "expected_version": scheduledPlan.Version, "activation_id": scheduledPlan.ActivationID})
 		data, _ := result["data"].(map[string]any)
