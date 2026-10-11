@@ -406,6 +406,7 @@ func (r *Runner) StopAll(reason string) int {
 	ids := make([]string, 0, len(r.running))
 	for positionID, state := range r.running {
 		ids = append(ids, positionID)
+		r.userStopped[positionID] = true
 		if state != nil && state.cancel != nil {
 			state.cancel()
 		}
@@ -945,7 +946,7 @@ func (r *Runner) isUserStopped(positionID string) bool {
 
 // finishPosition 在原任务退出后等待底层动作结束，再清理页面；失败保留占用供原停止请求重试。
 func (r *Runner) finishPosition(positionID string) {
-	if r.isUserStopped(positionID) {
+	{
 		if waiter, ok := r.worker.(interface{ WaitForIdle(context.Context) error }); ok {
 			ctx, cancel := context.WithTimeout(context.Background(), stopGracefulTimeout)
 			err := waiter.WaitForIdle(ctx)
@@ -978,7 +979,7 @@ func (r *Runner) clear(positionID string) {
 			r.mu.Unlock()
 			return // 清理失败不能冒充页面已退出；再次停止可重试清理。
 		}
-		if r.userStopped[positionID] && state.options.PlanRunID == "" && state.options.LocalRunID != "" {
+		if (r.userStopped[positionID] || len(state.stopFinalizers) > 0) && state.options.PlanRunID == "" && state.options.LocalRunID != "" {
 			checkpoint, err := r.db.LoadActionCheckpoint(context.Background(), state.options.LocalRunID)
 			if err == nil {
 				checkpoint.StopCleanupConfirmed = true

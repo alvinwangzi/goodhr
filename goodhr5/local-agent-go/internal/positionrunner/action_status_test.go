@@ -122,6 +122,50 @@ func (w *stopDrainWorker) WaitForIdle(ctx context.Context) error {
 }
 
 // TestStoppedRunWaitsForWorkerIdle 验证 Go 流程已退出但原浏览器点击未完成时仍持有占用。
+
+// TestStopAllWaitsForWorkerIdle 验证退出登录及切换账号不会越过底层未结束的点击。
+func TestStopAllWaitsForWorkerIdle(t *testing.T) {
+	s, _, _ := cooperativeSessionFixture(t, true, 1)
+	w := &stopDrainWorker{entered: make(chan struct{}), idle: make(chan struct{})}
+	s.runner.worker = w
+	state := s.runner.running[s.position.ID]
+	canceled := make(chan struct{})
+	state.cancel = func() {
+		select {
+		case <-canceled:
+		default:
+			close(canceled)
+		}
+	}
+	finished := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	go func() { finished <- s.runner.StopAllAndWait(ctx, "fixture account change") }()
+	<-canceled
+	go s.runner.finishPosition(s.position.ID)
+	select {
+	case <-w.entered:
+	case err := <-finished:
+		t.Fatalf("原点击未退出就允许换账号: %v", err)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("取消全部任务后未确认底层退出")
+	}
+	select {
+	case err := <-finished:
+		t.Fatalf("底层未结束就完成停止: %v", err)
+	case <-time.After(60 * time.Millisecond):
+	}
+	close(w.idle)
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, _ := s.runner.db.LoadActionCheckpoint(t.Context(), state.options.LocalRunID)
+	if !checkpoint.StopCleanupConfirmed {
+		t.Fatal("退出登录停止没有原收尾凭据")
+	}
+}
+
+// TestStoppedRunWaitsForWorkerIdle 验证 Go 流程已退出但原浏览器点击未完成时仍持有占用。
 func TestStoppedRunWaitsForWorkerIdle(t *testing.T) {
 	s, _, _ := cooperativeSessionFixture(t, true, 1)
 	w := &stopDrainWorker{entered: make(chan struct{}), idle: make(chan struct{})}
