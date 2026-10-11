@@ -1,4 +1,4 @@
-# Purpose: build the HRPlus Local Agent executable for release or installer packaging.
+﻿# Purpose: build the HRPlus Local Agent executable for release or installer packaging.
 param(
   [string]$TargetOS = "windows",
   [string]$TargetArch = "amd64",
