@@ -185,9 +185,11 @@ test("取消中的动作退出之前仍拒绝新动作", async () => {
  const gate = createActionGate();
  let finish;
  const active = gate(() => new Promise(resolve => { finish = resolve; }));
+ assert.equal(gate.isIdle(), false);
  await assert.rejects(gate(async () => "不应执行"), /占用/);
  finish();
  await active;
+ assert.equal(gate.isIdle(), true);
  assert.equal(await gate(async () => "已释放"), "已释放");
 });
 

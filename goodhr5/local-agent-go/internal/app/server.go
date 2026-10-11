@@ -663,6 +663,11 @@ func (s *Server) handleLocalPositionStop(w http.ResponseWriter, r *http.Request,
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if result["running"] == true {
+		result["stop_pending"] = true
+		response.Success(w, result)
+		return // 仍在收尾，不能先通知云端释放占用。
+	}
 	token := stringValue(payload["token"])
 	if token == "" {
 		token = bearerToken(r)
@@ -673,7 +678,14 @@ func (s *Server) handleLocalPositionStop(w http.ResponseWriter, r *http.Request,
 		if err := client.StopPosition(r.Context(), token, positionID, map[string]any{"run_id": runID, "machine_id": machineID}); err != nil {
 			result["cloud_sync_error"] = err.Error()
 			log.Printf("[本地岗位运行] 停止岗位运行已完成，但同步云端失败 position=%s err=%v", positionID, err)
+		} else {
+			result["stop_cloud_confirmed"] = true
+			if err := s.runner.ConfirmStoppedRun(positionID, runID); err != nil {
+				log.Printf("停止确认保存失败 position=%s err=%v", positionID, err)
+			}
 		}
+	} else {
+		result["cloud_sync_error"] = "缺少登录凭证，云端停止状态未确认"
 	}
 	response.Success(w, result)
 }

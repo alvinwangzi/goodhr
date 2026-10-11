@@ -27,6 +27,16 @@ func (r *Runner) actionStatusCheckpoint(positionID string) (localdb.ActionCheckp
 	return checkpoint, err == nil
 }
 
+// ConfirmStoppedRun 保存云端对原运行的停止确认，迟到确认不能改写后来的运行。
+func (r *Runner) ConfirmStoppedRun(positionID, cloudRunID string) error {
+	checkpoint, ok := r.actionStatusCheckpoint(positionID)
+	if !ok || checkpoint.CloudRunID != cloudRunID || !checkpoint.StopCleanupConfirmed {
+		return nil
+	}
+	checkpoint.StopCloudConfirmed = true
+	return r.db.SaveActionCheckpoint(context.Background(), checkpoint)
+}
+
 // dispatchStatusMap 将已保存事实用于现有状态接口，不用前端计时器启动任务。
 func dispatchStatusMap(checkpoint localdb.ActionCheckpoint, running bool) map[string]any {
 	messageActions := hasTaskType(parseTaskTypes(checkpoint.TaskType), "auto_reply") || hasTaskType(parseTaskTypes(checkpoint.TaskType), "re_greet")

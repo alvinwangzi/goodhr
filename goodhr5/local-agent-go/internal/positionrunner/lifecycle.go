@@ -183,8 +183,7 @@ func (r *Runner) Start(ctx context.Context, positionID string, options StartOpti
 // ctx 为运行上下文，position 为岗位运行记录，options 为启动参数。
 func (r *Runner) runPosition(ctx context.Context, position localdb.Position, options StartOptions, snapshot PositionRuntimeSnapshot) {
 	positionID := position.ID
-	defer r.clear(positionID)
-	defer r.closePendingCandidateDetail(positionID)
+	defer r.finishPosition(positionID)
 	totalRounds := scanRounds(options)
 	position = snapshot.Position
 	options = snapshot.Options
@@ -352,6 +351,11 @@ func (r *Runner) StopRun(positionID, runID string, force bool) (map[string]any, 
 	state := r.running[positionID]
 	if state == nil || runID == "" || state.options.CloudRunID != runID {
 		r.mu.Unlock()
+		if state == nil && runID != "" {
+			if checkpoint, ok := r.actionStatusCheckpoint(positionID); ok && checkpoint.CloudRunID == runID && checkpoint.StopCleanupConfirmed {
+				return r.Status(positionID)
+			}
+		}
 		return nil, fmt.Errorf("任务已结束或属于其他运行，未执行停止")
 	}
 	r.userStopped[positionID] = true
@@ -366,9 +370,16 @@ func (r *Runner) StopRun(positionID, runID string, force bool) (map[string]any, 
 		}
 	}
 	done := state.done
+	cleanupPending := state.cleanupPending && !state.cleanupInProgress
+	if cleanupPending {
+		state.cleanupInProgress = true
+	}
 	r.mu.Unlock()
+	if cleanupPending {
+		r.finishPosition(positionID)
+	}
 	r.positionLog(positionID, "info", "已核对运行编号，停止当前任务")
-	if !force {
+	{
 		timer := time.NewTimer(stopGracefulTimeout)
 		defer timer.Stop()
 		select {
@@ -460,7 +471,7 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 		}
 		return nil, err
 	}
-	running := r.IsRunning(positionID)
+	running := r.hasRunningLock(positionID)
 	r.mu.Lock()
 	cloudRunID := ""
 	if state := r.running[positionID]; state != nil {
@@ -480,8 +491,10 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 		positionMap["re_greet_stats"] = stats
 	}
 	var dispatch map[string]any
+	stopCloudConfirmed := false
 	scanned, greeted, skipped, failed := position.ScannedCount, position.GreetedCount, position.SkippedCount, position.FailedCount
 	if checkpoint, ok := r.actionStatusCheckpoint(positionID); ok {
+		stopCloudConfirmed = checkpoint.StopCloudConfirmed
 		if cloudRunID == "" {
 			cloudRunID = checkpoint.CloudRunID
 		}
@@ -501,19 +514,20 @@ func (r *Runner) Status(positionID string) (map[string]any, error) {
 		}
 	}
 	return map[string]any{
-		"cloud_run_id":    cloudRunID,
-		"action_dispatch": dispatch,
-		"position":        positionMap,
-		"running":         running,
-		"progress":        progress,
-		"logs":            logs,
-		"status":          position.Status,
-		"current_step":    progress.Message,
-		"scanned_count":   scanned,
-		"greeted_count":   greeted,
-		"skipped_count":   skipped,
-		"failed_count":    failed,
-		"analysis":        analysis,
+		"cloud_run_id":         cloudRunID,
+		"stop_cloud_confirmed": stopCloudConfirmed,
+		"action_dispatch":      dispatch,
+		"position":             positionMap,
+		"running":              running,
+		"progress":             progress,
+		"logs":                 logs,
+		"status":               position.Status,
+		"current_step":         progress.Message,
+		"scanned_count":        scanned,
+		"greeted_count":        greeted,
+		"skipped_count":        skipped,
+		"failed_count":         failed,
+		"analysis":             analysis,
 	}, nil
 }
 
@@ -929,11 +943,60 @@ func (r *Runner) isUserStopped(positionID string) bool {
 	return r.userStopped[strings.TrimSpace(positionID)]
 }
 
+// finishPosition 在原任务退出后等待底层动作结束，再清理页面；失败保留占用供原停止请求重试。
+func (r *Runner) finishPosition(positionID string) {
+	if r.isUserStopped(positionID) {
+		if waiter, ok := r.worker.(interface{ WaitForIdle(context.Context) error }); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), stopGracefulTimeout)
+			err := waiter.WaitForIdle(ctx)
+			cancel()
+			if err != nil {
+				r.mu.Lock()
+				if state := r.running[positionID]; state != nil {
+					state.cleanupPending = true
+					state.cleanupInProgress = false
+				}
+				r.mu.Unlock()
+				r.positionLog(positionID, "warning", "浏览器原动作退出尚未确认，保留占用："+err.Error())
+				return
+			}
+		}
+	}
+	r.closePendingCandidateDetail(positionID)
+	r.clear(positionID)
+}
+
 // clear 清理岗位运行运行锁。
 // positionID 为岗位运行 ID。
 func (r *Runner) clear(positionID string) {
 	r.mu.Lock()
+	var finalizers []func()
 	if state := r.running[positionID]; state != nil {
+		if state.pendingDetailClose != nil {
+			state.cleanupPending = true
+			state.cleanupInProgress = false
+			r.mu.Unlock()
+			return // 清理失败不能冒充页面已退出；再次停止可重试清理。
+		}
+		if r.userStopped[positionID] && state.options.PlanRunID == "" && state.options.LocalRunID != "" {
+			checkpoint, err := r.db.LoadActionCheckpoint(context.Background(), state.options.LocalRunID)
+			if err == nil {
+				checkpoint.StopCleanupConfirmed = true
+				err = r.db.SaveActionCheckpoint(context.Background(), checkpoint)
+			}
+			if err != nil {
+				state.cleanupPending = true
+				state.cleanupInProgress = false
+				r.mu.Unlock()
+				r.positionLog(positionID, "warning", "停止收尾记录未保存，保留占用："+err.Error())
+				return
+			}
+		}
+		finalizers = state.stopFinalizers
+		if r.userStopped[positionID] && state.options.PlanRunID == "" && len(finalizers) == 0 {
+			options := state.options
+			finalizers = append(finalizers, func() { r.notifyCloudPositionStopped(positionID, options) })
+		}
 		if state.cancel != nil {
 			state.cancel()
 		}
@@ -946,6 +1009,9 @@ func (r *Runner) clear(positionID string) {
 	}
 	r.mu.Unlock()
 	r.releasePowerProtectionIfIdle()
+	for _, finalize := range finalizers {
+		finalize()
+	}
 }
 
 // releaseBrowserLocked 在持有状态锁时减少当前浏览器占用引用。

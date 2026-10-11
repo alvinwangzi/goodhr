@@ -18,33 +18,35 @@ var ErrIdentityConflict = errors.New("候选人身份映射冲突，需要核对
 
 // ActionCheckpoint 保存当前单岗位进度，不包含登录凭证或页面对象。
 type ActionCheckpoint struct {
-	PlanRunID        string           `json:"plan_run_id,omitempty"`    // 所属父计划当天运行，普通单岗位为空。
-	ItemRunID        string           `json:"item_run_id,omitempty"`    // 原独立执行项，不通过岗位合并。
-	OwnerScope       string           `json:"owner_scope,omitempty"`    // 已核对云端所有者摘要，不含令牌。
-	Scanned          int              `json:"scanned"`                  // 本次实际读取的去重数量。
-	Skipped          int              `json:"skipped"`                  // 本次明确跳过的数量。
-	Failed           int              `json:"failed"`                   // 本次扫描环节失败数量。
-	TaskType         string           `json:"task_type"`                // 本次勾选的单岗位动作组合。
-	PrioritizeReply  bool             `json:"prioritize_reply"`         // 本次固定的优先回复开关。
-	LastMessageCheck time.Time        `json:"last_message_check"`       // 最近实际完成的消息检查时间。
-	ReplyStats       map[string]int   `json:"reply_stats,omitempty"`    // 本次回复、附件、失败与未知的分别统计。
-	ReGreetStats     map[string]int   `json:"re_greet_stats,omitempty"` // 本次复打动作的分别统计。
-	RunID            string           `json:"run_id"`
-	PositionID       string           `json:"position_id"`
-	ProfileScope     string           `json:"profile_scope"`
-	AccountBound     bool             `json:"account_bound,omitempty"` // 已用当前平台账号证明绑定，不得在运行内换账号。
-	Platform         string           `json:"platform"`
-	CloudRunID       string           `json:"cloud_run_id"`
-	PositionSnapshot map[string]any   `json:"position_snapshot"`
-	Queue            []map[string]any `json:"queue"`
-	Anchors          []string         `json:"anchors"`
-	FilterHash       string           `json:"filter_hash"`
-	CurrentAction    string           `json:"current_action"`
-	Greeted          int              `json:"greeted"`
-	Replied          int              `json:"replied"`
-	ReGreeted        int              `json:"re_greeted"`
-	NextMessageCheck time.Time        `json:"next_message_check"`
-	MessageState     json.RawMessage  `json:"message_state,omitempty"` // 原消息队列及公平性安全快照，不含页面对象和登录配置。
+	StopCloudConfirmed   bool             `json:"stop_cloud_confirmed,omitempty"`   // 云端已确认原运行停止，不能以本地退出代替。
+	StopCleanupConfirmed bool             `json:"stop_cleanup_confirmed,omitempty"` // 原运行停止及页面清理已确认，可按原编号重试云端停止。
+	PlanRunID            string           `json:"plan_run_id,omitempty"`            // 所属父计划当天运行，普通单岗位为空。
+	ItemRunID            string           `json:"item_run_id,omitempty"`            // 原独立执行项，不通过岗位合并。
+	OwnerScope           string           `json:"owner_scope,omitempty"`            // 已核对云端所有者摘要，不含令牌。
+	Scanned              int              `json:"scanned"`                          // 本次实际读取的去重数量。
+	Skipped              int              `json:"skipped"`                          // 本次明确跳过的数量。
+	Failed               int              `json:"failed"`                           // 本次扫描环节失败数量。
+	TaskType             string           `json:"task_type"`                        // 本次勾选的单岗位动作组合。
+	PrioritizeReply      bool             `json:"prioritize_reply"`                 // 本次固定的优先回复开关。
+	LastMessageCheck     time.Time        `json:"last_message_check"`               // 最近实际完成的消息检查时间。
+	ReplyStats           map[string]int   `json:"reply_stats,omitempty"`            // 本次回复、附件、失败与未知的分别统计。
+	ReGreetStats         map[string]int   `json:"re_greet_stats,omitempty"`         // 本次复打动作的分别统计。
+	RunID                string           `json:"run_id"`
+	PositionID           string           `json:"position_id"`
+	ProfileScope         string           `json:"profile_scope"`
+	AccountBound         bool             `json:"account_bound,omitempty"` // 已用当前平台账号证明绑定，不得在运行内换账号。
+	Platform             string           `json:"platform"`
+	CloudRunID           string           `json:"cloud_run_id"`
+	PositionSnapshot     map[string]any   `json:"position_snapshot"`
+	Queue                []map[string]any `json:"queue"`
+	Anchors              []string         `json:"anchors"`
+	FilterHash           string           `json:"filter_hash"`
+	CurrentAction        string           `json:"current_action"`
+	Greeted              int              `json:"greeted"`
+	Replied              int              `json:"replied"`
+	ReGreeted            int              `json:"re_greeted"`
+	NextMessageCheck     time.Time        `json:"next_message_check"`
+	MessageState         json.RawMessage  `json:"message_state,omitempty"` // 原消息队列及公平性安全快照，不含页面对象和登录配置。
 }
 
 // CandidateIdentity 分开保存两个入口的标识，验证来源必须来自实际直接跳转证据。

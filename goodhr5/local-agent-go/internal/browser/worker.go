@@ -271,6 +271,24 @@ func (m *WorkerManager) Call(ctx context.Context, path string, payload any) (map
 	return retryResult, retryErr
 }
 
+// WaitForIdle 确认 Node 原动作全部退出；只读本地执行门状态，不重启或重放页面操作。
+func (m *WorkerManager) WaitForIdle(ctx context.Context) error {
+	for {
+		result, err := m.call(ctx, http.MethodGet, "/api/v1/browser/action-status", nil)
+		if err != nil {
+			return err
+		}
+		if result["idle"] == true {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 // CallOnce 只发送一次浏览器动作，网络结果不明时不重启 Worker 或重放请求。
 func (m *WorkerManager) CallOnce(ctx context.Context, path string, payload any) (map[string]any, error) {
 	return m.call(ctx, http.MethodPost, path, payload)

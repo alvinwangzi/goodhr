@@ -754,20 +754,20 @@ export default function PositionsPage() {
     setExpandedLogPositionID("");
     setBusyPositionID(item.id);
     try {
-      await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
+      const result = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
         method: "POST",
         body: { token: getToken(), run_id: item.active_run.id },
         timeoutMS: 220000,
       });
+      if (result?.running || result?.stop_pending) { notify("已收到停止请求，任务收尾尚未完成", "warning"); return; }
+      if (result?.cloud_sync_error || result?.stop_cloud_confirmed !== true) { notify("本地已退出，云端停止状态尚未确认，可重试停止", "warning"); return; }
       setFloatingPositionTask((current) =>
         current && current.id === item.id
           ? { ...current, status: "stopped", followTask: false }
           : current,
       );
-      notify("岗位已停下，浏览器先给你留着", "success");
+      notify("岗位已停止", "success");
       await load();
-      // load 后再更新一次，确保按钮状态正确（云端可能还没同步）
-      setItems((current) => current.map((p) => p.id === item.id ? { ...p, status: "stopped" } : p));
     } catch (error) {
       notify(error instanceof Error ? error.message : "停止岗位失败", "error");
     } finally {
@@ -775,7 +775,7 @@ export default function PositionsPage() {
     }
   }
 
-  /** forceStopPosition 强制停止任务，直接取消 context 不等优雅结束。 */
+  /** forceStopPosition 立即取消新动作，实际收尾与云端确认完成后才显示停止。 */
   async function forceStopPosition(item: any) {
     if (!agentBase) return notify("本地程序还没连上", "warning");
     if (!canControlPositionRun(item, agentMachineID)) return notify("请到执行这次任务的电脑停止", "warning");
@@ -784,16 +784,18 @@ export default function PositionsPage() {
     try {
       // 先获取当前任务 ID
       const taskData = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/status`);
-      if (!taskData?.running || !localTaskMatchesRun(item, agentMachineID, taskData)) {
+      if (!localTaskMatchesRun(item, agentMachineID, taskData)) {
         notify("没找到运行中的任务", "warning");
         return;
       }
       // 调用强制停止 API
-      await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
+      const result = await localRequest(agentBase, `/api/v1/local/positions/${encodeURIComponent(item.id)}/stop`, {
         method: "POST",
         body: { token: getToken(), run_id: item.active_run.id, force: true },
         timeoutMS: 30000,
       });
+      if (result?.running || result?.stop_pending) { notify("已收到强制停止请求，任务收尾尚未完成", "warning"); return; }
+      if (result?.cloud_sync_error || result?.stop_cloud_confirmed !== true) { notify("本地已退出，云端停止状态尚未确认，可重试停止", "warning"); return; }
       setFloatingPositionTask((current) =>
         current && current.id === item.id
           ? { ...current, status: "stopped", followTask: false }
@@ -801,7 +803,6 @@ export default function PositionsPage() {
       );
       notify("已强制停止，任务已中断", "success");
       await load();
-      setItems((current) => current.map((p) => p.id === item.id ? { ...p, status: "stopped" } : p));
     } catch (error) {
       notify(error instanceof Error ? error.message : "强制停止失败", "error");
     } finally {

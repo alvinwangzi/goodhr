@@ -119,18 +119,23 @@ func (s *PositionExecutionService) startTaskRun(tenantID string, position Positi
 
 // finishTaskRun 收尾岗位当前运行中的执行任务记录。
 // position 为岗位快照，status 为结束状态，skipped 和 failed 为本地同步的计数。
-func (s *PositionExecutionService) finishTaskRun(position Position, status string, errorMessage string, skipped int, failed int) {
+func (s *PositionExecutionService) finishTaskRun(position Position, status string, errorMessage string, skipped int, failed int) error {
 	if s.runStore == nil {
-		return
+		return nil
 	}
 	run, err := s.runStore.ActiveTaskRunByPosition(position.ID)
 	if err != nil {
 		// 没有运行中的执行任务（旧版本地程序或已经收尾）时直接忽略。
-		return
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return err
 	}
 	if err := s.runStore.FinishTaskRun(run.ID, status, errorMessage, skipped, failed); err != nil {
 		stdlog.Printf("[执行任务] 收尾运行记录失败 run=%s status=%s err=%v", run.ID, status, err)
+		return err
 	}
+	return nil
 }
 
 // Stop 接收本地程序的停止请求，并把岗位状态和原有停止通知同步到云端。
@@ -155,22 +160,54 @@ func (s *PositionExecutionService) Stop(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to load position")
 		return
 	}
+	var identity struct {
+		RunID     string `json:"run_id"`
+		MachineID string `json:"machine_id"`
+	}
+	decodeErr := json.NewDecoder(r.Body).Decode(&identity)
+	if atomicStore, ok := s.store.(interface {
+		StopPositionRunResult(string, string, string, string) (bool, error)
+	}); ok {
+		if decodeErr != nil {
+			writeError(w, http.StatusConflict, "停止请求缺少原运行和电脑编号")
+			return
+		}
+		changed, err := atomicStore.StopPositionRunResult(position.UserEmail, position.ID, identity.RunID, identity.MachineID)
+		if err != nil {
+			if errors.Is(err, ErrAccountExecutionConflict) || errors.Is(err, ErrNotFound) {
+				writeError(w, http.StatusConflict, "停止请求与当前运行不一致")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "停止结果尚未保存，请重试")
+			return
+		}
+		if changed {
+			_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
+			if err := s.sendPositionStatusNotice(position, "stopped", "", 0, 0); err != nil {
+				stdlog.Printf("[岗位邮件] 停止通知失败 position=%s err=%v", position.ID, err)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "stopped"})
+		return
+	}
 	if position.Status != "stopped" {
 		if s.runStore != nil {
 			if active, activeErr := s.runStore.ActiveTaskRunByPosition(position.ID); activeErr == nil {
-				var identity struct {
-					RunID     string `json:"run_id"`
-					MachineID string `json:"machine_id"`
-				}
-				if json.NewDecoder(r.Body).Decode(&identity) != nil || identity.RunID != active.ID || identity.MachineID != active.MachineID || identity.MachineID == "" {
+				if decodeErr != nil || identity.RunID != active.ID || identity.MachineID != active.MachineID || identity.MachineID == "" {
 					writeError(w, http.StatusConflict, "停止请求与执行电脑或运行编号不一致")
 					return
 				}
 			}
 		}
-		_ = s.store.UpdatePositionStatus(position.ID, "stopped")
+		if err := s.finishTaskRun(position, "stopped", "", 0, 0); err != nil {
+			writeError(w, http.StatusInternalServerError, "停止结果尚未保存，请重试")
+			return
+		}
+		if err := s.store.UpdatePositionStatus(position.ID, "stopped"); err != nil {
+			writeError(w, http.StatusInternalServerError, "岗位停止状态尚未保存，请重试")
+			return
+		}
 		_ = s.positionLogs.WriteLog(position.ID, position.UserEmail, "warn", "岗位运行已停止")
-		s.finishTaskRun(position, "stopped", "", 0, 0)
 		if err := s.sendPositionStatusNotice(position, "stopped", "", 0, 0); err != nil {
 			stdlog.Printf("[岗位邮件] 发送岗位停止提醒失败 position=%s user=%s err=%v", position.ID, position.UserEmail, err)
 		}

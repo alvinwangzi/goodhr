@@ -6386,7 +6386,12 @@ const routes = {
 };
 
 const runBrowserAction = createActionGate();
+let pendingBrowserRequests = 0;
 const server = http.createServer(async (req, res) => {
+  if (req.url === "/api/v1/browser/action-status" && req.method === "GET") {
+    success(res, { idle: pendingBrowserRequests === 0 && runBrowserAction.isIdle() });
+    return;
+  }
   const actionController = new AbortController();
   const requestStartedAt = Date.now();
   const requestPath = req.url || "";
@@ -6456,6 +6461,7 @@ const server = http.createServer(async (req, res) => {
     failure(res, 404, "接口不存在");
     return;
   }
+  pendingBrowserRequests++;
   try {
     const readStartedAt = Date.now();
     requestPayload = await readJSON(req);
@@ -6533,6 +6539,8 @@ const server = http.createServer(async (req, res) => {
       );
     }
     failure(res, 500, error?.message || "浏览器操作失败");
+  } finally {
+    pendingBrowserRequests--;
   }
 });
 

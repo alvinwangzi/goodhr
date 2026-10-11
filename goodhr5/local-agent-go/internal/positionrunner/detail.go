@@ -305,8 +305,8 @@ func (r *Runner) closeCandidateDetailNow(ctx context.Context, positionID string,
 	err := r.withOperationTimeout(ctx, positionID, candidateName, operation, detailCloseTimeout, closeFn)
 	if err == nil {
 		r.mu.Lock()
-		if state := r.running[strings.TrimSpace(positionID)]; state != nil {
-			state.pendingDetailClose = nil
+		if current := r.running[strings.TrimSpace(positionID)]; current == state && current != nil {
+			current.pendingDetailClose = nil
 		}
 		r.mu.Unlock()
 	}

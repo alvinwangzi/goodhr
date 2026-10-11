@@ -5,12 +5,15 @@ import { humanTypeText } from "./human-type.js";
 export function createActionGate() {
   let active = 0;
   let exclusiveActive = false;
-  return async (action, exclusive = true) => {
+  const run = async (action, exclusive = true) => {
     if (exclusiveActive || (exclusive && active > 0)) throw new Error("浏览器仍被当前动作占用，请稍后重试");
     active++;
     if (exclusive) exclusiveActive = true;
     try { return await action(); } finally { active--; if (exclusive) exclusiveActive = false; }
   };
+  // isIdle 只报告底层请求是否全部退出，断连或发出取消不能提前视为空闲。
+  run.isIdle = () => active === 0;
+  return run;
 }
 
 /** locatorActionHandler 保持原协议可用；新协议页面关闭时不创建新页面或切到其他标签。 */

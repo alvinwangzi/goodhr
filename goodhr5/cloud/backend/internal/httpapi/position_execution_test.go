@@ -5,13 +5,133 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 )
 
 const positionTestMachineID = "goodhr-device-v1-position-test"
+
+// TestPositionStopPostgresAtomic 验证真实数据库停止写入失败全部回滚，重试和旧回执不会停止新运行。
+func TestPositionStopPostgresAtomic(t *testing.T) {
+	db := planPostgresFixture(t)
+	id, _ := newExecutionPlanID()
+	email := id + "@example.com"
+	tenant, err := NewPostgresTenantStore(db).GetOrCreateTenant(email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	positions, tasks := NewPostgresPositionStore(db), NewPostgresTaskRunStore(db)
+	p, err := positions.SavePosition(Position{UserEmail: email, Name: "atomic-stop", PlatformID: "boss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = positions.ClaimPositionStart(email, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	run, err := tasks.CreateTaskRun(TaskRun{TenantID: tenant.ID, UserEmail: email, PositionID: p.ID, MachineID: "A", TaskType: "greeting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "stop_fail_" + strings.ReplaceAll(id, "-", "")
+	if _, err = db.Exec(fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture stop failure'; END $$; CREATE TRIGGER %s BEFORE UPDATE ON positions FOR EACH ROW WHEN (NEW.id='%s'::uuid AND NEW.status='stopped') EXECUTE FUNCTION %s()`, name, name, p.ID, name)); err != nil {
+		t.Fatal(err)
+	}
+	drop := func() {
+		_, _ = db.Exec("DROP TRIGGER IF EXISTS " + name + " ON positions")
+		_, _ = db.Exec("DROP FUNCTION IF EXISTS " + name + "()")
+	}
+	defer drop()
+	if err = positions.StopPositionRun(email, p.ID, run.ID, "A"); err == nil {
+		t.Fatal("数据库失败却返回停止成功")
+	}
+	saved, _ := tasks.TaskRunByID(tenant.ID, run.ID)
+	current, _ := positions.PositionByID(tenant.ID, email, p.ID, false)
+	if saved.Status != "running" || current.Status != "running" {
+		t.Fatal("停止事务只保存了部分结果")
+	}
+	if err = positions.ClaimPositionStart(email, p.ID); !errors.Is(err, ErrPositionAlreadyRunning) {
+		t.Fatal("失败停止提前释放占用", err)
+	}
+	drop()
+	if err = positions.StopPositionRun(email, p.ID, run.ID, "A"); err != nil {
+		t.Fatal(err)
+	}
+	if err = positions.StopPositionRun(email, p.ID, run.ID, "A"); err != nil {
+		t.Fatal("原请求不能重试", err)
+	}
+	if err = positions.ClaimPositionStart(email, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = positions.StopPositionRun(email, p.ID, run.ID, "A"); !errors.Is(err, ErrAccountExecutionConflict) {
+		t.Fatal("新运行创建前的间隙被旧停止覆盖", err)
+	}
+	next, err := tasks.CreateTaskRun(TaskRun{TenantID: tenant.ID, UserEmail: email, PositionID: p.ID, MachineID: "A", TaskType: "greeting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = positions.StopPositionRun(email, p.ID, run.ID, "A"); !errors.Is(err, ErrAccountExecutionConflict) {
+		t.Fatal("旧停止结束新运行", err)
+	}
+	saved, _ = tasks.TaskRunByID(tenant.ID, next.ID)
+	if saved.Status != "running" {
+		t.Fatal("新运行被旧停止改写")
+	}
+}
+
+// failingStopPositionStore 注入停止写入失败，验证接口不会冒充云端已确认。
+type failingStopPositionStore struct{ PositionStore }
+
+// UpdatePositionStatus 只使停止写入失败，不改变其他测试数据。
+func (s failingStopPositionStore) UpdatePositionStatus(id, status string) error {
+	return errors.New("fixture stop write failed")
+}
+
+// failingStopTaskStore 注入原运行结算失败，验证占用不会提前放开。
+type failingStopTaskStore struct{ TaskRunStore }
+
+// FinishTaskRun 模拟数据库收尾写入失败。
+func (s failingStopTaskStore) FinishTaskRun(id, status, message string, skipped, failed int) error {
+	return errors.New("fixture finish failed")
+}
+
+// TestPositionStopWriteFailure 验证任一停止写入失败均返回错误，并继续阻止新任务抢占。
+func TestPositionStopWriteFailure(t *testing.T) {
+	for _, failure := range []string{"position", "task"} {
+		t.Run(failure, func(t *testing.T) {
+			server := mustNewServer(t)
+			routes := server.Routes()
+			email := "stop-failure@example.com"
+			token := loginForTest(t, routes, email)
+			id := createPositionWithConfigForTest(t, routes, token, "停止写入失败", `{"mode_default":"keyword"}`)
+			tenantID, _ := server.positionExecution.getTenantInfo(email)
+			store := server.positionExecution.store
+			if err := store.UpdatePositionStatus(id, "running"); err != nil {
+				t.Fatal(err)
+			}
+			run, err := server.positionExecution.runStore.CreateTaskRun(TaskRun{TenantID: tenantID, UserEmail: email, PositionID: id, MachineID: "A", TaskType: "greeting"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if failure == "position" {
+				server.positionExecution.store = failingStopPositionStore{store}
+			} else {
+				server.positionExecution.runStore = failingStopTaskStore{server.positionExecution.runStore}
+			}
+			resp := postPositionExecutionForTest(t, routes, token, "/api/positions/"+id+"/stop", `{"run_id":"`+run.ID+`","machine_id":"A"}`)
+			if resp.Code != http.StatusInternalServerError {
+				t.Fatalf("写入失败仍确认停止: %d %s", resp.Code, resp.Body.String())
+			}
+			position, _ := store.PositionByID(tenantID, email, id, false)
+			if position.Status != "running" {
+				t.Fatal("写入失败提前放开岗位占用")
+			}
+		})
+	}
+}
 
 // TestPositionStopRunOwnership 验证列表保留执行电脑，停止和迟到状态不能作用于另一电脑或新运行。
 func TestPositionStopRunOwnership(t *testing.T) {

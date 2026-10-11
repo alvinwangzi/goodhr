@@ -87,7 +87,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			}
 		}
 	}
-	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cloud := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if executeScheduled {
 			mu.Lock()
 			handled := nativeRestartExecutionCloud(t, w, r, &executed, executionReplies, &reportGate)
@@ -189,6 +189,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 			w.WriteHeader(404)
 		}
 	}))
+	startNativeAcceptanceCloud(t, cloud)
 	defer cloud.Close()
 	db, err := localdb.Open(cfg)
 	if err != nil {
@@ -233,7 +234,7 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable := filepath.Join(directory, "hrplus-m1-restart.exe")
+	executable := nativeAcceptanceExecutable(t, root, directory)
 	executionLedger := filepath.Join(directory, "execution-ledger.json")
 	var cachedBrowser string
 	if executeScheduled {
@@ -249,11 +250,6 @@ func runNativeReceiptRestart(t *testing.T, protectedRestore bool, scheduled ...b
 		if e = os.WriteFile(filepath.Join(destination, "chrome.exe"), binary, 0755); e != nil {
 			t.Fatal(e)
 		}
-	}
-	build := exec.Command("go", "build", "-o", executable, "./cmd/goodhr-local-agent")
-	build.Dir = root
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build %v %s", err, output)
 	}
 	// 两个相邻空端口同时检查，避免程序启动时清理其他 Worker。
 	var port int

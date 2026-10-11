@@ -13,10 +13,16 @@ test("复打未知结果单独显示，不增加成功次数",()=>{
 
 test("本地结束事实保留成功、失败和用户停止，兼容嵌套岗位状态",()=>{
  for(const status of ["completed","failed","stopped"]){
-  assert.equal(terminalLocalTaskStatus({status,running:false}),status);
-  assert.equal(terminalLocalTaskStatus({position:{status}}),status);
+  assert.equal(terminalLocalTaskStatus({status,running:false,stop_cloud_confirmed:true}),status);
+  assert.equal(terminalLocalTaskStatus({position:{status},stop_cloud_confirmed:true}),status);
  }
  assert.equal(terminalLocalTaskStatus({status:"failed",position:{status:"running"}}),"failed");
+});
+
+test("停止尚未获云端确认时保持原执行状态",()=>{
+ assert.equal(terminalLocalTaskStatus({status:"stopped",running:false}),null);
+ assert.equal(terminalLocalTaskStatus({status:"stopped",running:false,stop_cloud_confirmed:true}),"stopped");
+ assert.equal(terminalLocalTaskStatus({status:"stopped",running:false,stop_cloud_confirmed:true,cloud_sync_error:"网络错误"}),null);
 });
 
 test("缺失状态、连接失败和仍在运行不能把停止按钮误改为开始",()=>{

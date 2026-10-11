@@ -34,7 +34,7 @@ func (r *Runner) enqueueCandidateInfoRequest(position localdb.Position, candidat
 // asyncCheckResumeRequests 在后台协程执行回复检查，避免阻塞岗位停止或完成流程的返回。
 // position 为岗位运行记录，platformConfig 为云端平台配置，options 为启动参数。
 func (r *Runner) asyncCheckResumeRequests(position localdb.Position, platformConfig cloudapi.PlatformConfig, options StartOptions) {
-	if options.LocalRunID != "" {
+	if options.LocalRunID != "" || r.isUserStopped(position.ID) {
 		return
 	} // M1 索要由当前单岗位通道处理，停止后不能另起页面循环。
 	release, ready, ok := r.reserveResumeBrowser(position.ID)

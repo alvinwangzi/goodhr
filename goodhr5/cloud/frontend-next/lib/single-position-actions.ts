@@ -10,6 +10,7 @@ export function terminalLocalTaskStatus(task: unknown): "completed" | "failed" |
   if (source.running === true) return null;
   const position = source.position && typeof source.position === "object" ? source.position as Record<string, unknown> : {};
   const status = String(source.status ?? position.status ?? "").trim().toLowerCase();
+  if (status === "stopped" && (source.stop_cloud_confirmed !== true || source.cloud_sync_error)) return null;
   return status === "completed" || status === "failed" || status === "stopped" ? status : null;
 }
 

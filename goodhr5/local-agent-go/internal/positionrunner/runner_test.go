@@ -1313,7 +1313,10 @@ func TestRunnerStopWaitsForCurrentStep(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if status["running"] == false {
+		if runner.isUserStopped(position.ID) {
+			if status["running"] != true {
+				t.Fatal("当前步骤尚未退出就报告运行已结束")
+			}
 			stopMarked = true
 			break
 		}

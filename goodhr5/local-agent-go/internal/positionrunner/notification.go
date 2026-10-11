@@ -184,7 +184,24 @@ func (r *Runner) sendPositionFailNotification(ctx context.Context, positionID st
 // notifyCloudPositionStopped 通知云端岗位运行已经停止。
 // positionID 为云端岗位运行 ID，options 为本次启动参数。
 func (r *Runner) notifyCloudPositionStopped(positionID string, options StartOptions) {
+	if r.deferStopNotification(positionID, options, func() { r.notifyCloudPositionStopped(positionID, options) }) {
+		return
+	}
 	r.syncCloudPositionStatus(positionID, "stopped", "岗位运行停止", options)
+}
+
+// deferStopNotification 将原运行的停止通知留到任务退出及页面清理完成后；计划仍由父流程结算。
+func (r *Runner) deferStopNotification(positionID string, options StartOptions, notify func()) bool {
+	if options.PlanRunID != "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if state := r.running[positionID]; state != nil && state.options.CloudRunID == options.CloudRunID {
+		state.stopFinalizers = append(state.stopFinalizers, notify)
+		return true
+	}
+	return false
 }
 
 // notifyCloudPositionCompleted 通知云端岗位运行已经完成。
@@ -219,18 +236,30 @@ func (r *Runner) syncCloudPositionStatus(positionID string, status string, label
 		attempts = 3
 		r.positionLog(positionID, "info", label+"：正在同步云端状态并发送完成邮件")
 	} else {
+		if status == "stopped" {
+			attempts = 3
+		}
 		r.positionLog(positionID, "info", label+"：正在同步云端状态")
 	}
 	var lastErr error
 	runGreetedCount := r.currentRunGreeted(positionID)
 	for attempt := 1; attempt <= attempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		result, err := client.SyncPositionStatusWithCounts(ctx, token, positionID, status, options.MachineID, runGreetedCount, 0)
+		var result cloudapi.PositionStatusSyncResult
+		var err error
+		if status == "stopped" {
+			err = client.StopPosition(ctx, token, positionID, map[string]any{"run_id": options.CloudRunID, "machine_id": options.MachineID})
+		} else {
+			result, err = client.SyncPositionStatusWithCounts(ctx, token, positionID, status, options.MachineID, runGreetedCount, 0)
+		}
 		cancel()
 		if err == nil && status == "completed" && !result.NoticeSent {
 			err = fmt.Errorf("云端未确认完成邮件已发送")
 		}
 		if err == nil {
+			if status == "stopped" {
+				_ = r.ConfirmStoppedRun(positionID, options.CloudRunID)
+			}
 			if status == "completed" {
 				r.positionLog(positionID, "info", label+"：云端状态同步成功，完成邮件已发送")
 			} else {

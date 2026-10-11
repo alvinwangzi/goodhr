@@ -392,6 +392,61 @@ func (s *PostgresPositionStore) ClaimPositionStart(userEmail, positionID string)
 }
 
 // FinishPositionRun 幂等保存 PostgreSQL 岗位结束状态并累加本次打招呼数量。
+
+// StopPositionRun 在同一账号事务中核对原运行和电脑，原子结算任务及岗位；失败不提前放开占用。
+// StopPositionRun 原子停止原运行，原请求重复调用保持幂等。
+func (s *PostgresPositionStore) StopPositionRun(userEmail, positionID, runID, machineID string) error {
+	_, err := s.StopPositionRunResult(userEmail, positionID, runID, machineID)
+	return err
+}
+
+// StopPositionRunResult 返回本次是否首次停止，供日志和通知防重复使用。
+func (s *PostgresPositionStore) StopPositionRunResult(userEmail, positionID, runID, machineID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, userEmail); err != nil {
+		return false, err
+	}
+	var positionStatus string
+	if err = tx.QueryRowContext(ctx, `SELECT p.status FROM positions p JOIN users u ON u.id=p.user_id WHERE p.id=$1 AND u.email=$2 FOR UPDATE OF p`, positionID, userEmail).Scan(&positionStatus); err != nil {
+		return false, err
+	}
+	var activeID, activeMachine string
+	err = tx.QueryRowContext(ctx, `SELECT id,machine_id FROM task_runs WHERE position_id=$1 AND status='running' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, positionID).Scan(&activeID, &activeMachine)
+	if errors.Is(err, sql.ErrNoRows) {
+		var originalStatus string
+		if positionStatus != "stopped" {
+			return false, ErrAccountExecutionConflict
+		}
+		if err = tx.QueryRowContext(ctx, `SELECT status FROM task_runs WHERE id=$1 AND position_id=$2 AND machine_id=$3`, runID, positionID, machineID).Scan(&originalStatus); err != nil {
+			return false, err
+		}
+		if originalStatus != "stopped" {
+			return false, ErrAccountExecutionConflict
+		}
+		return false, tx.Commit()
+	}
+	if err != nil {
+		return false, err
+	}
+	if runID == "" || machineID == "" || activeID != runID || activeMachine != machineID {
+		return false, ErrAccountExecutionConflict
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE task_runs SET status='stopped',finished_at=now(),greeted_count=(SELECT COUNT(*) FROM candidate_events WHERE task_id=$1 AND event_type='greeted_sent'),resume_requested_count=(SELECT COUNT(*) FROM candidate_events WHERE task_id=$1 AND event_type='resume_requested'),scanned_count=(SELECT COUNT(DISTINCT candidate_id) FROM candidate_events WHERE task_id=$1) WHERE id=$1`, runID); err != nil {
+		return false, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE positions SET status='stopped',finished_at=now(),updated_at=now() WHERE id=$1`, positionID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+// FinishPositionRun 幂等保存 PostgreSQL 岗位结束状态并累加本次打招呼数量。
 // positionID 为岗位 ID，status 为结束状态，greeted 为本次打招呼数量。
 func (s *PostgresPositionStore) FinishPositionRun(positionID, status string, greeted int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
